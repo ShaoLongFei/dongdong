@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import os
 import re
+import signal
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +22,9 @@ DANGEROUS = ("sudo ", "rm -rf /", "mkfs", "shutdown", "reboot", "diskutil erase"
 class ToolContext:
     workspace: Path
     timeout_s: int = 30
+
+    def __post_init__(self):
+        self.workspace = self.workspace.resolve()
 
 
 TOOL_SPECS = [
@@ -135,14 +140,23 @@ def resolve_path(workspace: Path, raw: str) -> Path:
 
 
 async def _drain(stream, limit: int) -> bytes:
-    """边读边丢，超过 limit 只保留前 limit 字节，避免巨量输出打爆内存。"""
+    """边读边丢，只保留最后 limit 字节（尾部错误信息最重要），避免巨量输出打爆内存。"""
     data = bytearray()
     while True:
         chunk = await stream.read(8192)
         if not chunk:
             return bytes(data)
-        if len(data) < limit:
-            data.extend(chunk[: limit - len(data)])
+        data.extend(chunk)
+        if len(data) > limit:
+            del data[: len(data) - limit]
+
+
+def _kill_group(proc) -> None:
+    # 子进程用 start_new_session 起，pid 即进程组 id；只 kill sh 会留下孙进程占住管道
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
 
 
 async def _shell(args: dict, ctx: ToolContext) -> str:
@@ -157,29 +171,40 @@ async def _shell(args: dict, ctx: ToolContext) -> str:
         cwd=ctx.workspace,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
+        start_new_session=True,
     )
     assert proc.stdout is not None
     reader = asyncio.create_task(_drain(proc.stdout, MAX_OUTPUT))
     try:
         await asyncio.wait_for(proc.wait(), timeout=timeout)
     except TimeoutError:
-        proc.kill()
+        _kill_group(proc)
         await proc.wait()
-        out = await reader
-        text = out.decode("utf-8", "replace")
-        return f"命令超时（{timeout:g}s）\n{text[-MAX_OUTPUT:]}"
+        try:
+            text = (await asyncio.wait_for(reader, timeout=0.5)).decode("utf-8", "replace")
+        except TimeoutError:
+            reader.cancel()
+            text = ""
+        return f"命令超时（{timeout:g}s）\n{text}"
     except asyncio.CancelledError:
-        proc.kill()
+        _kill_group(proc)
         await proc.wait()
+        reader.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await reader
         raise
     text = (await reader).decode("utf-8", "replace")
-    return f"exit_code={proc.returncode}\n{text[-MAX_OUTPUT:]}"
+    return f"exit_code={proc.returncode}\n{text}"
+
+
+def _check_size(path: Path) -> None:
+    if path.stat().st_size > MAX_READ:
+        raise ValueError("文件超过 200KB")
 
 
 def _read(args: dict, ctx: ToolContext) -> str:
     path = resolve_path(ctx.workspace, str(args["path"]))
-    if path.stat().st_size > MAX_READ:
-        raise ValueError("文件超过 200KB")
+    _check_size(path)
     return path.read_text(encoding="utf-8", errors="replace")
 
 
@@ -196,6 +221,7 @@ def _edit(args: dict, ctx: ToolContext) -> str:
     old, new = str(args["old"]), str(args["new"])
     if not old:
         raise ValueError("old 不能为空")
+    _check_size(path)
     text = path.read_text(encoding="utf-8")
     count = text.count(old)
     if count != 1:

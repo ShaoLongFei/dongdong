@@ -2,6 +2,7 @@ import asyncio
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -120,6 +121,10 @@ def test_shell_timeout_and_output():
             assert "exit_code=0" in out
             out = await call_tool("shell", {"command": "sleep 2", "timeout_s": 0.2}, ctx)
             assert "超时" in out
+            started = time.monotonic()
+            out = await call_tool("shell", {"command": "yes x | grep zzz", "timeout_s": 0.2}, ctx)
+            assert "超时" in out
+            assert time.monotonic() - started < 1.0, "超时必须杀掉整个进程组"
             out = await call_tool("shell", {"command": "yes x | head -c 1000000"}, ctx)
             assert "exit_code=0" in out
             assert len(out) < 13_000, "输出必须被截断"
@@ -139,7 +144,7 @@ def test_grep_skips_symlink_outside_workspace():
                 os.symlink(target, workspace / "leak.txt")
                 ctx = ToolContext(workspace=workspace)
                 out = await call_tool("grep", {"pattern": marker}, ctx)
-                assert marker not in out, "grep 穿越符号链接泄露了工作区外内容"
+                assert out == "(无匹配)", f"grep 穿越符号链接泄露了工作区外内容: {out}"
 
     asyncio.run(run())
 
