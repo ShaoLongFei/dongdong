@@ -11,7 +11,8 @@ os.environ["DONGDONG_HOME"] = tempfile.mkdtemp(prefix="dongdong-agent-smoke-")
 
 from dongdong import llm  # noqa: E402
 from dongdong.builtin_tools import ToolContext, call_tool, resolve_path  # noqa: E402
-from dongdong.llm import ToolCall  # noqa: E402
+from dongdong.llm import ModelConfig, StreamEvent, ToolCall  # noqa: E402
+from dongdong.runtime import Runtime  # noqa: E402
 from dongdong.store import Store  # noqa: E402
 
 
@@ -149,6 +150,80 @@ def test_grep_skips_symlink_outside_workspace():
                 ctx = ToolContext(workspace=workspace)
                 out = await call_tool("grep", {"pattern": marker}, ctx)
                 assert out == "(无匹配)", f"grep 穿越符号链接泄露了工作区外内容: {out}"
+
+    asyncio.run(run())
+
+
+def test_agent_loop_executes_tool_then_answers():
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp).resolve()
+            store = Store(workspace / "t.db")
+            sid = store.create_session("测试")
+            calls = []
+
+            async def fake_stream(cfg, messages, tools):
+                calls.append(messages)
+                if len(calls) == 1:
+                    yield StreamEvent(
+                        tool_calls=[
+                            ToolCall(
+                                id="c1",
+                                name="write_file",
+                                arguments='{"path":"x.txt","content":"hi"}',
+                            )
+                        ]
+                    )
+                else:
+                    yield StreamEvent(text="写好了")
+
+            runtime = Runtime(
+                store,
+                ModelConfig("http://unused", "k", "m"),
+                workspace,
+                stream_fn=fake_stream,
+            )
+            events = []
+            answer = await runtime.run(
+                sid, "建个文件", on_event=lambda kind, data: events.append(kind)
+            )
+            assert answer == "写好了"
+            assert (workspace / "x.txt").read_text() == "hi"
+            roles = [m["role"] for m in store.messages(sid)]
+            assert roles == ["user", "assistant", "tool", "assistant"]
+            assert "tool_call" in events and "done" in events
+            store.close()
+
+    asyncio.run(run())
+
+
+def test_history_never_starts_with_orphan_tool():
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(Path(tmp) / "t.db")
+            sid = store.create_session("测试")
+            store.append_message(
+                sid,
+                "assistant",
+                "",
+                tool_calls=[{"id": "c1", "type": "function", "function": {"name": "x"}}],
+            )
+            store.append_message(sid, "tool", "result", tool_call_id="c1")
+            store.append_message(sid, "user", "继续")
+
+            async def fake_stream(cfg, messages, tools):
+                assert [m["role"] for m in messages] == ["system", "user", "user"]
+                yield StreamEvent(text="ok")
+
+            runtime = Runtime(
+                store,
+                ModelConfig("http://unused", "k", "m"),
+                Path(tmp),
+                history_messages=3,
+                stream_fn=fake_stream,
+            )
+            assert await runtime.run(sid, "hi") == "ok"
+            store.close()
 
     asyncio.run(run())
 
