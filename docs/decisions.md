@@ -22,6 +22,20 @@
 | `linx.py` | 只支持 opus，没做 PCM 兜底 | 平台换音频格式时 |
 | `bridge.py` | 裸 HTTP + 可选 token，没有 TLS | 需要跨公网时 |
 
+## 实测踩到的坑（2026-10）
+
+**macOS 27 上控制中心没有可脚本化的菜单栏项。**
+`process "ControlCenter"` 的 `menu bars` 数量为 0；状态栏项目都在 `MenuBarAgent` 里，
+但它的项没有 title/description，`menu bar item i` 索引报 `invalid index`，只能读到 5 个无名的「组」。
+结论：AirPlay 屏幕镜像没法用 AppleScript 自动点。
+
+受影响：`self.screen.mirror` / `self.screen.stop`（已加前置判断，直接返回可读的原因，不让用户看 AX 报错）。
+待选方案：
+
+1. `ffmpeg -f avfoundation` 抓屏 → HLS → `pyatv play_url` 推给 Apple TV（可自动化，延迟 3–8s，需装 pyatv）
+2. 用户手动投屏，语音只负责查设备/提示
+3. 等系统恢复可访问性（不可控）
+
 ## 待验证
 
 - [ ] macOS 27 上控制中心的「屏幕镜像」菜单结构（当前未开辅助功能权限，脚本未端到端验证）

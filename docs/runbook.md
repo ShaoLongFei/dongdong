@@ -83,14 +83,21 @@ agent 任务默认最多等 120 秒，超时会转后台，用「刚才那个任
 ./scripts/dev.sh airplay debug             # 点不动时看 UI 结构
 ```
 
-投屏靠 AppleScript 点控制中心的「屏幕镜像」，所以**辅助功能权限必须有**。
-如果某天升级 macOS 后点不中了：跑 `airplay debug` 看结构，或者自己录一个脚本写进配置：
+**当前状态：自动投屏在 macOS 27 上走不通。** 系统把菜单栏项目交给了 `MenuBarAgent`，
+控制中心里没有能被 AppleScript 点到的「屏幕镜像」项（`airplay debug` 可复现）。
+在换方案之前，用下面任意一种：
+
+- 手动点一次：控制中心 → 屏幕镜像 → 选电视
+- 自己录一个能用的脚本（Automator / 快捷指令 / 一段 AppleScript），配到 `~/.dongdong/config.json`：
 
 ```json
 { "airplay": { "mirror_command": "osascript /path/to/your.scpt {target}" } }
 ```
 
-`{target}` 会被替换成目标名。
+`{target}` 会被替换成目标名，`self.screen.mirror` 语音调用会直接走它。
+
+发现设备这件事是好的：`airplay list` 能扫到 Apple TV（实测「卧室」AppleTV14,1）。
+所以后续把「投屏」换成 `ffmpeg` 抓屏 + `pyatv` 推 Apple TV 是可行的自动化路线，见 [decisions.md](decisions.md)。
 
 ## 6. 换 / 加 agent
 

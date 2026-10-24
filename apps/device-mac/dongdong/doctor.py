@@ -69,8 +69,11 @@ def run() -> int:
             "   系统设置 → 隐私与安全性 → 辅助功能，把运行本程序的终端（或 DeepSeek Harness）勾上"
         )
 
-    # 投屏目标
-    found = screen.targets(3.0)
+    # 投屏目标 + 自动化可行性
+    if screen._no_menu_bar():
+        _line(WARN, "投屏自动化不可用：当前 macOS 的控制中心没有可脚本点击的菜单栏项")
+        print("   自动投屏待替换方案（ffmpeg 推流 / 自定义 mirror_command），见 docs/decisions.md")
+    found = screen.targets(5.0)
     if found:
         _line(PASS, f"局域网 AirPlay 目标: {', '.join(t['name'] for t in found)}")
     else:

@@ -16,6 +16,7 @@ from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
 log = logging.getLogger("dongdong.screen")
 
 AIRPLAY_SERVICE = "_airplay._tcp.local."
+logging.getLogger("zeroconf").setLevel(logging.ERROR)  # 多网卡环境它会刷一堆无法路由的告警
 
 
 class _Collector(ServiceListener):
@@ -42,7 +43,7 @@ class _Collector(ServiceListener):
         pass
 
 
-def targets(timeout: float = 3.0) -> list[dict]:
+def targets(timeout: float = 5.0) -> list[dict]:
     """扫局域网里的 AirPlay 目标（电视、Apple TV、HomePod）。"""
     zc = Zeroconf()
     collector = _Collector()
@@ -71,6 +72,14 @@ def _dispatch(cfg: dict, target: str, action: str) -> str:
             "投屏指令已执行" if r.returncode == 0 else "投屏指令失败"
         )
 
+    if _no_menu_bar():
+        return (
+            "当前 macOS 把菜单栏项目交给了 MenuBarAgent，控制中心没有可脚本点击的菜单栏项，"
+            "AppleScript 投屏走不通。两个办法：① 手动点一次屏幕镜像；"
+            "② 在 config 里配 airplay.mirror_command 指向你自己录的脚本。"
+            "（待办：改用 ffmpeg 抓屏 + pyatv 推流，见 docs/decisions.md）"
+        )
+
     script = _stop_script() if action == "stop" else _mirror_script(target)
     r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=30)
     err = (r.stderr or "").strip()
@@ -82,6 +91,18 @@ def _dispatch(cfg: dict, target: str, action: str) -> str:
             "把运行咚咚的终端勾上，然后重新运行。"
         )
     return f"投屏失败：{err or '未知错误'}。可以用 dongdong airplay debug 看菜单结构。"
+
+
+def _no_menu_bar() -> bool:
+    """macOS 26+ 的状态栏项目不在 ControlCenter 里，提前判断，别让用户看一堆 AX 报错。"""
+    script = (
+        'tell application "System Events" to tell process "ControlCenter" to get count of menu bars'
+    )
+    try:
+        r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        return False
+    return r.returncode == 0 and r.stdout.strip() == "0"
 
 
 def dump() -> str:
