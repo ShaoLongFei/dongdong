@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from . import agent, config, screen, state
+from . import agent, config, memory, screen, state
 
 log = logging.getLogger("dongdong.tools")
 
@@ -139,3 +139,60 @@ def _screen_mirror(args: dict) -> str:
 @tool("self.screen.stop", "停止当前的屏幕镜像")
 def _screen_stop(args: dict) -> str:
     return screen.stop(config.load())
+
+
+# ---------------------------------------------------------------- 记忆
+
+
+@tool(
+    "self.memory.search",
+    "搜索最多 5 条相关记忆，供回答前参考。记忆只用于当前设备用户。",
+    props={"query": {"type": "string", "description": "要查找的主题或问题"}},
+    required=["query"],
+)
+def _memory_search(args: dict) -> str:
+    results = memory.search(args["query"], config.load()["device_id"])
+    if not results:
+        return "没有找到相关记忆。"
+    return "\n".join(f"{item['id']}: {item.get('memory', '')}" for item in results)
+
+
+@tool(
+    "self.memory.save",
+    "保存用户明确要求记住的内容、稳定偏好或长期项目事实。不要保存临时请求、密码、token 或凭证。",
+    props={"text": {"type": "string", "description": "要保存的事实或偏好"}},
+    required=["text"],
+)
+def _memory_save(args: dict) -> str:
+    result = memory.save(args["text"], config.load()["device_id"])
+    saved = result.get("results", [])
+    if not saved:
+        return "记忆已保存。"
+    return "记忆已保存：\n" + "\n".join(
+        f"{item.get('id', '')}: {item.get('memory', '')}" for item in saved
+    )
+
+
+@tool("self.memory.list", "列出当前设备用户的记忆及 ID，供检查和后续按 ID 删除。")
+def _memory_list(args: dict) -> str:
+    items = memory.list_(config.load()["device_id"])
+    if not items:
+        return "当前没有已保存的记忆。"
+    return "\n".join(f"{item['id']}: {item.get('memory', '')}" for item in items)
+
+
+@tool(
+    "self.memory.delete",
+    "按 ID 删除当前设备用户指定的记忆。只删除用户明确指定的记忆，不要删除其他 ID。",
+    props={
+        "memory_ids": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "要删除的记忆 ID 列表",
+        }
+    },
+    required=["memory_ids"],
+)
+def _memory_delete(args: dict) -> str:
+    deleted = memory.delete(args["memory_ids"], config.load()["device_id"])
+    return "已删除记忆：" + ", ".join(deleted)
