@@ -197,6 +197,16 @@ def test_memory_tools_reject_empty_inputs_before_sdk_init():
         memory._get_memory = original
 
 
+def test_memory_save_reports_empty_results_accurately():
+    original = memory.save
+    memory.save = lambda text, user_id: {"results": []}
+    try:
+        response = tools._memory_save({"text": "长期偏好"})
+        assert response == "没有提取到可保存的新记忆。", response
+    finally:
+        memory.save = original
+
+
 def test_memory_tightens_existing_data_dir_permissions():
     class MemoryFactory:
         @staticmethod

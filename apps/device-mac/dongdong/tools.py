@@ -167,7 +167,7 @@ def _memory_save(args: dict) -> str:
     result = memory.save(args["text"], config.load()["device_id"])
     saved = result.get("results", [])
     if not saved:
-        return "记忆已保存。"
+        return "没有提取到可保存的新记忆。"
     return "记忆已保存：\n" + "\n".join(
         f"{item.get('id', '')}: {item.get('memory', '')}" for item in saved
     )
