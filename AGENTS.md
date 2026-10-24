@@ -58,6 +58,9 @@ Mac 跑通后再移植到 ESP32（复用开源小智固件，只加转发工具�
 **禁止自己实现**：WebSocket 客户端、Opus 编解码、mDNS 发现、JSON-RPC、HTTP 服务、音频设备抽象、AppleScript 封装、ASR/TTS。
 已经有现成实现还自己写，视为 bug。
 
+**例外**：确实找不到合适的开源实现（典型：macOS 新版本的系统级自动化），可以自己写。
+但必须在 `docs/decisions.md` 记一行：为什么没有现成方案、自己写的那部分边界在哪、以后什么时候该换掉。
+
 加依赖的门槛：体积 > 20MB、需要 `sudo`、需要编译 C 库 → 安装前先说明理由并得到同意。
 
 新依赖必须写进 `pyproject.toml`；允许 `pip install` 但不记录。

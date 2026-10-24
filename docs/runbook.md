@@ -88,7 +88,7 @@ agent 任务默认最多等 120 秒，超时会转后台，用「刚才那个任
 在换方案之前，用下面任意一种：
 
 - 手动点一次：控制中心 → 屏幕镜像 → 选电视
-- 自己录一个能用的脚本（Automator / 快捷指令 / 一段 AppleScript），配到 `~/.dongdong/config.json`：
+- 自己录一个能用的脚本（Automator / 快捷指令 / 一段 AppleScript），配到 `~/.dongdong/config.json`（推荐，语音能触发它）：
 
 ```json
 { "airplay": { "mirror_command": "osascript /path/to/your.scpt {target}" } }
