@@ -18,10 +18,10 @@
 | 不写测试 | 没有协议解析、没有路径边界；按规范手动跑一次即算验证 |
 | 一次只跑一个任务，忙时返回 409 不排队 | 跟 `agent.run` 现有约束一致 |
 
-## 2. 已完成（工作区未提交）
+## 2. 已完成并已推送
 
-当前 `git status`：`agent.py` / `linx.py` / `tools.py` 已修改，`state.py` / `panel.py` 是新文件。
-**今天的 `./scripts/check.sh` 是全绿的**（ruff + smoke 通过），可以在这上面继续。
+提交：`6c0f771 feat: 本地前台面板，看状态、派任务`。
+**`./scripts/check.sh` 全绿**（ruff + smoke 通过）；本地 HTTP、派发、任务输出、错误响应和 token 鉴权均已手动验证。
 
 | 文件 | 改动 | 状态 |
 | --- | --- | --- |
@@ -29,7 +29,10 @@
 | `dongdong/agent.py` | `Job.started`、`snapshot()`（id/agent/cwd/running/elapsed/exit_code/output 尾部 4000 字）；顺手修了四个引号的语法错误 | 完成 |
 | `dongdong/linx.py` | 重连循环写 `connection` / `reconnects`；`hello` 写 `connected` / `session_id` / `connected_at`；`stt` / `tts` 写 `last_stt` / `last_tts`（局部变量改名 `tts_state` 避免遮蔽模块 `state`） | 完成 |
 | `dongdong/tools.py` | `call()` 计时并 `state.record_call(...)`；顺手补了缺的 `import time` | 完成 |
-| `dongdong/panel.py`（新，121 行） | `start(cfg)`、`make_handler(cfg)`；`GET /`、`GET /state`、`POST /task`；`X-Dongdong-Token` 鉴权；端口占用只告警 | 写完但**没跑过** |
+| `dongdong/panel.py`（新，121 行） | `start(cfg)`、`make_handler(cfg)`；`GET /`、`GET /state`、`POST /task`；`X-Dongdong-Token` 鉴权；端口占用只告警 | 完成并已验证 |
+| `dongdong/panel.html`（新） | 原生 JS 单页：状态轮询、任务派发、工具调用列表 | 完成 |
+
+配置默认值已加到 `config.py`，`run` 路径已启动面板，`docs/decisions.md` 和 `docs/runbook.md` 已补充说明。
 
 `panel.py` 已有的行为（照着用，别重写）：
 
@@ -38,9 +41,9 @@
 - `POST /task`：`{instruction, agent?, cwd?}` → 202 `{ok, agent, cwd}`；空指令 400；未知 agent 400；缺环境变量 400（`agent.required_env`）；目录越界 400；已有任务在跑 409；`agent.run` 放守护线程，`wait_seconds=1` 让 HTTP 立刻返回
 - `start(cfg)` 里 `OSError` 只打 warning，**绝不能让面板拖垮语音**
 
-## 3. 剩余任务（按顺序做）
+## 3. 剩余任务
 
-### 3.1 写 `apps/device-mac/dongdong/panel.html`（唯一的大活）
+### 3.1 页面（已完成）
 
 单文件，原生 JS，无 CDN、无构建。要求：
 
@@ -56,7 +59,7 @@
 - **所有动态文本用 `textContent`，不要拼 `innerHTML`**（agent 输出里会有 `<`、`&`）。
 - 刷新时重建动态区块的内联 HTML 是允许的，但每次重建后要重新挂表单的 `submit` 监听（或者干脆把表单放静态区，循环里只更新动态容器——推荐后者，代码更少）。
 
-### 3.2 配置默认值
+### 3.2 配置默认值（已完成）
 
 `apps/device-mac/dongdong/config.py` 的 `DEFAULTS` 加一行：
 
@@ -66,14 +69,14 @@
 
 放在 `"bridge"` 附近。`_merge` 会自动给老配置文件补上，不用迁移。
 
-### 3.3 接进 `run`
+### 3.3 接进 `run`（已完成）
 
 `apps/device-mac/dongdong/__main__.py`：只在 `run` 路径启面板，`bind` 不需要。
 
 - 顶部 import 改成 `from . import bridge, config, doctor, panel, screen, tools`
 - `else` 分支（`asyncio.run(device.run())` 之前）加 `panel.start(cfg)`
 
-### 3.4 验收（必须真的跑一遍）
+### 3.4 验收
 
 ```bash
 # 1) 不连灵矽也能验面板：直接起服务，看空状态
@@ -93,13 +96,13 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8766/task -d '{}'    
 curl -s -X POST localhost:8766/task -d '{"instruction":"x","agent":"nope"}'                    # 400 未知 agent
 curl -s -X POST localhost:8766/task -d '{"instruction":"x","cwd":"/etc"}'                      # 400 目录不在允许范围
 
-# 4) 真机：./scripts/dev.sh run，连上后页面应显示 connected + 说一句话看 last_stt/last_tts + 语音派活看工具调用表
+# 4) 剩余：真机 ./scripts/dev.sh run，连上后确认 connected、last_stt/last_tts 和语音派活后的工具调用
 
 # 5) 收尾
 ./scripts/check.sh
 ```
 
-### 3.5 提交
+### 3.5 提交（已完成并推送）
 
 一个功能一个提交。前缀 `feat:`，例如 `feat: 本地前台面板，看状态、派任务`。要把 `state.py` / `panel.py` 两个新文件一起 `git add`（它们是为了这个功能加的），提交前 `git pull --rebase`，然后 `git push`。
 
