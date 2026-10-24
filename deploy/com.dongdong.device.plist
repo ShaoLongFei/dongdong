@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.dongdong.device</string>
+  <!-- 路径按自己的仓库位置改 -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/shaolongfei/OtherProjects/dongdong/.venv/bin/dongdong</string>
+    <string>run</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/shaolongfei/Library/Logs/dongdong.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/shaolongfei/Library/Logs/dongdong.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DEEPSEEK_API_KEY</key>
+    <string></string>
+  </dict>
+</dict>
+</plist>

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# 提交前必跑：格式 + lint + smoke。
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+CFG=apps/device-mac/pyproject.toml
+.venv/bin/ruff format --check --config "$CFG" apps tests
+.venv/bin/ruff check --config "$CFG" apps tests
+.venv/bin/python tests/smoke.py
