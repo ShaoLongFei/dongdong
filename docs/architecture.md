@@ -44,8 +44,9 @@ C++ 参考实现（[linx-linux](https://github.com/sunqirui1987/linx-linux)）�
 
 所以移植 ESP32 时，Mac 这边一行不改。
 
-**2. agent 是子进程，不是 API。** `codex exec` / `claude -p` 本身就是完整 agent，自己做工具循环。
-我们只负责喂 prompt、收 stdout、管超时，不自己实现 agent loop。
+**2. agent 是子进程，不是 API。** 旧路径（`agent.py`）里 `codex exec` / `claude -p` 本身就是
+完整 agent，自己做工具循环；我们只负责喂 prompt、收 stdout、管超时，不自己实现 agent loop。
+新的内置 agent 不走子进程：`Runtime` 自己实现工具循环，见下文「内置 agent（新）」。
 
 **3. 设备身份存本地。** `~/.dongdong/config.json` 存 Device-Id、Client-Id、token。
 删除文件 = 重新注册一台设备。

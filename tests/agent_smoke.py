@@ -8,7 +8,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
-os.environ["DONGDONG_HOME"] = tempfile.mkdtemp(prefix="dongdong-agent-smoke-")
+SMOKE_HOME = tempfile.mkdtemp(prefix="dongdong-agent-smoke-")
+os.environ["DONGDONG_HOME"] = SMOKE_HOME
 
 from dongdong import config, llm  # noqa: E402
 from dongdong.builtin_tools import ToolContext, call_tool, resolve_path  # noqa: E402
@@ -244,16 +245,18 @@ def test_runtime_config_defaults():
 
 if __name__ == "__main__":
     failures = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try:
-                result = fn()
-                if asyncio.iscoroutine(result):
-                    asyncio.run(result)
-                print(f"ok   {name}")
-            except Exception as exc:  # noqa: BLE001 测试跑挂了要打印出来
-                failures += 1
-                print(f"FAIL {name}: {exc}")
-    shutil.rmtree(os.environ.get("DONGDONG_HOME", ""), ignore_errors=True)
+    try:
+        for name, fn in sorted(globals().items()):
+            if name.startswith("test_") and callable(fn):
+                try:
+                    result = fn()
+                    if asyncio.iscoroutine(result):
+                        asyncio.run(result)
+                    print(f"ok   {name}")
+                except Exception as exc:  # noqa: BLE001 测试跑挂了要打印出来
+                    failures += 1
+                    print(f"FAIL {name}: {exc}")
+    finally:
+        shutil.rmtree(SMOKE_HOME, ignore_errors=True)
     print("agent smoke 通过" if not failures else f"{failures} 个失败")
     sys.exit(1 if failures else 0)

@@ -12,7 +12,7 @@ from .llm import ModelConfig, ToolCall, stream_chat
 from .store import Store
 
 SYSTEM_PROMPT = """你是咚咚，一个跑在用户 Mac 上的通用 agent。
-你只能通过工具操作文件系统和 shell，所有路径都限制在工作区内。
+文件工具只能操作工作区内的路径；shell 是有意保留的逃生口，但优先在工作区内操作。
 工作区：{workspace}
 
 规则：
