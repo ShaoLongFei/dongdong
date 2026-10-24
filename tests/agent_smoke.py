@@ -125,6 +125,10 @@ def test_shell_timeout_and_output():
             out = await call_tool("shell", {"command": "yes x | grep zzz", "timeout_s": 0.2}, ctx)
             assert "超时" in out
             assert time.monotonic() - started < 1.0, "超时必须杀掉整个进程组"
+            started = time.monotonic()
+            out = await call_tool("shell", {"command": "sleep 5 &", "timeout_s": 0.2}, ctx)
+            assert "后台" in out
+            assert time.monotonic() - started < 1.0, "后台子进程不能无限拖住返回"
             out = await call_tool("shell", {"command": "yes x | head -c 1000000"}, ctx)
             assert "exit_code=0" in out
             assert len(out) < 13_000, "输出必须被截断"

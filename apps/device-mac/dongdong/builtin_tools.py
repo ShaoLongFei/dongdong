@@ -8,6 +8,7 @@ import inspect
 import os
 import re
 import signal
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,10 +63,7 @@ TOOL_SPECS = [
             "description": "写入工作区内的文本文件，自动建父目录。",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"},
-                },
+                "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
                 "required": ["path", "content"],
             },
         },
@@ -116,10 +114,7 @@ TOOL_SPECS = [
             "description": "用正则搜索工作区内的文件内容。",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "pattern": {"type": "string"},
-                    "path": {"type": "string"},
-                },
+                "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}},
                 "required": ["pattern"],
             },
         },
@@ -131,8 +126,7 @@ def resolve_path(workspace: Path, raw: str) -> Path:
     if not raw or "\x00" in raw:
         raise ValueError("路径为空或含非法字符")
     path = Path(os.path.expanduser(raw))
-    if not path.is_absolute():
-        path = workspace / path
+    path = path if path.is_absolute() else workspace / path
     path = path.resolve()
     if path != workspace and not path.is_relative_to(workspace):
         raise ValueError(f"路径越界: {raw}")
@@ -147,16 +141,32 @@ async def _drain(stream, limit: int) -> bytes:
         if not chunk:
             return bytes(data)
         data.extend(chunk)
-        if len(data) > limit:
-            del data[: len(data) - limit]
+        del data[: max(0, len(data) - limit)]
 
 
 def _kill_group(proc) -> None:
-    # 子进程用 start_new_session 起，pid 即进程组 id；只 kill sh 会留下孙进程占住管道
-    try:
+    with contextlib.suppress(ProcessLookupError):
         os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+
+
+async def _collect(proc, reader, timeout: float) -> tuple[str | None, str]:
+    """等 sh 退出再收输出：asyncio 的 proc.wait() 会被后台孙进程占着的管道拖住，只能轮询 returncode。"""
+    deadline = time.monotonic() + timeout
+    while proc.returncode is None and time.monotonic() < deadline:
+        await asyncio.sleep(0.02)
+    if proc.returncode is None:
+        _kill_group(proc)
+        await proc.wait()
+        reader.cancel()
+        return f"命令超时（{timeout:g}s）", ""
+    try:
+        text = (await asyncio.wait_for(reader, timeout=0.5)).decode("utf-8", "replace")
+        return None, text
+    except TimeoutError:
+        _kill_group(proc)
+        await proc.wait()
+        reader.cancel()
+        return "命令超时（后台子进程仍在运行，已终止）", ""
 
 
 async def _shell(args: dict, ctx: ToolContext) -> str:
@@ -171,40 +181,25 @@ async def _shell(args: dict, ctx: ToolContext) -> str:
         cwd=ctx.workspace,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
-        start_new_session=True,
+        start_new_session=True,  # 独立进程组，超时/后台子进程可整组杀掉
     )
-    assert proc.stdout is not None
     reader = asyncio.create_task(_drain(proc.stdout, MAX_OUTPUT))
     try:
-        await asyncio.wait_for(proc.wait(), timeout=timeout)
-    except TimeoutError:
-        _kill_group(proc)
-        await proc.wait()
-        try:
-            text = (await asyncio.wait_for(reader, timeout=0.5)).decode("utf-8", "replace")
-        except TimeoutError:
-            reader.cancel()
-            text = ""
-        return f"命令超时（{timeout:g}s）\n{text}"
+        error, text = await _collect(proc, reader, timeout)
     except asyncio.CancelledError:
         _kill_group(proc)
         await proc.wait()
         reader.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await reader
         raise
-    text = (await reader).decode("utf-8", "replace")
+    if error:
+        return error
     return f"exit_code={proc.returncode}\n{text}"
-
-
-def _check_size(path: Path) -> None:
-    if path.stat().st_size > MAX_READ:
-        raise ValueError("文件超过 200KB")
 
 
 def _read(args: dict, ctx: ToolContext) -> str:
     path = resolve_path(ctx.workspace, str(args["path"]))
-    _check_size(path)
+    if path.stat().st_size > MAX_READ:
+        raise ValueError("文件超过 200KB")
     return path.read_text(encoding="utf-8", errors="replace")
 
 
@@ -221,7 +216,8 @@ def _edit(args: dict, ctx: ToolContext) -> str:
     old, new = str(args["old"]), str(args["new"])
     if not old:
         raise ValueError("old 不能为空")
-    _check_size(path)
+    if path.stat().st_size > MAX_READ:
+        raise ValueError("文件超过 200KB")
     text = path.read_text(encoding="utf-8")
     count = text.count(old)
     if count != 1:
@@ -270,8 +266,7 @@ def _grep(args: dict, ctx: ToolContext) -> str:
                 continue
             for lineno, line in enumerate(text.splitlines(), 1):
                 if regex.search(line):
-                    rel = path.relative_to(ctx.workspace)
-                    hits.append(f"{rel}:{lineno}: {line.strip()[:300]}")
+                    hits.append(f"{path.relative_to(ctx.workspace)}:{lineno}: {line.strip()[:300]}")
                     if len(hits) >= 100:
                         return "\n".join(hits)
     return "\n".join(hits) or "(无匹配)"
