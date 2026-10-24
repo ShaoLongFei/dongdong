@@ -114,7 +114,24 @@ export DEEPSEEK_API_KEY=sk-xxxx
 ./scripts/dev.sh call self.code.run '{"instruction":"讲个笑话","agent":"deepseek"}'
 ```
 
-## 7. 开机自启（可选）
+## 7. 长期记忆
+
+Mem0 在 Mac 设备进程内运行，Qdrant 向量和 SQLite 历史保存在仓库根目录 `.memory/`，不会提交到 Git。Mem0 使用 OpenAI 做记忆提取和向量嵌入：保存时提交的文字以及搜索时的查询文字会发送给 OpenAI；不要把密码、令牌或其他凭据交给记忆工具。程序只从 `OPENAI_API_KEY` 环境变量读取 OpenAI key，不写入配置文件或日志。
+
+本地开发时，在启动进程的 shell 中设置 key：
+
+```bash
+export OPENAI_API_KEY=...
+./scripts/dev.sh run
+```
+
+使用 launchd 时，把 key 填入 `~/Library/LaunchAgents/com.dongdong.device.plist` 的 `OPENAI_API_KEY` 项后重新加载服务。样例文件中的 key 留空。
+
+在灵矽智能体指令中，要求它在回答前用 `self.memory.search` 查找与当前问题相关的既有信息，并在用户明确要求记住内容、或出现稳定偏好和长期项目事实时调用 `self.memory.save`。不要保存临时请求、密码、令牌或凭据。模型是否调用工具由灵矽智能体模型决定，咚咚只提供工具，不能保证模型每次都按指令调用。
+
+`self.memory.list` 可检查记忆及其 ID；删除时用 `self.memory.delete` 并只提供要删除的 ID。
+
+## 8. 开机自启（可选）
 
 ```bash
 cp deploy/com.dongdong.device.plist ~/Library/LaunchAgents/
@@ -124,7 +141,7 @@ launchctl load ~/Library/LaunchAgents/com.dongdong.device.plist
 
 日志：`~/Library/Logs/dongdong.log`
 
-## 8. 排错
+## 9. 排错
 
 | 现象 | 原因 / 处理 |
 | --- | --- |
@@ -139,6 +156,6 @@ launchctl load ~/Library/LaunchAgents/com.dongdong.device.plist
 
 看完整配置：`cat ~/.dongdong/config.json`。
 
-## 9. ESP32
+## 10. ESP32
 
 见 [`firmware/README.md`](../firmware/README.md)。
