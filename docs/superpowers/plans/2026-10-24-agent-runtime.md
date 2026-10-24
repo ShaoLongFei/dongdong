@@ -805,10 +805,9 @@ async def _shell(args: dict, ctx: ToolContext) -> str:
 
 def _read(args: dict, ctx: ToolContext) -> str:
     path = resolve_path(ctx.workspace, str(args["path"]))
-    data = path.read_bytes()
-    if len(data) > MAX_READ:
+    if path.stat().st_size > MAX_READ:
         raise ValueError("文件超过 200KB")
-    return data.decode("utf-8", "replace")
+    return path.read_text(encoding="utf-8", errors="replace")
 
 
 def _write(args: dict, ctx: ToolContext) -> str:
@@ -842,6 +841,8 @@ def _list(args: dict, ctx: ToolContext) -> str:
 
 def _glob(args: dict, ctx: ToolContext) -> str:
     pattern = str(args["pattern"])
+    if Path(pattern).is_absolute():
+        raise ValueError("pattern 必须是工作区内的相对路径")
     found: list[str] = []
     for path in ctx.workspace.glob(pattern):
         resolved = path.resolve()
@@ -859,7 +860,9 @@ def _grep(args: dict, ctx: ToolContext) -> str:
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [name for name in dirnames if name not in SKIP_DIRS]
         for filename in filenames:
-            path = Path(dirpath) / filename
+            path = (Path(dirpath) / filename).resolve()
+            if not path.is_relative_to(ctx.workspace):
+                continue
             try:
                 if path.stat().st_size > 1_000_000:
                     continue
@@ -1431,7 +1434,9 @@ git commit -m "feat: add chat command for builtin agent"
 
 - [ ] **Step 1: 加测试运行器**
 
-`tests/agent_smoke.py` 末尾加：
+Task 1 已经提前补了这个运行器（否则 `python tests/agent_smoke.py` 会静默跑 0 个测试）。先确认文件末尾已有该块；没有才补，不要重复加。顺带在运行器结束时清理 `DONGDONG_HOME` 临时目录（`shutil.rmtree(..., ignore_errors=True)`）。
+
+`tests/agent_smoke.py` 末尾应有：
 
 ```python
 if __name__ == "__main__":
@@ -1498,7 +1503,7 @@ git commit -m "chore: wire agent smoke tests and document runtime"
 - **Spec coverage:** 这个计划覆盖 spec 第 4 节（agent runtime）和第 6 节（SQLite 数据）。Web、Skills、MCP、灵矽自定义模型端点不在这个计划里，分别下一份计划。
 - **Placeholder scan:** 没有 TBD；每个任务都有测试、实现和验证命令。
 - **Type consistency:** `Store`、`ModelConfig`、`ToolCall`、`StreamEvent`、`ToolContext`、`Runtime.run` 的签名在任务间一致；`run` 返回 `str`，事件是 `(kind, dict)`。
-- **Review Focus:** 五个风险都有对应测试：Task 3 路径/超时，Task 2 参数拆包，Task 4 历史裁剪/取消，Task 6 重启后的 `running` 留给 Web 阶段补（本计划先保证 run 有终态）。
+- **Review Focus:** 五个风险都有对应测试：Task 3 路径/超时，Task 2 参数拆包，Task 4 历史裁剪/取消，Task 1 的 `stop_orphan_runs` 负责重启后的 `running` 收尾（Web 启动时调用即可）。
 
 ## Execution Handoff
 
