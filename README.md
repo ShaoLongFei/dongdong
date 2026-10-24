@@ -21,6 +21,10 @@ apps/device-mac（Python，跑在 Mac 上）──────────┘
 ./scripts/dev.sh doctor       # 环境体检（麦克风、扬声器、agent、投屏目标）
 ./scripts/dev.sh bind         # 首次：拿激活码，去 xrobo.qiniu.com 绑定设备
 ./scripts/dev.sh run          # 开始语音控制
+
+# 不绑定灵矽也能手动用内置 agent（需要 DEEPSEEK_API_KEY）
+export DEEPSEEK_API_KEY=...
+./scripts/dev.sh chat --message "读一下 README 并总结"
 ```
 
 详细步骤见 [`docs/runbook.md`](docs/runbook.md)。
@@ -34,7 +38,7 @@ apps/device-mac（Python，跑在 Mac 上）──────────┘
 | `docs/` | [架构](docs/architecture.md) · [协议摘要](docs/linx-protocol.md) · [操作手册](docs/runbook.md) · [接入 agent](docs/agents.md) · [决策记录](docs/decisions.md) |
 | `scripts/` | setup / dev / check |
 | `deploy/` | launchd 自启、环境变量样例 |
-| `tests/` | 唯一的 smoke 测试 |
+| `tests/` | 三套 smoke：协议/边界（`smoke.py`）+ agent loop（`agent_smoke.py`）+ 传输（`agent_transport.py`） |
 
 ## 接入自己的 agent
 

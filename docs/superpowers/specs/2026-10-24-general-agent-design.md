@@ -101,7 +101,7 @@
 
 - 只做 OpenAI 兼容协议（`/v1/chat/completions`，流式，tools）。
 - 配置：`base_url`、`api_key`、`model`、`temperature`、`max_tokens`。
-- 默认 DeepSeek：`https://api.deepseek.com/v1` + `deepseek-chat`，key 从 `DEEPSEEK_API_KEY` 读。
+- 默认 DeepSeek：`https://api.deepseek.com` + `deepseek-flash`，key 从 `DEEPSEEK_API_KEY` 读。\n- 默认 `extra_body` 关闭 thinking：带 `tools` 时 DeepSeek 要求回传上一轮的 `reasoning_content`，Phase 1 不存它，开着会 400。
 - 不急着做 provider 抽象；等真的接 Anthropic 再抽。
 
 ## 5. Web

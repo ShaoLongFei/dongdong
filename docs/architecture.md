@@ -65,8 +65,9 @@ C++ 参考实现（[linx-linux](https://github.com/sunqirui1987/linx-linux)）�
 
 - 旧 `agent.py` 仍是「CLI 执行器」，`dongdong run` 的灵矽语音链路完全不动。
 - `dongdong chat` 不需要灵矽绑定，配好模型 key 就能用。
+- 默认关闭 DeepSeek thinking：带 `tools` 时它要求回传历史 `reasoning_content`，Phase 1 不存，开着会 400。
 - Web 面板和语音后续都复用 `Runtime`，不再各写一套循环。
-- 边界测试在 `tests/agent_smoke.py`，由 `scripts/check.sh` 统一跑。
+- 边界测试在 `tests/agent_smoke.py` 和 `tests/agent_transport.py`，由 `scripts/check.sh` 统一跑。
 
 ## 工具清单
 

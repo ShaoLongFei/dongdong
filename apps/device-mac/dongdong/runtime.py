@@ -25,8 +25,17 @@ SYSTEM_PROMPT = """你是咚咚，一个跑在用户 Mac 上的通用 agent。
 Emit = Callable[[str, dict], None]
 
 
-def _trim(rows: list[dict], limit: int) -> list[dict]:
-    rows = rows[-limit:]
+def _trim(rows: list[dict], limit: int, keep_id: int | None = None) -> list[dict]:
+    # 窗口是软限制：当前 run 的 user 消息必须留下，否则长任务会丢目标。
+    if limit <= 0:
+        limit = len(rows)
+    start = max(0, len(rows) - limit)
+    if keep_id is not None:
+        for index, row in enumerate(rows):
+            if row["id"] == keep_id:
+                start = min(start, index)
+                break
+    rows = rows[start:]
     while rows and rows[0]["role"] == "tool":
         rows.pop(0)
     out: list[dict] = []
@@ -76,8 +85,8 @@ class Runtime:
         self.tool_ctx = builtin_tools.ToolContext(workspace=workspace)
         self.system_prompt = SYSTEM_PROMPT.format(workspace=workspace)
 
-    def _messages(self, session_id: str) -> list[dict]:
-        rows = _trim(self.store.messages(session_id), self.history_messages)
+    def _messages(self, session_id: str, keep_id: int | None = None) -> list[dict]:
+        rows = _trim(self.store.messages(session_id), self.history_messages, keep_id)
         out: list[dict] = [{"role": "system", "content": self.system_prompt}]
         for row in rows:
             if row["role"] == "tool":
@@ -103,13 +112,13 @@ class Runtime:
     async def run(self, session_id: str, user_text: str, on_event: Emit | None = None) -> str:
         emit: Emit = on_event or (lambda kind, data: None)
         run_id = self.store.create_run(session_id)
-        self.store.append_message(session_id, "user", user_text)
+        user_id = self.store.append_message(session_id, "user", user_text)
         self.store.add_event(run_id, "run_start", {"session_id": session_id})
         emit("run_start", {"run_id": run_id})
         usage: dict = {}
         try:
             for _ in range(self.max_steps):
-                messages = self._messages(session_id)
+                messages = self._messages(session_id, user_id)
                 text = ""
                 calls: list[ToolCall] = []
                 async for event in self._stream(self.model, messages, builtin_tools.TOOL_SPECS):

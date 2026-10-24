@@ -236,8 +236,8 @@ def _list(args: dict, ctx: ToolContext) -> str:
 
 def _glob(args: dict, ctx: ToolContext) -> str:
     pattern = str(args["pattern"])
-    if Path(pattern).is_absolute():
-        raise ValueError("pattern 必须是工作区内的相对路径")
+    if Path(pattern).is_absolute() or ".." in Path(pattern).parts:
+        raise ValueError("pattern 必须是工作区内、不含 .. 的相对路径")
     found: list[str] = []
     for path in ctx.workspace.glob(pattern):
         resolved = path.resolve()

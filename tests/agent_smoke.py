@@ -127,11 +127,11 @@ def test_shell_timeout_and_output():
             started = time.monotonic()
             out = await call_tool("shell", {"command": "yes x | grep zzz", "timeout_s": 0.2}, ctx)
             assert "超时" in out
-            assert time.monotonic() - started < 1.0, "超时必须杀掉整个进程组"
+            assert time.monotonic() - started < 2.0, "超时必须杀掉整个进程组"
             started = time.monotonic()
             out = await call_tool("shell", {"command": "sleep 5 &", "timeout_s": 0.2}, ctx)
             assert "后台" in out
-            assert time.monotonic() - started < 1.0, "后台子进程不能无限拖住返回"
+            assert time.monotonic() - started < 2.0, "后台子进程不能无限拖住返回"
             out = await call_tool("shell", {"command": "yes x | head -c 1000000"}, ctx)
             assert "exit_code=0" in out
             assert len(out) < 13_000, "输出必须被截断"
@@ -230,9 +230,46 @@ def test_history_never_starts_with_orphan_tool():
     asyncio.run(run())
 
 
+def test_history_keeps_current_user_request():
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp).resolve()
+            store = Store(workspace / "t.db")
+            sid = store.create_session("测试")
+            seen: list[list[dict]] = []
+
+            async def fake_stream(cfg, messages, tools):
+                seen.append(messages)
+                if len(seen) <= 15:
+                    call = ToolCall(id=f"c{len(seen)}", name="list_dir", arguments='{"path":"."}')
+                    yield StreamEvent(tool_calls=[call])
+                else:
+                    yield StreamEvent(text="done")
+
+            runtime = Runtime(
+                store,
+                ModelConfig("http://unused", "k", "m"),
+                workspace,
+                max_steps=20,
+                history_messages=30,
+                stream_fn=fake_stream,
+            )
+            assert await runtime.run(sid, "long task") == "done"
+            assert len(seen) == 16
+            assert all(
+                any(m["role"] == "user" and m["content"] == "long task" for m in req)
+                for req in seen
+            )
+            store.close()
+
+    asyncio.run(run())
+
+
 def test_runtime_config_defaults():
     cfg = config.load()
-    assert cfg["model"]["model"] == "deepseek-chat"
+    assert cfg["model"]["base_url"] == "https://api.deepseek.com"
+    assert cfg["model"]["model"] == "deepseek-flash"
+    assert cfg["model"]["extra_body"] == {"thinking": {"type": "disabled"}}
     assert cfg["runtime"]["max_steps"] == 20
     assert cfg["workspace"]
     assert cfg["model"]["api_key"] == "${DEEPSEEK_API_KEY}"

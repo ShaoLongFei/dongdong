@@ -48,7 +48,7 @@ agent 是配置项，不是代码。加一个新 agent = 往 `~/.dongdong/config
   "env": {
     "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
     "ANTHROPIC_AUTH_TOKEN": "${DEEPSEEK_API_KEY}",
-    "ANTHROPIC_MODEL": "deepseek-chat"
+    "ANTHROPIC_MODEL": "deepseek-flash"
   }
 }
 ```

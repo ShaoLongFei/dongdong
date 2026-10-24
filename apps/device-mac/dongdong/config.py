@@ -24,12 +24,15 @@ DEFAULTS: dict = {
     "projects": ["~/OtherProjects"],
     "echo_guard": True,
     "workspace": "~/OtherProjects",
+    # DeepSeek V4 默认开思考；带 tools 时必须回传 reasoning_content，否则 400。
+    # Phase 1 不留思考内容，直接关掉。换纯 OpenAI 端点时把 extra_body 改成 {}。
     "model": {
-        "base_url": "https://api.deepseek.com/v1",
+        "base_url": "https://api.deepseek.com",
         "api_key": "${DEEPSEEK_API_KEY}",
-        "model": "deepseek-chat",
+        "model": "deepseek-flash",
         "temperature": 0.2,
         "max_tokens": 4096,
+        "extra_body": {"thinking": {"type": "disabled"}},
     },
     "runtime": {"max_steps": 20, "history_messages": 30},
     # 想加 agent 就往 agents 里加一项：cmd 是参数模板，env 支持 ${环境变量}。
@@ -60,7 +63,7 @@ DEFAULTS: dict = {
             "env": {
                 "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
                 "ANTHROPIC_AUTH_TOKEN": "${DEEPSEEK_API_KEY}",
-                "ANTHROPIC_MODEL": "deepseek-chat",
+                "ANTHROPIC_MODEL": "deepseek-flash",
             },
             "timeout_s": 120,
         },

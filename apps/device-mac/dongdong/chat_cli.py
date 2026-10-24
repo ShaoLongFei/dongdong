@@ -26,6 +26,7 @@ def _model(cfg: dict) -> ModelConfig:
         model=model["model"],
         temperature=float(model["temperature"]),
         max_tokens=int(model["max_tokens"]),
+        extra_body=model.get("extra_body") or {},
     )
 
 
@@ -66,7 +67,10 @@ async def main(cfg: dict, message: str | None = None) -> None:
         # Ctrl-C 会挂住进程。所以读输入时用默认处理器（直接抛 KeyboardInterrupt），跑对话时换回去。
         loop_sigint = signal.getsignal(signal.SIGINT)
         if message:
-            await runtime.run(sid, message, on_event=_print_event)
+            try:
+                await runtime.run(sid, message, on_event=_print_event)
+            except Exception:
+                raise SystemExit(1) from None
             return
 
         print("咚咚 agent。输入 /new 新会话，/sessions 看会话，/quit 退出。")

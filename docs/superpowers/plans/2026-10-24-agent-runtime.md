@@ -1235,7 +1235,7 @@ from dongdong import config
 
 def test_runtime_config_defaults():
     cfg = config.load()
-    assert cfg["model"]["model"] == "deepseek-chat"
+    assert cfg["model"]["model"] == "deepseek-flash"
     assert cfg["runtime"]["max_steps"] == 20
     assert cfg["workspace"]
     os.environ["SMOKE_MODEL_KEY"] = "k123"
@@ -1255,11 +1255,12 @@ Expected: `KeyError: 'model'`。
 ```python
     "workspace": "~/OtherProjects",
     "model": {
-        "base_url": "https://api.deepseek.com/v1",
+        "base_url": "https://api.deepseek.com",
         "api_key": "${DEEPSEEK_API_KEY}",
-        "model": "deepseek-chat",
+        "model": "deepseek-flash",
         "temperature": 0.2,
         "max_tokens": 4096,
+        "extra_body": {"thinking": {"type": "disabled"}},
     },
     "runtime": {"max_steps": 20, "history_messages": 30},
 ```

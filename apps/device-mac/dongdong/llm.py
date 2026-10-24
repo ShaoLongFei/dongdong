@@ -16,6 +16,7 @@ class ModelConfig:
     model: str
     temperature: float = 0.2
     max_tokens: int = 4096
+    extra_body: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -71,7 +72,7 @@ def finish_tool_calls(acc: dict[int, dict]) -> list[ToolCall]:
 
 
 async def stream_chat(
-    cfg: ModelConfig, messages: list[dict], tools: list[dict]
+    cfg: ModelConfig, messages: list[dict], tools: list[dict], transport=None
 ) -> AsyncIterator[StreamEvent]:
     payload: dict = {
         "model": cfg.model,
@@ -83,12 +84,16 @@ async def stream_chat(
     if tools:
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
+    if cfg.extra_body:
+        payload.update(cfg.extra_body)
     headers = {"Authorization": f"Bearer {cfg.api_key}", "Content-Type": "application/json"}
     url = cfg.base_url.rstrip("/") + "/chat/completions"
     acc: dict[int, dict] = {}
     usage: dict | None = None
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=15.0)) as client:
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(180.0, connect=15.0), transport=transport
+    ) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             if resp.status_code >= 400:
                 body = (await resp.aread()).decode("utf-8", "replace")[:2000]
