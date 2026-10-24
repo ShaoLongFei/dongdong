@@ -14,6 +14,7 @@ def _get_memory():
         from mem0 import Memory
 
         DATA_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        DATA_DIR.chmod(0o700)
         _memory = Memory.from_config(
             {
                 "vector_store": {

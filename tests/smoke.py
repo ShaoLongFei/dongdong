@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from types import ModuleType
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
@@ -165,6 +166,41 @@ def test_memory_delete_validates_all_owners_before_deleting():
         assert stub.deleted == ["owned"]
     finally:
         memory._memory = original
+
+
+def test_memory_tightens_existing_data_dir_permissions():
+    class MemoryFactory:
+        @staticmethod
+        def from_config(config):
+            return config
+
+    original_dir = memory.DATA_DIR
+    original_memory = memory._memory
+    original_key = os.environ.get("OPENAI_API_KEY")
+    original_module = sys.modules.get("mem0")
+    with tempfile.TemporaryDirectory(prefix="dongdong-memory-") as temp_dir:
+        data_dir = Path(temp_dir) / ".memory"
+        data_dir.mkdir(mode=0o755)
+        data_dir.chmod(0o755)
+        memory.DATA_DIR = data_dir
+        memory._memory = None
+        os.environ["OPENAI_API_KEY"] = "test-only"
+        sys.modules["mem0"] = ModuleType("mem0")
+        sys.modules["mem0"].Memory = MemoryFactory
+        try:
+            memory._get_memory()
+            assert data_dir.stat().st_mode & 0o777 == 0o700
+        finally:
+            memory.DATA_DIR = original_dir
+            memory._memory = original_memory
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+            if original_module is None:
+                sys.modules.pop("mem0", None)
+            else:
+                sys.modules["mem0"] = original_module
 
 
 def test_opus_roundtrip():
