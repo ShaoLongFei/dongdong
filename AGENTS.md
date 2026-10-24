@@ -85,9 +85,11 @@ tests/             smoke.py —— 唯一的测试文件
 
 ## 5. 提交节奏
 
+- **每取得一个可验证的进展就提交，并且立刻推到远端**（`git push`），不要攒批。
 - 提交前缀：`feat:` / `fix:` / `docs:` / `chore:`
 - 一个功能一个提交；顺手重构单独提交
 - 提交前跑 `./scripts/check.sh`（格式 + smoke），红了不提交
+- 推送前先 `git pull --rebase`，避免远端分叉
 - 不提交 `.venv/`、`~/.dongdong/` 里的数据、任何 token / API key
 
 ---
