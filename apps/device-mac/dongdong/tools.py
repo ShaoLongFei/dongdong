@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from . import agent, config, screen
+from . import agent, config, screen, state
 
 log = logging.getLogger("dongdong.tools")
 
@@ -46,12 +47,15 @@ def tool(name: str, description: str, props: dict | None = None, required: list[
 def call(name: str, arguments: dict) -> dict:
     """MCP tools/call 的返回体。未知工具抛 KeyError，让上层回 -32601。"""
     registered = TOOLS[name]
+    started = time.monotonic()
     try:
         text = registered.fn(arguments or {})
-        return {"content": [{"type": "text", "text": str(text)}], "isError": False}
+        result = {"content": [{"type": "text", "text": str(text)}], "isError": False}
     except Exception as exc:  # 工具内部任何异常都变成语音能读的一句话
         log.exception("工具 %s 失败", name)
-        return {"content": [{"type": "text", "text": f"执行失败: {exc}"}], "isError": True}
+        result = {"content": [{"type": "text", "text": f"执行失败: {exc}"}], "isError": True}
+    state.record_call(name, arguments or {}, int((time.monotonic() - started) * 1000), result)
+    return result
 
 
 # ---------------------------------------------------------------- 状态

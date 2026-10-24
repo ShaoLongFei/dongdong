@@ -74,6 +74,10 @@ cd dongdong
 
 agent 任务默认最多等 120 秒，超时会转后台，用「刚才那个任务怎么样了」查。
 
+### 看状态
+
+运行时打开 <http://127.0.0.1:8766> 可查看连接、对话、任务输出和工具调用，也可以直接派任务。要从手机或电视访问，在 `~/.dongdong/config.json` 设置 `panel.host` 为 `0.0.0.0` 并设置 `panel.token`，重启 `run` 后打开 `http://<Mac IP>:8766/?token=xxx`。
+
 ## 5. 投屏
 
 ```bash

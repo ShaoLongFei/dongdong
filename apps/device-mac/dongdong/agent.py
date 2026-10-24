@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -24,6 +25,7 @@ class Job:
         self.id = uuid.uuid4().hex[:6]
         self.agent = agent
         self.cwd = cwd
+        self.started = time.monotonic()
         self.output = ""
         self.done = threading.Event()
         log.info("任务 %s 启动: %s (cwd=%s)", self.id, " ".join(argv[:5]), cwd)
@@ -115,6 +117,22 @@ def stop(job_id: str = "") -> str:
         return f"没有可停的任务 {jid}。"
     job.stop()
     return f"已停止任务 {job.id}（{job.agent}）。"
+
+
+def snapshot() -> dict | None:
+    """最近一个任务的快照，给面板看。"""
+    job = _JOBS.get(_LAST)
+    if not job:
+        return None
+    return {
+        "id": job.id,
+        "agent": job.agent,
+        "cwd": str(job.cwd),
+        "running": job.running,
+        "elapsed": int(time.monotonic() - job.started),
+        "exit_code": job.proc.returncode,
+        "output": job.tail(4000),
+    }
 
 
 def current() -> Job | None:

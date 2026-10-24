@@ -8,7 +8,7 @@ import json
 import logging
 import sys
 
-from . import bridge, config, doctor, screen, tools
+from . import bridge, config, doctor, panel, screen, tools
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -83,6 +83,7 @@ def main(argv: list[str] | None = None) -> None:
         if args.cmd == "bind":
             asyncio.run(device.ensure_token())
         else:
+            panel.start(cfg)
             asyncio.run(device.run())
     except KeyboardInterrupt:
         print("\n再见")

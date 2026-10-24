@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 
 import httpx
 import opuslib
 from websockets.asyncio.client import connect
 
-from . import audio, config, mcp
+from . import audio, config, mcp, state
 
 log = logging.getLogger("dongdong.linx")
 
@@ -28,15 +29,19 @@ class Device:
         self.recorder = audio.Recorder()
         self.encoder = opuslib.Encoder(audio.MIC_RATE, 1, opuslib.APPLICATION_VOIP)
         self.decoder: opuslib.Decoder | None = None
+        self.reconnects = 0
 
     async def run(self) -> None:
         log.info("咚咚启动，Device-Id %s", self.cfg["device_id"])
+        state.set_(connection="connecting")
         while True:
             try:
                 await self._session()
             except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
             except Exception as exc:
+                self.reconnects += 1
+                state.set_(connection="disconnected", reconnects=self.reconnects)
                 log.warning("会话断了: %s，3 秒后重连", exc)
                 await asyncio.sleep(3)
             finally:
@@ -98,6 +103,7 @@ class Device:
             self.decoder = opuslib.Decoder(rate, channels)
             self.player.open(rate)
             log.info("连上了，会话 %s，TTS %d Hz", self.session_id, rate)
+            state.set_(connection="connected", session_id=self.session_id, connected_at=time.time())
             self.ready.set()
             await self.send(
                 {
@@ -109,13 +115,15 @@ class Device:
             )
         elif kind == "stt":
             log.info("你: %s", msg.get("text"))
+            state.set_(last_stt=msg.get("text", ""))
         elif kind == "tts":
-            state = msg.get("state")
-            if state == "sentence_start":
+            tts_state = msg.get("state")
+            if tts_state == "sentence_start":
                 log.info("咚咚: %s", msg.get("text"))
-            elif state == "start":
+                state.set_(last_tts=msg.get("text", ""))
+            elif tts_state == "start":
                 log.info("TTS 开始")
-            elif state == "stop" and msg.get("is_aborted"):
+            elif tts_state == "stop" and msg.get("is_aborted"):
                 self.player.clear()
         elif kind == "mcp":
             payload = msg.get("payload") or {}

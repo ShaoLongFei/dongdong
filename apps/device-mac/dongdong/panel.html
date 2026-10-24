@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>咚咚面板</title>
+<style>
+  :root { color-scheme: dark; font: 14px/1.45 -apple-system, BlinkMacSystemFont, sans-serif; background: #121619; color: #e4e9e8; }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; padding: 16px; max-width: 1100px; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  h1 { margin: 0; font-size: 18px; font-weight: 650; }
+  h2 { margin: 0 0 10px; font-size: 14px; color: #a9b8b4; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  section { min-width: 0; padding: 12px; border: 1px solid #303a3b; border-radius: 6px; background: #192023; }
+  .wide { grid-column: 1 / -1; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
+  .muted, .empty { color: #82918f; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; }
+  .badge::before, .pulse::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #82918f; }
+  .connected::before { background: #61d095; }
+  .connecting::before, .starting::before { background: #e5ba59; }
+  .disconnected::before { background: #ed7272; }
+  .pulse::before { background: #e5ba59; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  #output { height: 150px; overflow: auto; margin: 10px 0 0; padding: 9px; white-space: pre-wrap; overflow-wrap: anywhere; background: #101416; border-radius: 4px; color: #cad4d1; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th, td { padding: 6px 5px; border-bottom: 1px solid #303a3b; text-align: left; vertical-align: top; }
+  th { color: #a9b8b4; font-weight: 550; }
+  td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td:nth-child(1) { width: 72px; } td:nth-child(2) { width: 105px; } td:nth-child(3) { width: 22%; }
+  td:nth-child(4) { width: 56px; } td:nth-child(5) { width: 38px; }
+  form { display: flex; gap: 8px; margin-top: 10px; }
+  input, select, button { min-height: 38px; border: 1px solid #3a4748; border-radius: 5px; background: #101719; color: inherit; font: inherit; }
+  input { flex: 1; min-width: 0; padding: 0 10px; }
+  select { max-width: 150px; padding: 0 8px; }
+  button { padding: 0 14px; background: #176d57; border-color: #23896c; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: wait; }
+  #notice { min-height: 1.4em; margin: 7px 0 0; color: #a9b8b4; }
+  @media (max-width: 650px) { body { padding: 10px; } main { grid-template-columns: 1fr; } .wide { grid-column: auto; } form { flex-wrap: wrap; } input { flex-basis: 100%; } select { flex: 1; max-width: none; } #output { height: 130px; } }
+</style>
+<body>
+<header><h1>咚咚</h1><span id="link" class="badge disconnected">连不上</span></header>
+<main>
+  <section><h2>连接</h2><div class="row"><span id="connection" class="badge">等待状态</span><span>设备 <b id="device">-</b></span><span>会话 <b id="session">-</b></span><span>运行 <b id="uptime">00:00:00</b></span><span>重连 <b id="reconnects">0</b></span></div></section>
+  <section><h2>对话</h2><div>你：<span id="stt" class="empty">暂无语音输入</span></div><div>咚咚：<span id="tts" class="empty">暂无回复</span></div></section>
+  <section class="wide"><h2 id="job-title">当前任务</h2><div id="job" class="muted">还没跑过任务</div><pre id="output" hidden></pre></section>
+  <section class="wide"><h2>工具调用</h2><table><thead><tr><th>时间</th><th>名称</th><th>参数</th><th>耗时</th><th>结果</th><th>输出</th></tr></thead><tbody id="calls"><tr><td colspan="6" class="empty">暂无调用</td></tr></tbody></table></section>
+</main>
+<form id="task-form"><input id="instruction" type="text" placeholder="输入要交给 agent 的任务" required><select id="agent" aria-label="agent"></select><button id="submit" type="submit">派活</button></form>
+<p id="notice" role="status" aria-live="polite"></p>
+<script>
+const token = new URLSearchParams(location.search).get('token') || '';
+const $ = id => document.getElementById(id);
+const text = (id, value) => { $(id).textContent = value ?? ''; };
+const time = seconds => [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].map(n => String(n).padStart(2, '0')).join(':');
+const headers = token ? { 'X-Dongdong-Token': token } : {};
+
+function cell(row, value, title) {
+  const td = document.createElement('td');
+  td.textContent = value ?? '';
+  if (title) td.title = title;
+  row.append(td);
+}
+
+function renderCalls(calls) {
+  const body = $('calls');
+  body.replaceChildren();
+  if (!calls.length) {
+    const row = document.createElement('tr'), empty = document.createElement('td');
+    empty.colSpan = 6; empty.className = 'empty'; empty.textContent = '暂无调用'; row.append(empty); body.append(row);
+    return;
+  }
+  for (const call of calls) {
+    const row = document.createElement('tr');
+    cell(row, call.at); cell(row, call.name); cell(row, call.args, call.args);
+    cell(row, `${call.ms} ms`);
+    const result = document.createElement('td'); result.textContent = call.ok ? '✓' : '✗'; result.title = call.ok ? '成功' : '失败'; row.append(result);
+    cell(row, call.text, call.text); body.append(row);
+  }
+}
+
+function render(data) {
+  $('link').textContent = '在线'; $('link').className = 'badge connected';
+  const status = data.connection || 'disconnected';
+  text('connection', status); $('connection').className = `badge ${status}`;
+  text('device', data.device_id || '-'); text('session', data.session_id || '-');
+  text('uptime', time(data.uptime || 0)); text('reconnects', data.reconnects || 0);
+  text('stt', data.last_stt || '暂无语音输入'); text('tts', data.last_tts || '暂无回复');
+  $('stt').className = data.last_stt ? '' : 'empty'; $('tts').className = data.last_tts ? '' : 'empty';
+  const job = data.job;
+  if (!job) {
+    text('job-title', '当前任务'); $('job-title').className = ''; text('job', '还没跑过任务'); $('output').hidden = true;
+  } else {
+    text('job-title', job.running ? '当前任务 · 运行中' : '当前任务');
+    $('job-title').className = job.running ? 'pulse' : '';
+    text('job', `agent ${job.agent} · id ${job.id} · ${job.cwd} · ${time(job.elapsed)} · ${job.running ? '运行中' : `已结束，exit_code=${job.exit_code}`}`);
+    $('output').hidden = false; text('output', job.output || '暂无输出'); $('output').scrollTop = $('output').scrollHeight;
+  }
+  renderCalls(data.calls || []);
+  const select = $('agent');
+  if (!select.options.length) {
+    for (const name of data.agents || []) select.add(new Option(name, name));
+    select.value = data.default_agent || '';
+  }
+}
+
+async function refresh() {
+  try {
+    const response = await fetch('/state', { headers });
+    if (!response.ok) throw new Error(response.status === 401 ? '401 未授权' : `HTTP ${response.status}`);
+    render(await response.json());
+  } catch (error) {
+    text('link', '连不上'); $('link').className = 'badge disconnected';
+    text('connection', error.message); $('connection').className = 'badge disconnected';
+  }
+}
+
+$('task-form').addEventListener('submit', async event => {
+  event.preventDefault(); $('submit').disabled = true; text('notice', '正在派发…');
+  try {
+    const response = await fetch('/task', {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instruction: $('instruction').value, agent: $('agent').value }),
+    });
+    const result = await response.json();
+    if (response.status !== 202) throw new Error(result.error || `HTTP ${response.status}`);
+    $('instruction').value = ''; text('notice', `已派给 ${result.agent}`); refresh();
+  } catch (error) { text('notice', error.message); }
+  finally { $('submit').disabled = false; }
+});
+
+refresh(); setInterval(refresh, 1000);
+</script>
+</body>
+</html>
