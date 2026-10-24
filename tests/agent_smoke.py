@@ -233,8 +233,12 @@ def test_runtime_config_defaults():
     assert cfg["model"]["model"] == "deepseek-chat"
     assert cfg["runtime"]["max_steps"] == 20
     assert cfg["workspace"]
+    assert cfg["model"]["api_key"] == "${DEEPSEEK_API_KEY}"
     os.environ["SMOKE_MODEL_KEY"] = "k123"
-    assert config.expand("${SMOKE_MODEL_KEY}") == "k123"
+    try:
+        assert config.expand("${SMOKE_MODEL_KEY}") == "k123"
+    finally:
+        os.environ.pop("SMOKE_MODEL_KEY", None)
 
 
 if __name__ == "__main__":

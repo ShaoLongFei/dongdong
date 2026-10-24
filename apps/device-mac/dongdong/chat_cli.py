@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import signal
 from pathlib import Path
 
@@ -32,7 +33,7 @@ def _print_event(kind: str, data: dict) -> None:
     if kind == "text":
         print(data["delta"], end="", flush=True)
     elif kind == "tool_call":
-        print(f"\n[工具] {data['name']} {data['arguments']}\n", flush=True)
+        print(f"\n[工具] {data['name']} {data['arguments'][:600]}\n", flush=True)
     elif kind == "tool_result":
         print(f"[结果] {data['result'][:600]}\n", flush=True)
     elif kind == "error":
@@ -42,25 +43,28 @@ def _print_event(kind: str, data: dict) -> None:
 
 
 async def main(cfg: dict, message: str | None = None) -> None:
+    # 每个模型请求都打一行 INFO 太吵；错误仍然会显示
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     # 先做不碰数据库的检查：key 或工作区不对就直接退出，别白开一个库
     model = _model(cfg)
     workspace = Path(cfg["workspace"]).expanduser().resolve()
     if not workspace.is_dir():
         raise SystemExit(f"工作区不存在: {workspace}")
     store = Store(config.HOME / "dongdong.db")
-    store.stop_orphan_runs()
-    runtime = Runtime(
-        store,
-        model,
-        workspace,
-        max_steps=int(cfg["runtime"]["max_steps"]),
-        history_messages=int(cfg["runtime"]["history_messages"]),
-    )
-    sid = store.create_session("终端会话", "cli")
-    # asyncio.run 把 SIGINT 换成了「取消主任务」，可主任务卡在 input() 时取消送不进来，
-    # Ctrl-C 会挂住进程。所以读输入时用默认处理器（直接抛 KeyboardInterrupt），跑对话时换回去。
-    loop_sigint = signal.getsignal(signal.SIGINT)
     try:
+        store.stop_orphan_runs()
+        runtime = Runtime(
+            store,
+            model,
+            workspace,
+            max_steps=int(cfg["runtime"]["max_steps"]),
+            history_messages=int(cfg["runtime"]["history_messages"]),
+        )
+        sid = store.create_session("终端会话", "cli")
+        # asyncio.run 把 SIGINT 换成了「取消主任务」，可主任务卡在 input() 时取消送不进来，
+        # Ctrl-C 会挂住进程。所以读输入时用默认处理器（直接抛 KeyboardInterrupt），跑对话时换回去。
+        loop_sigint = signal.getsignal(signal.SIGINT)
         if message:
             await runtime.run(sid, message, on_event=_print_event)
             return
@@ -91,5 +95,8 @@ async def main(cfg: dict, message: str | None = None) -> None:
             except (KeyboardInterrupt, asyncio.CancelledError):
                 print("\n已停止")
                 break
+            except Exception:
+                # _print_event 已经打印了错误；网络/模型失败不应该结束整个终端会话
+                continue
     finally:
         store.close()
