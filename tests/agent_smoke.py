@@ -247,7 +247,9 @@ if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
             try:
-                fn()
+                result = fn()
+                if asyncio.iscoroutine(result):
+                    asyncio.run(result)
                 print(f"ok   {name}")
             except Exception as exc:  # noqa: BLE001 测试跑挂了要打印出来
                 failures += 1

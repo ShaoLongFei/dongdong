@@ -1,4 +1,4 @@
-"""内置工具：shell、读、写、改、列目录、glob、grep。全部限制在工作区内。"""
+"""内置工具：shell、读、写、改、列目录、glob、grep。文件工具限制在工作区内；shell 是显式逃逸口。"""
 
 from __future__ import annotations
 
