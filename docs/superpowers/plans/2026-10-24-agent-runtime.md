@@ -18,7 +18,7 @@
 - 现有 `linx.py`、`audio.py`、`panel.py`、`tools.py`、`agent.py` 不在这个计划里改；新 runtime 先并行存在。
 - 模型协议只做 OpenAI 兼容 `/chat/completions`（base URL 可含 `/v1`；流式 + tools）。
 - 本地单用户；工作区一个根目录；默认只监听 `127.0.0.1`。
-- 测试放在 `tests/agent_smoke.py`。这是对 `AGENTS.md`「唯一测试文件」的显式例外：agent loop 的边界不能只靠手测。`tests/smoke.py` 保持原样，`scripts/check.sh` 两个都跑。
+- 测试放在 `tests/agent_smoke.py`。这是对 `AGENTS.md`「唯一测试文件」的显式例外：agent loop 的边界不能只靠手测。`tests/smoke.py` 保持原样，`scripts/check.sh` 三套都跑。
 - 执行后补充：HTTP/SSE 传输测试拆到 `tests/agent_transport.py`，`check.sh` 现在跑三套；`agent_smoke.py` 只保留 loop/tool 边界。
 - 测试不联网；模型流用假函数注入。
 
@@ -1479,7 +1479,7 @@ Expected: ruff 通过；`smoke 通过`；`agent smoke 通过`。
 | 10 | 新 agent runtime 用 SQLite，存 `~/.dongdong/dongdong.db` | 本地单用户，标准库够用，不引入 Postgres/ORM | 多进程/多用户要换 |
 | 11 | 模型协议只做 OpenAI 兼容 | 灵矽自定义模型本身就是 OpenAI 兼容；DeepSeek/OpenAI 都通 | Anthropic 原生协议以后再加 |
 | 12 | 新 runtime 与旧 `agent.py` 并存 | 不打断现有灵矽语音链路，迁移可以分阶段 | 两套入口短期共存 |
-| 13 | 测试拆到 `tests/agent_smoke.py` | agent loop 的边界必须自动测；`smoke.py` 已接近 300 行 | 偏离「唯一测试文件」，由 `check.sh` 统一跑 |
+| 13 | 测试拆到 `tests/agent_smoke.py` + `tests/agent_transport.py` | agent loop 边界和 HTTP/SSE 传输必须自动测；`smoke.py` 已接近 300 行 | 偏离「唯一测试文件」，由 `check.sh` 统一跑 |
 
 - [ ] **Step 4: 更新架构文档**
 
