@@ -9,7 +9,7 @@
 | 3 | agent 用 CLI 子进程，不自己实现 agent loop | codex / claude 自带工具循环，重写毫无意义 | 受 CLI 能力限制（如不能细粒度控制） |
 | 4 | 投屏用 AppleScript 点控制中心 | 系统没有公开 API；私有框架（AirPlaySender）不稳定 | 依赖辅助功能权限，macOS 升级可能失效 → 提供 `mirror_command` 覆盖 |
 | 5 | 不自己实现唤醒词 | 平台 `realtime` 模式自带 VAD/打断，够用 | 环境噪音会触发；后续可加本地 KWS |
-| 6 | 单文件测试 `tests/smoke.py` | 只保护协议/编解码/路径边界，避免测试拖慢开发 | 没有覆盖 UI 交互，靠手动验 |
+| 6 | 单文件测试 `tests/smoke.py`（已被 13 取代） | 只保护协议/编解码/路径边界，避免测试拖慢开发 | 没有覆盖 UI 交互，靠手动验 |
 | 7 | DeepSeek 走 Claude Code 的兼容端点 | 不用自己写 agent loop，也不用装新 CLI | 需要 `DEEPSEEK_API_KEY`，功能受端点限制 |
 | 8 | 面板跟 `run` 同进程（守护线程 HTTP），默认只听 `127.0.0.1` | 直接读取进程内状态，不加 IPC；本机使用默认不暴露到局域网 | 需要远程访问时自行配置监听地址和 token |
 | 9 | Mac 端用 Mem0 SDK；Qdrant 和 SQLite 存在仓库 `.memory/`，OpenAI 负责提取与嵌入 | 沿用进程内 SDK 和本地持久化，不引入独立服务；本地数据便于设备重启后继续检索 | 保存和搜索文字会发送给 OpenAI；依赖 OpenAI key 和网络，模型工具调用不保证 |

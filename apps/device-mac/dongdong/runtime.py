@@ -111,12 +111,13 @@ class Runtime:
 
     async def run(self, session_id: str, user_text: str, on_event: Emit | None = None) -> str:
         emit: Emit = on_event or (lambda kind, data: None)
-        run_id = self.store.create_run(session_id)
-        user_id = self.store.append_message(session_id, "user", user_text)
-        self.store.add_event(run_id, "run_start", {"session_id": session_id})
-        emit("run_start", {"run_id": run_id})
+        run_id = ""
         usage: dict = {}
         try:
+            run_id = self.store.create_run(session_id)
+            user_id = self.store.append_message(session_id, "user", user_text)
+            self.store.add_event(run_id, "run_start", {"session_id": session_id})
+            emit("run_start", {"run_id": run_id})
             for _ in range(self.max_steps):
                 messages = self._messages(session_id, user_id)
                 text = ""
@@ -181,12 +182,14 @@ class Runtime:
                     )
             raise RuntimeError(f"超过最大步数 {self.max_steps}")
         except asyncio.CancelledError:
-            self.store.finish_run(run_id, "stopped", error="用户停止")
-            self.store.add_event(run_id, "stopped", {})
-            emit("stopped", {})
+            if run_id:
+                self.store.finish_run(run_id, "stopped", error="用户停止")
+                self.store.add_event(run_id, "stopped", {})
+                emit("stopped", {})
             raise
         except Exception as exc:
-            self.store.finish_run(run_id, "error", error=str(exc))
-            self.store.add_event(run_id, "error", {"message": str(exc)})
+            if run_id:
+                self.store.finish_run(run_id, "error", error=str(exc))
+                self.store.add_event(run_id, "error", {"message": str(exc)})
             emit("error", {"message": str(exc)})
             raise

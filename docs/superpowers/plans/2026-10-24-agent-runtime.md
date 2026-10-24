@@ -16,9 +16,10 @@
 - 不新增依赖；SQLite 用标准库，HTTP 用已有的 `httpx`。
 - 每个新文件 ≤ 300 行。
 - 现有 `linx.py`、`audio.py`、`panel.py`、`tools.py`、`agent.py` 不在这个计划里改；新 runtime 先并行存在。
-- 模型协议只做 OpenAI 兼容 `/v1/chat/completions`（流式 + tools）。
+- 模型协议只做 OpenAI 兼容 `/chat/completions`（base URL 可含 `/v1`；流式 + tools）。
 - 本地单用户；工作区一个根目录；默认只监听 `127.0.0.1`。
 - 测试放在 `tests/agent_smoke.py`。这是对 `AGENTS.md`「唯一测试文件」的显式例外：agent loop 的边界不能只靠手测。`tests/smoke.py` 保持原样，`scripts/check.sh` 两个都跑。
+- 执行后补充：HTTP/SSE 传输测试拆到 `tests/agent_transport.py`，`check.sh` 现在跑三套；`agent_smoke.py` 只保留 loop/tool 边界。
 - 测试不联网；模型流用假函数注入。
 
 ## Review Focus
