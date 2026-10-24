@@ -62,6 +62,12 @@ def test_mcp_dispatch():
 
     listed = mcp.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     assert {t["name"] for t in listed["result"]["tools"]} == set(tools.TOOLS)
+    assert {
+        "self.memory.search",
+        "self.memory.save",
+        "self.memory.list",
+        "self.memory.delete",
+    } <= {t["name"] for t in listed["result"]["tools"]}
 
     missing = mcp.handle(
         {
@@ -166,6 +172,29 @@ def test_memory_delete_validates_all_owners_before_deleting():
         assert stub.deleted == ["owned"]
     finally:
         memory._memory = original
+
+
+def test_memory_tools_reject_empty_inputs_before_sdk_init():
+    original = memory._get_memory
+    initialized = False
+
+    def track_init():
+        nonlocal initialized
+        initialized = True
+        return original()
+
+    memory._get_memory = track_init
+    try:
+        for name, arguments in (
+            ("self.memory.delete", {"memory_ids": []}),
+            ("self.memory.search", {"query": ""}),
+            ("self.memory.save", {"text": "   "}),
+        ):
+            result = tools.call(name, arguments)
+            assert result["isError"] is True, result
+        assert initialized is False, "空输入不应初始化 Mem0 SDK"
+    finally:
+        memory._get_memory = original
 
 
 def test_memory_tightens_existing_data_dir_permissions():
