@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 
 HOME = Path(os.environ.get("DONGDONG_HOME") or Path.home() / ".dongdong")
 PATH = HOME / "config.json"
+ENV_REF = re.compile(r"\$\{(\w+)\}")
 
 DEFAULTS: dict = {
     "device_id": "",
@@ -21,6 +23,15 @@ DEFAULTS: dict = {
     "cwd": "",
     "projects": ["~/OtherProjects"],
     "echo_guard": True,
+    "workspace": "~/OtherProjects",
+    "model": {
+        "base_url": "https://api.deepseek.com/v1",
+        "api_key": "${DEEPSEEK_API_KEY}",
+        "model": "deepseek-chat",
+        "temperature": 0.2,
+        "max_tokens": 4096,
+    },
+    "runtime": {"max_steps": 20, "history_messages": 30},
     # 想加 agent 就往 agents 里加一项：cmd 是参数模板，env 支持 ${环境变量}。
     # 平台侧工具名不变，语音说「用 xxx 做」即可，不用改代码。
     "agents": {
@@ -65,6 +76,11 @@ def load() -> dict:
     return cfg
 
 
+def expand(value: str) -> str:
+    """展开 ${ENV}，只在使用时展开，避免把明文 key 写回配置文件。"""
+    return ENV_REF.sub(lambda m: os.environ.get(m.group(1), ""), value)
+
+
 def save(cfg: dict) -> None:
     HOME.mkdir(parents=True, exist_ok=True)
     PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -73,6 +89,8 @@ def save(cfg: dict) -> None:
 
 def ensure() -> dict:
     """加载配置；第一次运行时生成设备身份并落盘。"""
+    HOME.mkdir(parents=True, exist_ok=True, mode=0o700)
+    HOME.chmod(0o700)
     cfg = load()
     if not cfg["device_id"] or not cfg["client_id"]:
         cfg["device_id"] = _mac_like()

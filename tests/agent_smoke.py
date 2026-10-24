@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
 os.environ["DONGDONG_HOME"] = tempfile.mkdtemp(prefix="dongdong-agent-smoke-")
 
-from dongdong import llm  # noqa: E402
+from dongdong import config, llm  # noqa: E402
 from dongdong.builtin_tools import ToolContext, call_tool, resolve_path  # noqa: E402
 from dongdong.llm import ModelConfig, StreamEvent, ToolCall  # noqa: E402
 from dongdong.runtime import Runtime  # noqa: E402
@@ -226,6 +226,15 @@ def test_history_never_starts_with_orphan_tool():
             store.close()
 
     asyncio.run(run())
+
+
+def test_runtime_config_defaults():
+    cfg = config.load()
+    assert cfg["model"]["model"] == "deepseek-chat"
+    assert cfg["runtime"]["max_steps"] == 20
+    assert cfg["workspace"]
+    os.environ["SMOKE_MODEL_KEY"] = "k123"
+    assert config.expand("${SMOKE_MODEL_KEY}") == "k123"
 
 
 if __name__ == "__main__":

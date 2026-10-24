@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> None:
     serve = sub.add_parser("serve", help="启动本地 HTTP 转发（给 ESP32）")
     serve.add_argument("--host")
     serve.add_argument("--port", type=int)
+    chat = sub.add_parser("chat", help="终端里和内置 agent 对话")
+    chat.add_argument("--message", help="只跑一句")
     airplay = sub.add_parser("airplay", help="投屏调试")
     airplay.add_argument(
         "action", nargs="?", default="list", choices=["list", "mirror", "stop", "debug"]
@@ -66,6 +68,11 @@ def main(argv: list[str] | None = None) -> None:
             print(screen.stop(cfg))
         else:
             print(screen.dump())
+        return
+    if args.cmd == "chat":
+        from . import chat_cli
+
+        asyncio.run(chat_cli.main(cfg, args.message))
         return
     if args.cmd == "serve":
         if args.host:
