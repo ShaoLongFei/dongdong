@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 import tempfile
@@ -8,6 +9,7 @@ sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
 os.environ["DONGDONG_HOME"] = tempfile.mkdtemp(prefix="dongdong-agent-smoke-")
 
 from dongdong import llm  # noqa: E402
+from dongdong.builtin_tools import ToolContext, call_tool, resolve_path  # noqa: E402
 from dongdong.llm import ToolCall  # noqa: E402
 from dongdong.store import Store  # noqa: E402
 
@@ -75,6 +77,71 @@ def test_tool_call_without_id_gets_one():
     llm.merge_tool_calls(acc, [{"index": 2, "function": {"name": "glob", "arguments": "{}"}}])
     calls = llm.finish_tool_calls(acc)
     assert calls[0].id == "call_2"
+
+
+def test_path_guard_rejects_escape():
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp).resolve()
+        for bad in ("../x", "/etc/passwd"):
+            try:
+                resolve_path(workspace, bad)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"越界路径被放行: {bad}")
+        with tempfile.TemporaryDirectory() as outside:
+            (Path(outside) / "secret.txt").write_text("x", encoding="utf-8")
+            os.symlink(Path(outside) / "secret.txt", workspace / "link")
+            try:
+                resolve_path(workspace, "link")
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("符号链接越界被放行")
+
+
+def test_file_tools_roundtrip():
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = ToolContext(workspace=Path(tmp).resolve())
+            await call_tool("write_file", {"path": "a.txt", "content": "hello"}, ctx)
+            assert await call_tool("read_file", {"path": "a.txt"}, ctx) == "hello"
+            await call_tool("edit_file", {"path": "a.txt", "old": "hello", "new": "world"}, ctx)
+            assert (Path(tmp) / "a.txt").read_text() == "world"
+
+    asyncio.run(run())
+
+
+def test_shell_timeout_and_output():
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = ToolContext(workspace=Path(tmp).resolve())
+            out = await call_tool("shell", {"command": "pwd"}, ctx)
+            assert "exit_code=0" in out
+            out = await call_tool("shell", {"command": "sleep 2", "timeout_s": 0.2}, ctx)
+            assert "超时" in out
+            out = await call_tool("shell", {"command": "yes x | head -c 1000000"}, ctx)
+            assert "exit_code=0" in out
+            assert len(out) < 13_000, "输出必须被截断"
+
+    asyncio.run(run())
+
+
+def test_grep_skips_symlink_outside_workspace():
+    marker = "dongdong-leak-9f3a"
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp).resolve()
+            with tempfile.TemporaryDirectory() as outside:
+                target = Path(outside) / "secret.txt"
+                target.write_text(marker, encoding="utf-8")
+                os.symlink(target, workspace / "leak.txt")
+                ctx = ToolContext(workspace=workspace)
+                out = await call_tool("grep", {"pattern": marker}, ctx)
+                assert marker not in out, "grep 穿越符号链接泄露了工作区外内容"
+
+    asyncio.run(run())
 
 
 if __name__ == "__main__":
