@@ -7,6 +7,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
 os.environ["DONGDONG_HOME"] = tempfile.mkdtemp(prefix="dongdong-agent-smoke-")
 
+from dongdong import llm  # noqa: E402
+from dongdong.llm import ToolCall  # noqa: E402
 from dongdong.store import Store  # noqa: E402
 
 
@@ -47,6 +49,32 @@ def test_store_stops_orphan_runs():
         assert store.get_run(rid)["status"] == "stopped"
         assert store.stop_orphan_runs() == 0
         store.close()
+
+
+def test_sse_data_line():
+    assert llm.parse_data_line('data: {"choices":[]}') == {"choices": []}
+    assert llm.parse_data_line("data: [DONE]") is None
+    assert llm.parse_data_line(": keep-alive") is None
+    assert llm.parse_data_line("data: not-json") is None
+
+
+def test_tool_call_chunks_are_merged():
+    acc: dict = {}
+    llm.merge_tool_calls(
+        acc,
+        [{"index": 0, "id": "c1", "function": {"name": "read_file", "arguments": '{"pa'}}],
+    )
+    llm.merge_tool_calls(acc, [{"index": 0, "function": {"arguments": 'th":"x"}'}}])
+    assert llm.finish_tool_calls(acc) == [
+        ToolCall(id="c1", name="read_file", arguments='{"path":"x"}')
+    ]
+
+
+def test_tool_call_without_id_gets_one():
+    acc: dict = {}
+    llm.merge_tool_calls(acc, [{"index": 2, "function": {"name": "glob", "arguments": "{}"}}])
+    calls = llm.finish_tool_calls(acc)
+    assert calls[0].id == "call_2"
 
 
 if __name__ == "__main__":
