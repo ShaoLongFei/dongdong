@@ -49,4 +49,10 @@ Only `apps/device-mac/dongdong/tools.py` and `tests/smoke.py` were changed in th
 - Initial `git pull --rebase` attempt while the requested edits were unstaged:
   - `error: cannot pull with rebase: You have unstaged changes.`
   - `error: Please commit or stash them.`
-- After the fix commit, rerun `git pull --rebase` and `git push`; record their results below.
+- `git add apps/device-mac/dongdong/tools.py tests/smoke.py .superpowers/sdd/2026-10-24-mem0-memory/task-2-report.md` was rejected because the report directory is ignored; output: `The following paths are ignored by one of your .gitignore files:`. The report was then included with `git add -f`.
+- `git add apps/device-mac/dongdong/tools.py tests/smoke.py && git add -f .superpowers/sdd/2026-10-24-mem0-memory/task-2-report.md && git commit -m 'fix: report empty memory saves accurately'`
+  - `[codex/mem0-memory 11d788b] fix: report empty memory saves accurately`
+  - `3 files changed, 63 insertions(+), 1 deletion(-)`
+- `git pull --rebase && git push`
+  - `Current branch codex/mem0-memory is up to date.`
+  - `9e5d172..11d788b  codex/mem0-memory -> codex/mem0-memory`
