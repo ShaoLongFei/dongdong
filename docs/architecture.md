@@ -15,6 +15,7 @@ Mac 上跑一个「灵矽设备」：它负责听声音、放声音、把大模�
                 │        apps/device-mac  (Python)           │
                 │  linx.py   设备协议 + 会话     audio.py    │
                 │  mcp.py    JSON-RPC 工具分发   tools.py    │
+                │             Mem0 SDK                       │
                 └───┬────────────────────────────┬───────────┘
                     │                            │
       ┌─────────────▼──────────┐      ┌──────────▼────────────┐
@@ -22,6 +23,9 @@ Mac 上跑一个「灵矽设备」：它负责听声音、放声音、把大模�
       │ codex / claude /       │      │ zeroconf 发现 +       │
       │ deepseek 子进程         │      │ AppleScript 点投屏     │
       └────────────────────────┘      └───────────────────────┘
+
+       Mem0 提取/嵌入 → OpenAI API
+       本地持久化（仓库根目录 .memory/）：Qdrant 向量库 + SQLite 历史库
 ```
 
 ## 为什么是 Python
@@ -57,6 +61,10 @@ C++ 参考实现（[linx-linux](https://github.com/sunqirui1987/linx-linux)）�
 | `self.screen.list` | 局域网里的 AirPlay 目标 |
 | `self.screen.mirror` | 把 Mac 屏幕投到目标 |
 | `self.screen.stop` | 停止投屏 |
+| `self.memory.search` | 搜索当前设备的长期记忆 |
+| `self.memory.save` | 保存稳定事实或偏好 |
+| `self.memory.list` | 列出记忆及 ID |
+| `self.memory.delete` | 按指定 ID 删除记忆 |
 
 ## ESP32 迁移路径
 
