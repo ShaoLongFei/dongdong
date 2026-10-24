@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
 os.environ["DONGDONG_HOME"] = tempfile.mkdtemp(prefix="dongdong-smoke-")
 logging.disable(logging.CRITICAL)  # 预期内的报错别刷屏
 
-from dongdong import agent, config, mcp, screen, tools  # noqa: E402
+from dongdong import agent, config, mcp, memory, screen, tools  # noqa: E402
 from dongdong.linx import _hello  # noqa: E402
 
 
@@ -137,6 +137,34 @@ def test_agent_argv_and_env():
     os.environ["SMOKE_KEY"] = "k123"
     assert agent._expand({"K": "${SMOKE_KEY}"}) == {"K": "k123"}
     assert agent._expand({"K": "${NOT_SET_AT_ALL}"}) == {"K": ""}
+
+
+def test_memory_delete_validates_all_owners_before_deleting():
+    class MemoryStub:
+        records = {"owned": {"user_id": "u1"}, "other": {"user_id": "u2"}}
+        deleted = []
+
+        def get(self, memory_id):
+            return self.records.get(memory_id)
+
+        def delete(self, memory_id):
+            self.deleted.append(memory_id)
+
+    original = memory._memory
+    stub = MemoryStub()
+    memory._memory = stub
+    try:
+        try:
+            memory.delete(["owned", "other"], "u1")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("另一用户的 memory ID 必须拒绝")
+        assert stub.deleted == [], "必须先验证完整列表再删除"
+        assert memory.delete(["owned"], "u1") == ["owned"]
+        assert stub.deleted == ["owned"]
+    finally:
+        memory._memory = original
 
 
 def test_opus_roundtrip():
