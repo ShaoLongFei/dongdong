@@ -1,5 +1,9 @@
 # 接入 code agent（配置驱动）
 
+> 本文只描述旧的 CLI 执行器（`agent.py` + `agents` 配置）。新的内置 agent 由
+> `runtime.py` / `chat_cli.py` 实现，工具和配置都不走 `agents`，见
+> [`architecture.md`](architecture.md) 的「内置 agent（新）」。
+
 agent 是配置项，不是代码。加一个新 agent = 往 `~/.dongdong/config.json` 的 `agents` 里加一项，然后重启 `dongdong run`。
 
 ## 结构

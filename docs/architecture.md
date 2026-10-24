@@ -50,6 +50,23 @@ C++ 参考实现（[linx-linux](https://github.com/sunqirui1987/linx-linux)）�
 **3. 设备身份存本地。** `~/.dongdong/config.json` 存 Device-Id、Client-Id、token。
 删除文件 = 重新注册一台设备。
 
+## 内置 agent（新）
+
+`apps/device-mac/dongdong/` 里新加了一套自己跑的 agent，和旧的 CLI 子进程方案并存：
+
+| 文件 | 作用 |
+| --- | --- |
+| `runtime.py` | agent loop：模型流式返回 → 执行工具 → 工具结果回灌 → 再问模型，直到没有工具调用 |
+| `llm.py` | OpenAI 兼容的流式模型客户端，用项目已有的 `httpx`，不抽 provider |
+| `builtin_tools.py` | 内置工具：shell、读、写、改、列目录、glob、grep |
+| `store.py` | SQLite 持久化：会话、消息、run、事件、工具调用；库在 `~/.dongdong/dongdong.db` |
+| `chat_cli.py` | 终端入口，`dongdong chat` 直接和内置 agent 对话 |
+
+- 旧 `agent.py` 仍是「CLI 执行器」，`dongdong run` 的灵矽语音链路完全不动。
+- `dongdong chat` 不需要灵矽绑定，配好模型 key 就能用。
+- Web 面板和语音后续都复用 `Runtime`，不再各写一套循环。
+- 边界测试在 `tests/agent_smoke.py`，由 `scripts/check.sh` 统一跑。
+
 ## 工具清单
 
 | 工具名 | 作用 |

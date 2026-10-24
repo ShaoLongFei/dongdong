@@ -13,6 +13,11 @@
 | 7 | DeepSeek 走 Claude Code 的兼容端点 | 不用自己写 agent loop，也不用装新 CLI | 需要 `DEEPSEEK_API_KEY`，功能受端点限制 |
 | 8 | 面板跟 `run` 同进程（守护线程 HTTP），默认只听 `127.0.0.1` | 直接读取进程内状态，不加 IPC；本机使用默认不暴露到局域网 | 需要远程访问时自行配置监听地址和 token |
 | 9 | Mac 端用 Mem0 SDK；Qdrant 和 SQLite 存在仓库 `.memory/`，OpenAI 负责提取与嵌入 | 沿用进程内 SDK 和本地持久化，不引入独立服务；本地数据便于设备重启后继续检索 | 保存和搜索文字会发送给 OpenAI；依赖 OpenAI key 和网络，模型工具调用不保证 |
+| 10 | 新 agent runtime 用 SQLite，存 `~/.dongdong/dongdong.db` | 本地单用户，标准库 `sqlite3` 够用，不引入 Postgres/ORM | 多进程/多用户要换 |
+| 11 | 模型协议只做 OpenAI 兼容 | 灵矽自定义模型本身就是 OpenAI 兼容；DeepSeek/OpenAI 都通 | Anthropic 原生协议以后再加 |
+| 12 | 新 runtime 与旧 `agent.py` 并存 | 不打断现有灵矽语音链路，迁移可以分阶段 | 两套入口短期共存 |
+| 13 | 测试拆到 `tests/agent_smoke.py` | agent loop 的边界（路径、超时、历史裁剪）必须自动测；`smoke.py` 已接近 300 行 | 偏离「唯一测试文件」的约定，由 `check.sh` 统一跑 |
+| 14 | shell 超时杀整个进程组；shell 是有意保留的逃生口，路径守卫只覆盖文件工具 | `start_new_session=True` + `killpg` 才能杀掉管道和后台子进程；shell 本来就要能跑任意命令（只挡少量明显危险命令），工作区白名单只对读写工具有意义 | 本地单用户威胁模型；shell 能碰到工作区外，接远端或多用户前必须加沙箱 |
 
 ## 已知的技术债（`shortcut:`）
 

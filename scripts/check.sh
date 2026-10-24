@@ -7,3 +7,4 @@ CFG=apps/device-mac/pyproject.toml
 .venv/bin/ruff format --check --config "$CFG" apps tests
 .venv/bin/ruff check --config "$CFG" apps tests
 .venv/bin/python tests/smoke.py
+.venv/bin/python tests/agent_smoke.py

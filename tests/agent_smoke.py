@@ -1,5 +1,6 @@
 import asyncio
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -251,5 +252,6 @@ if __name__ == "__main__":
             except Exception as exc:  # noqa: BLE001 测试跑挂了要打印出来
                 failures += 1
                 print(f"FAIL {name}: {exc}")
+    shutil.rmtree(os.environ.get("DONGDONG_HOME", ""), ignore_errors=True)
     print("agent smoke 通过" if not failures else f"{failures} 个失败")
     sys.exit(1 if failures else 0)
