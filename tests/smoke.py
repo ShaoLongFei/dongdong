@@ -97,6 +97,21 @@ def test_resolve_dir_blocks_escape():
             raise AssertionError(f"越界目录被放行了: {outside}")
 
 
+def test_resolve_dir_relative_name():
+    root = Path(tempfile.mkdtemp(prefix="dongdong-rel-")).resolve()
+    (root / "proj").mkdir()
+    cfg = {"projects": [str(root)], "cwd": ""}
+    assert agent.resolve_dir(cfg, "proj") == root / "proj", "相对目录要能在项目根下找到"
+    assert agent.resolve_dir(cfg, str(root / "proj")) == root / "proj"
+    for bad in ("nope", "../etc", "/etc"):
+        try:
+            agent.resolve_dir(cfg, bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"不该放行: {bad}")
+
+
 def test_agent_env_contract():
     assert agent.required_env({"cmd": ["x"]}) == []
     assert "DEEPSEEK_API_KEY" in agent.required_env(config.load()["agents"]["deepseek"])

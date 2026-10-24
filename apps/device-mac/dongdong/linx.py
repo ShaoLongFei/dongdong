@@ -113,10 +113,13 @@ class Device:
             state = msg.get("state")
             if state == "sentence_start":
                 log.info("咚咚: %s", msg.get("text"))
+            elif state == "start":
+                log.info("TTS 开始")
             elif state == "stop" and msg.get("is_aborted"):
                 self.player.clear()
         elif kind == "mcp":
             payload = msg.get("payload") or {}
+            log.info("MCP ← %s", payload.get("method") or f"响应 id={payload.get('id')}")
             # 工具里有子进程和 osascript，扔线程里跑，别堵音频
             response = await asyncio.to_thread(mcp.handle, payload)
             if response:

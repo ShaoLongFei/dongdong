@@ -125,19 +125,28 @@ def current() -> Job | None:
 
 
 def resolve_dir(cfg: dict, cwd: str | None) -> Path:
-    """工作目录必须在允许的项目根目录下，越界直接拒绝。"""
+    """工作目录必须在允许的项目根目录下，越界直接拒绝。
+
+    语音里说「dongdong 项目」时模型多半传相对目录，所以相对路径会先在每个项目根下找。
+    """
     roots = [Path(os.path.expanduser(r)).resolve() for r in cfg["projects"]]
     raw = cwd or cfg.get("cwd") or ""
     if not raw:
         if not roots:
             raise ValueError("没有配置允许的项目目录")
         return roots[0]
-    path = Path(os.path.expanduser(raw)).resolve()
-    if not any(path == r or path.is_relative_to(r) for r in roots):
-        raise ValueError(f"目录不在允许范围: {path}（允许 {', '.join(cfg['projects'])}）")
-    if not path.is_dir():
-        raise ValueError(f"目录不存在: {path}")
-    return path
+
+    raw_path = Path(os.path.expanduser(raw))
+    candidates = (
+        [raw_path] if raw_path.is_absolute() else [r / raw_path for r in roots] + [raw_path]
+    )
+    for candidate in candidates:
+        path = candidate.resolve()
+        if not any(path == r or path.is_relative_to(r) for r in roots):
+            continue
+        if path.is_dir():
+            return path
+    raise ValueError(f"目录不在允许范围或不存在: {raw}（允许 {', '.join(cfg['projects'])}）")
 
 
 ENV_REF = re.compile(r"\$\{(\w+)\}")
