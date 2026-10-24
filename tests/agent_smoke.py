@@ -29,6 +29,8 @@ def test_store_roundtrip():
         assert store.events(rid)[0]["type"] == "text"
         assert store.get_run(rid)["status"] == "done"
         assert store.get_run(rid)["usage"]["total_tokens"] == 3
+        newer = store.create_session("更新的会话")
+        assert store.list_sessions()[0]["id"] == newer
         store.close()
 
 

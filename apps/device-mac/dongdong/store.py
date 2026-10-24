@@ -43,7 +43,9 @@ class Store:
 
     def list_sessions(self) -> list[dict]:
         with self._lock:
-            rows = self._conn.execute("SELECT * FROM sessions ORDER BY updated_at DESC").fetchall()
+            rows = self._conn.execute(
+                "SELECT * FROM sessions ORDER BY updated_at DESC, rowid DESC"
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def get_session(self, sid: str) -> dict | None:
