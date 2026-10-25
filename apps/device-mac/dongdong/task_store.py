@@ -4,7 +4,8 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from .task_model import ItemSpec, RunSpec
+from .task_goal import GoalVerification
+from .task_model import ItemSpec, RunSpec, acceptance_value
 from .task_projection import TaskProjection
 
 
@@ -12,7 +13,7 @@ def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-class TaskStore(TaskProjection):
+class TaskStore(GoalVerification, TaskProjection):
     def set_task_status(
         self, run_id: str, status: str, error: str = "", event_type: str = "run_status", data=None
     ) -> bool:
@@ -27,15 +28,20 @@ class TaskStore(TaskProjection):
             row = self._conn.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
             if not row:
                 return False
+            if row[0] in {"done", "failed", "error", "timeout", "canceled", "stopped"}:
+                return False
             ended = (
                 ts
                 if status in {"done", "failed", "error", "timeout", "canceled", "stopped"}
                 else None
             )
             self._conn.execute(
-                "UPDATE runs SET status=?, error=?, ended_at=COALESCE(?, ended_at) WHERE id=?",
+                "UPDATE runs SET status=?, error=?, ended_at=COALESCE(?, ended_at) "
+                "WHERE id=? AND status NOT IN ('done','failed','error','timeout','canceled','stopped')",
                 (status, error[:4000], ended, run_id),
             )
+            if self._conn.execute("SELECT changes()").fetchone()[0] != 1:
+                return False
             self._conn.execute(
                 "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
                 (run_id, event_type, json.dumps(payload, ensure_ascii=False), ts),
@@ -44,8 +50,11 @@ class TaskStore(TaskProjection):
 
     def create_task_run(self, session_id: str, spec: RunSpec) -> str:
         rid, ts = uuid.uuid4().hex[:12], now()
+        acceptance = acceptance_value(spec.acceptance)
+        acceptance_text = json.dumps(acceptance, ensure_ascii=False) if acceptance != "" else ""
         workers = max(1, min(int(spec.max_workers), 32))
         with self._lock, self._conn:
+            self._ensure_goal_columns()
             session = self._conn.execute(
                 "SELECT archived_at FROM sessions WHERE id=?", (session_id,)
             ).fetchone()
@@ -68,8 +77,8 @@ class TaskStore(TaskProjection):
             )
             gid = uuid.uuid4().hex[:12]
             self._conn.execute(
-                "INSERT INTO goals(id, run_id, text, created_at) VALUES (?,?,?,?)",
-                (gid, rid, spec.goal_text, ts),
+                "INSERT INTO goals(id, run_id, text, acceptance, created_at) VALUES (?,?,?,?,?)",
+                (gid, rid, spec.goal_text, acceptance_text, ts),
             )
             self._conn.execute(
                 "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
@@ -233,7 +242,8 @@ class TaskStore(TaskProjection):
         ts = now()
         with self._lock, self._conn:
             row = self._conn.execute(
-                "SELECT run_id FROM items WHERE id=? AND lease_owner=? AND status='running'",
+                "SELECT i.run_id FROM items i JOIN runs r ON r.id=i.run_id "
+                "WHERE i.id=? AND i.lease_owner=? AND i.status='running' AND r.status='running'",
                 (item_id, worker_id),
             ).fetchone()
             if not row:
@@ -252,7 +262,19 @@ class TaskStore(TaskProjection):
                     row[0],
                     "item_" + status,
                     json.dumps(
-                        {"item_id": item_id, "error": error, "result": result}, ensure_ascii=False
+                        {
+                            "item_id": item_id,
+                            "error": error,
+                            "result": result,
+                            "evidence": {
+                                "item_id": item_id,
+                                "attempt": self._conn.execute(
+                                    "SELECT COUNT(*) FROM attempts WHERE item_id=?", (item_id,)
+                                ).fetchone()[0],
+                                "output": result[-2000:],
+                            },
+                        },
+                        ensure_ascii=False,
                     ),
                     ts,
                 ),
@@ -276,6 +298,11 @@ class TaskStore(TaskProjection):
             for row in rows:
                 self._conn.execute(
                     "UPDATE items SET status='open', lease_owner=NULL, lease_until=NULL, updated_at=? WHERE id=?",
+                    (stamp, row[0]),
+                )
+                self._conn.execute(
+                    "UPDATE attempts SET status='retryable_error', ended_at=?, error_kind='lease_expired',"
+                    " error='租约过期' WHERE item_id=? AND status='running'",
                     (stamp, row[0]),
                 )
                 self._conn.execute(

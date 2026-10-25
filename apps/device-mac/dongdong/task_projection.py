@@ -1,5 +1,7 @@
 """任务状态的只读投影，和 SQLite 写入操作分开。"""
 
+import json
+
 
 class TaskProjection:
     def task_view(self, run_id: str):
@@ -27,9 +29,19 @@ class TaskProjection:
         for row in deps:
             by_item.setdefault(row[0], []).append(row[1])
         projected = [dict(item, depends_on=by_item.get(item["id"], [])) for item in items]
+        goal_view = []
+        for goal in goals:
+            value = dict(goal)
+            for key in ("acceptance", "evidence"):
+                if value.get(key):
+                    try:
+                        value[key] = json.loads(value[key])
+                    except (TypeError, json.JSONDecodeError):
+                        pass
+            goal_view.append(value)
         return {
             "run": dict(run),
-            "goals": [dict(goal) for goal in goals],
+            "goals": goal_view,
             "items": projected,
             "attempts": [dict(attempt) for attempt in attempts],
             "events": self.events(run_id),

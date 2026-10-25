@@ -31,6 +31,16 @@ def recover(manager) -> int:
                 "WHERE run_id=? AND status='running'",
                 row,
             )
+            manager.store._conn.execute(
+                "UPDATE attempts SET status='stopped', ended_at=?, error_kind='recovered',"
+                " error='进程重启，任务暂停' WHERE item_id IN (SELECT id FROM items WHERE run_id=?)"
+                " AND status='running'",
+                (manager.store._conn.execute("SELECT datetime('now')").fetchone()[0], row[0]),
+            )
+            manager.store._conn.execute(
+                "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,datetime('now'))",
+                (row[0], "run_recovered", '{"message":"进程重启，结束悬挂尝试"}'),
+            )
         return len(rows)
 
 

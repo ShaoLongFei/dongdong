@@ -31,6 +31,7 @@ class TaskManager:
         approve=None,
         max_workers: int = 1,
         poll_seconds: float = 0.1,
+        verifier=None,
     ):
         self.store = store
         self.cfg = cfg or config.load()
@@ -42,6 +43,7 @@ class TaskManager:
             max_workers=self.max_workers, thread_name_prefix="dongdong-task"
         )
         self.task_executor = TaskExecutor(self.cfg, store, model, runner, approve)
+        self.verifier = verifier
         self.planner = TaskPlanner(self.model, self.cfg)
         self._runs: dict[str, threading.Event] = {}
         self._threads: dict[str, threading.Thread] = {}
@@ -56,6 +58,7 @@ class TaskManager:
         cwd: str | None = None,
         channel: str = "web",
         items: list[ItemSpec] | None = None,
+        acceptance=None,
     ) -> str:
         if self._closed:
             raise RuntimeError("调度器已关闭")
@@ -69,7 +72,11 @@ class TaskManager:
         run_id = self.store.create_task_run(
             session_id,
             RunSpec(
-                goal_text=text, channel=channel, workspace=workspace, max_workers=self.max_workers
+                goal_text=text,
+                channel=channel,
+                workspace=workspace,
+                max_workers=self.max_workers,
+                acceptance=acceptance,
             ),
         )
         with self.store._lock, self.store._conn:
@@ -171,6 +178,8 @@ class TaskManager:
             result = self.task_executor.execute(item, view["run"], cancel)
         except Exception as exc:
             result = AttemptResult("blocked", error=str(exc), error_kind="blocked")
+        if cancel.is_set() or (self.store.get_run(run_id) or {}).get("status") != "running":
+            result = AttemptResult("stopped", error="Run 已停止")
         if result.status == "done":
             self.store.complete_item(item_id, worker, result.output)
         elif result.status == "stopped":
@@ -186,6 +195,17 @@ class TaskManager:
     def _finish(self, run_id: str, status: str, error: str = "") -> None:
         if status == "done":
             view = self.store.task_view(run_id)
+            verification = self.store.verify_goal(run_id, self.verifier)
+            if verification["status"] != "met":
+                reason = verification.get("reason") or "Goal 未通过验收"
+                self.store.set_task_status(
+                    run_id,
+                    "failed",
+                    error=reason,
+                    event_type="run_finished",
+                    data={"goal_status": verification["status"]},
+                )
+                return
             outputs = [item["result"] for item in view["items"] if item.get("result")]
             if outputs:
                 summary = "任务完成：\n" + "\n\n".join(outputs)
