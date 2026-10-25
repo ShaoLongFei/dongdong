@@ -221,9 +221,7 @@ class TaskStore(GoalVerification, TaskProjection):
         """追加修复 Item；旧 Item 与其 attempts 永远保留。"""
         text = (instruction or "").strip()
         with self._lock, self._conn:
-            run = self._conn.execute(
-                "SELECT status FROM runs WHERE id=?", (run_id,)
-            ).fetchone()
+            run = self._conn.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
             failed = self._conn.execute(
                 "SELECT * FROM items WHERE id=? AND run_id=?", (failed_item_id, run_id)
             ).fetchone()
@@ -441,9 +439,12 @@ class TaskStore(GoalVerification, TaskProjection):
                         ts,
                     ),
                 )
-            if status == "done" and self._conn.execute(
-                "SELECT 1 FROM items WHERE id=? AND parent_id IS NOT NULL", (item_id,)
-            ).fetchone():
+            if (
+                status == "done"
+                and self._conn.execute(
+                    "SELECT 1 FROM items WHERE id=? AND parent_id IS NOT NULL", (item_id,)
+                ).fetchone()
+            ):
                 self._conn.execute(
                     "WITH RECURSIVE descendants(id) AS ("
                     " SELECT ? UNION SELECT d.item_id FROM item_deps d JOIN descendants x"
