@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
 from . import config, work_gate
 from .approvals import Approvals
 from .llm import model_from_config
+from .runtime import Runtime
 from .store import Store
 from .task_scheduler import TaskManager
 
@@ -33,6 +35,8 @@ class WebState:
         self.task_session = ""
         self.voice_session = ""
         self.reload()
+        from .meeting import Meeting
+
         self.manager = TaskManager(
             self.store,
             cfg=cfg,
@@ -41,9 +45,12 @@ class WebState:
             approve=self.approvals.request,
         )
         self.manager.recover_runs()
+        self.meeting = Meeting(self)
 
     def voice_text(self, _connection: str, role: str, text: str) -> None:
         if not text.strip():
+            return
+        if role == "user" and self.meeting.voice(text):
             return
         # 平台可能每轮结束就断链，连接 ID 不能作为用户会话的边界。
         if not self.voice_session:
@@ -73,7 +80,14 @@ class WebState:
             and self.manager.status(self._run_id)["run"]["status"] == "running"
         )
 
-    async def start(self, session_id: str, text: str, cwd: str | None = None) -> str:
+    async def start(
+        self, session_id: str, text: str, cwd: str | None = None, *,
+        meeting_options=None, finished=None, observer=None,
+    ) -> str:
+        if self.meeting.db.active() and meeting_options is None:
+            raise ValueError("代码修改模式中请通过会议入口讨论、整理和确认")
+        if meeting_options is not None:
+            return await self._start_meeting(session_id, text, cwd, meeting_options, finished, observer)
         if self.busy:
             raise RuntimeError("上一个任务还在跑")
         if self.model is None:
@@ -97,6 +111,70 @@ class WebState:
         self._run_id = self._last_run = run_id
         return run_id
 
+    async def _start_meeting(self, session_id, text, cwd, options, finished, observer):
+        if self.busy or work_gate.current():
+            raise RuntimeError("另一个任务还在跑")
+        workspace = Path(cwd or self.workspace).resolve()
+        owner = f"web-{uuid.uuid4().hex[:8]}"
+        if not work_gate.acquire(owner):
+            raise RuntimeError("另一个任务还在跑")
+        loop = asyncio.get_running_loop()
+        started = loop.create_future()
+
+        def on_event(kind, data):
+            if observer:
+                observer(kind, data)
+            if kind == "run_start" and not started.done():
+                started.set_result(data["run_id"])
+
+        async def work():
+            status, error = "done", ""
+            try:
+                runtime = Runtime(self.store, self.model, workspace,
+                    max_steps=int(self.cfg["runtime"]["max_steps"]),
+                    history_messages=int(self.cfg["runtime"]["history_messages"]),
+                    cfg=self.cfg, approve=self.approvals.request, **(options or {}))
+                await runtime.run(session_id, text, on_event=on_event)
+            except asyncio.CancelledError:
+                status, error = "stopped", "用户停止；保留部分改动"
+                raise
+            except Exception as exc:
+                status, error = "error", str(exc)
+                raise
+            finally:
+                try:
+                    if finished and started.done() and not started.cancelled():
+                        await finished(status, started.result(), error)
+                except asyncio.CancelledError:
+                    if finished and started.done() and not started.cancelled():
+                        await finished("stopped", started.result(), "收尾时停止；保留部分改动")
+                    raise
+                except Exception as exc:
+                    log.warning("会议收尾失败: %s", exc)
+                finally:
+                    work_gate.release(owner)
+                    if self._task is asyncio.current_task():
+                        self._task = None
+                        self._run_id = ""
+
+        task = asyncio.create_task(work())
+        self._task = task
+        task.add_done_callback(self._consume)
+        try:
+            done, _ = await asyncio.wait({started, task}, timeout=2, return_when=asyncio.FIRST_COMPLETED)
+            if started in done:
+                self._last_run = started.result()
+                self._run_id = self._last_run
+                return self._last_run
+            if task in done:
+                await task
+            raise RuntimeError("任务启动超时")
+        finally:
+            if not started.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                started.cancel()
+
     def _consume(self, task: asyncio.Task) -> None:
         if task.cancelled():
             return
@@ -115,6 +193,9 @@ class WebState:
             self.manager.stop(self._run_id)
 
     async def close(self) -> None:
+        for task in list(self.meeting.pending):
+            task.cancel()
+        await asyncio.gather(*self.meeting.pending, return_exceptions=True)
         await self.stop_active()
         self.manager.close()
         self.store.close()
@@ -128,6 +209,9 @@ class WebAgent:
         self.loop = asyncio.get_running_loop()
         self.last = ""
 
+    def meeting_status(self) -> str | None:
+        return self.state.meeting.mcp_status()
+
     def start(self, instruction: str, cwd: str | None = None, wait_seconds: int = 8) -> str:
         text = (instruction or "").strip()
         if not text:
@@ -135,6 +219,9 @@ class WebAgent:
         wait = max(1, min(int(wait_seconds or 8), 8))
 
         async def submit():
+            meeting = self.state.meeting.mcp_status()
+            if meeting:
+                return meeting
             if work_gate.current():
                 return "另一个任务还在跑，先停止或等它结束。"
             if self.state.model is None:
@@ -148,6 +235,9 @@ class WebAgent:
         return asyncio.run_coroutine_threadsafe(submit(), self.loop).result(timeout=wait + 3)
 
     def result(self, job_id: str = "") -> str:
+        meeting = self.meeting_status()
+        if meeting and not job_id:
+            return meeting
         rid = job_id or self.state._run_id or self.state._last_run or self.last
         run = self.state.store.get_run(rid) if rid else None
         if not run:

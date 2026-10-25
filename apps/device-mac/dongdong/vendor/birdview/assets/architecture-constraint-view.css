@@ -1,0 +1,6 @@
+#open-related-constraints:focus-visible{outline:2px solid var(--mint);outline-offset:0.2143rem}
+body>main[hidden],#constraint-view[hidden]{display:none!important}
+#constraint-view{flex:1;min-height:0;height:auto;overflow:hidden}
+#constraint-view [hidden]{display:none!important}
+#open-related-constraints{width:100%;height:auto;min-height:2.4286rem;margin-top:1.1429rem;padding:0.6429rem;font-size:0.8571rem;text-align:left}
+#open-related-constraints:disabled{opacity:.55;cursor:default}

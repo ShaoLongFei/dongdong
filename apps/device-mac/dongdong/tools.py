@@ -144,6 +144,9 @@ def _status(args: dict) -> str:
     required=["instruction"],
 )
 def _code_run(args: dict) -> str:
+    service = _peek_service()
+    if service and hasattr(service, "meeting_status") and (status := service.meeting_status()):
+        return status
     cfg = config.load()
     if _backend(cfg) == "builtin":
         wait = min(int(args["wait_seconds"]) if args.get("wait_seconds") else 8, 8)

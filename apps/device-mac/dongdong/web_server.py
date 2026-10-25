@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import approvals, config, mcp_routes, skills, tools, work_gate
+from . import approvals, config, mcp_routes, meeting_routes, skills, tools, work_gate
 from . import state as device_state
 from .voice import Voice
 from .web_runtime import WebAgent, WebState
@@ -61,6 +61,8 @@ def create_app(cfg: dict) -> FastAPI:
 
     app = FastAPI(title="咚咚", lifespan=lifespan)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]"])
+    app.include_router(meeting_routes.router(state.meeting))
+    app.state.web_state = state
     app.include_router(skills.router(cfg))
     app.include_router(mcp_routes.router(cfg))
     app.include_router(approvals.router(state.approvals))
@@ -77,6 +79,7 @@ def create_app(cfg: dict) -> FastAPI:
         latest = state.store.get_run(state._run_id or state._last_run)
         return {
             "version": cfg.get("version", ""),
+            "meeting_session": (state.meeting.db.active() or {}).get("sid", ""),
             "workspace": str(state.workspace),
             "model_ready": state.model is not None,
             "error": state.error,
@@ -116,6 +119,7 @@ def create_app(cfg: dict) -> FastAPI:
             runs.append({**run, **state.manager.status(run["id"])})
         return {
             **session,
+            "meeting": state.meeting.db.get(sid),
             "messages": state.store.messages(sid),
             "runs": runs,
         }
@@ -128,6 +132,9 @@ def create_app(cfg: dict) -> FastAPI:
         if not text:
             raise HTTPException(400, "消息不能为空")
         try:
+            meeting = state.meeting.db.get(sid)
+            if meeting and meeting["enabled"]:
+                return await state.meeting.message(sid, text)
             run_id = await state.start(sid, text)
         except RuntimeError as exc:
             raise HTTPException(409, str(exc)) from None
@@ -159,7 +166,7 @@ def create_app(cfg: dict) -> FastAPI:
                 if await request.is_disconnected():
                     return
                 run = state.store.get_run(rid)
-                if run and run["status"] != "running" and not events:
+                if run and run["status"] != "running" and not events and state._run_id != rid:
                     yield "event: end\ndata: {}\n\n"
                     return
                 await asyncio.sleep(0.2)
@@ -200,6 +207,8 @@ def create_app(cfg: dict) -> FastAPI:
             work_gate.release("settings")
 
     def save_settings(body: SettingsIn):
+        if state.meeting.db.active():
+            raise HTTPException(409, "请先退出代码修改模式再更改设置")
         if body.workspace is not None:
             workspace = Path(body.workspace).expanduser().resolve()
             if not workspace.is_dir():

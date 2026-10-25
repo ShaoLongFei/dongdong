@@ -57,6 +57,7 @@ Web API 由 `apps/device-mac/dongdong/web_server.py` 及三个能力 router 定�
 | [记忆规格](superpowers/specs/2026-10-24-mem0-memory-design.md) / [计划](superpowers/plans/2026-10-24-mem0-memory.md) | 设备工具层 Mem0 接入；不代表 Runtime 自动记忆 |
 | [Skills / MCP / 审批计划](superpowers/plans/2026-10-25-agent-capabilities.md) | 已实施，含验证和集成交付记录 |
 | [项目 / 分层记忆 / 归档设计](superpowers/specs/2026-10-25-projects-memory-archive-design.md) | 已确认项目绑定本地目录；完整设计待审阅，尚未实施 |
+| [会议代码修改模式与 Birdview](superpowers/specs/2026-10-25-meeting-code-mode-design.md) | 已确认显式召唤整理方案、按钮及语音确认；已在隔离分支实施，真实会议收音及视觉验收待进行；[实施记录](superpowers/plans/2026-10-25-meeting-code-mode.md) |
 | [旧面板交接单](panel-handoff.md) | 历史记录；panel.py/panel.html 不再由 run 启动 |
 
 ## 维护约定
