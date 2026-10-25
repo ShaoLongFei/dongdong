@@ -36,6 +36,7 @@ class StorySession:
         self.store = store or StoryStore(root or Path.home() / ".dongdong" / "stories")
         self.flush_seconds = flush_seconds
         self.story_id = ""
+        self.session_id = ""
         self.status = "idle"
         self._buffer = ""
         self._timer: asyncio.Task | None = None
@@ -120,6 +121,7 @@ class StorySession:
                 self.store.save_scene(self.story_id, scene)
                 scene["svg"] = scene_to_svg(scene)
                 self._publish("scene", {"storyId": self.story_id, "scene": scene})
+                self._pending.pop(scene_id, None)
             except Exception as exc:  # model and disk errors are visible in the event stream
                 log.warning("故事场景失败: %s", exc)
                 scene = normalize_scene({}, text, scene_id)
@@ -129,13 +131,12 @@ class StorySession:
                     self._publish(
                         "scene", {"storyId": self.story_id, "scene": scene, "fallback": True}
                     )
+                    self._pending.pop(scene_id, None)
                 except Exception as save_exc:
                     self._error = str(save_exc)
                     self.status = "error"
                     self._publish("error", {"message": str(save_exc)})
                 self._publish("error", {"message": str(exc), "sceneId": scene_id})
-            finally:
-                self._pending.pop(scene_id, None)
 
     async def _request_scene(self, text: str) -> dict | str:
         prompt = (
@@ -246,10 +247,27 @@ async def set_story_mode(host, enabled: bool, sid: str | None = None) -> dict:
     if sid not in host.stories:
         host.stories[sid] = StorySession(model=host.model, store=host.story.store)
     story = host.stories[sid]
+    story.session_id = sid
     if enabled:
         if host.meeting.db.active(sid) or host.session_busy(sid):
             raise ValueError("请先结束本对话任务并退出代码修改模式")
         story.start()
+        manifest = story.store.load(story.story_id)["manifest"]
+        manifest["sessionId"] = sid
+        story.store.save_manifest(story.story_id, manifest)
     else:
         await story.stop()
     return story.state()
+
+
+def story_for(host, story_id: str) -> StorySession:
+    for story in host.stories.values():
+        if story.story_id == story_id:
+            return story
+    data = host.story.store.load(story_id)
+    story = StorySession(model=host.model, store=host.story.store)
+    story.story_id = story_id
+    story.session_id = data["manifest"].get("sessionId", "")
+    story.status = data["manifest"].get("status", "done")
+    host.stories[story.session_id or story_id] = story
+    return story

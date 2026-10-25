@@ -183,9 +183,12 @@ def router(state):
     @routes.post("/stories/{story_id}/replay")
     async def replay(story_id: str):
         try:
-            scenes = state.story.replay(story_id)
+            from .story import story_for
+
+            story = story_for(state, story_id)
+            scenes = story.replay(story_id)
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from None
-        return {"storyId": story_id, "scenes": scenes, "cursor": state.story.state()["cursor"]}
+        return {"storyId": story_id, "scenes": scenes, "cursor": story.state()["cursor"]}
 
     return routes

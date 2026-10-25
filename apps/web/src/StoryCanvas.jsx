@@ -17,16 +17,18 @@ export default function StoryCanvas({ state, onModeChange }) {
   useEffect(() => {
     setScenes([]); setError('');
     if (!state?.storyId) return undefined;
-    let cursor = 0;
-    const source = new EventSource(`/api/story/events?since=${cursor}`);
-    source.onmessage = event => {
-      const item = JSON.parse(event.data);
-      cursor = item.id || cursor;
-      if (item.type === 'scene') setScenes(previous => [...previous, { ...item.data.scene, index: previous.length + 1 }]);
-      if (item.type === 'error') setError(item.data?.message || '这一幕生成失败');
+    let cursor = 0; let source; let retry;
+    const connect = () => {
+      source = new EventSource(`/api/story/events?story_id=${encodeURIComponent(state.storyId)}&since=${cursor}`);
+      source.onmessage = event => {
+        const item = JSON.parse(event.data); cursor = Math.max(cursor, item.id || cursor);
+        if (item.type === 'scene') setScenes(previous => previous.some(scene => scene.sceneId === item.data.scene.sceneId) ? previous : [...previous, { ...item.data.scene, index: previous.length + 1 }]);
+        if (item.type === 'error') setError(item.data?.message || '这一幕生成失败');
+      };
+      source.onerror = () => { source.close(); retry = window.setTimeout(connect, 1000); };
     };
-    source.onerror = () => source.close();
-    return () => source.close();
+    connect();
+    return () => { source?.close(); window.clearTimeout(retry); };
   }, [state?.storyId]);
   const recording = state?.status === 'recording';
   return <section className="story-panel">

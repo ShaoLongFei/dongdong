@@ -26,6 +26,7 @@ from . import (
     tools,
     work_gate,
 )
+from .story import story_for
 from . import state as device_state
 from .voice import Voice, VoiceIn
 from .web_runtime import WebAgent, WebState
@@ -115,8 +116,8 @@ def create_app(cfg: dict) -> FastAPI:
         return {"enabled": voice.enabled}
 
     @app.get("/api/story/events")
-    async def api_story_events(request: Request, since: int = 0):
-        story = state.story
+    async def api_story_events(request: Request, story_id: str = "", since: int = 0):
+        story = story_for(state, story_id) if story_id else state.story
 
         async def stream():
             cursor = max(0, since)
