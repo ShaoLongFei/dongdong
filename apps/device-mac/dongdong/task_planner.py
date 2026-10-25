@@ -51,6 +51,34 @@ class TaskPlanner:
                 used_fallback=True,
             )
 
+    def repair_instruction(self, item: dict, run: dict) -> tuple[str, str]:
+        """为失败 Item 生成单条修复指令；任何异常都交给调用方回退。"""
+        source = {
+            "instruction": str(item.get("instruction") or "")[:4000],
+            "error": str(item.get("error") or "")[:4000],
+            "result": str(item.get("result") or "")[-2000:],
+            "cwd": str(item.get("cwd") or run.get("workspace") or ""),
+        }
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是失败任务修复规划器。只返回 JSON，格式为 "
+                    '{"instruction":"一条可执行的修复指令"}。'
+                    "不要返回 cwd、agent、scope、工具调用或多个步骤；不要声称已执行。"
+                ),
+            },
+            {"role": "user", "content": json.dumps(source, ensure_ascii=False)},
+        ]
+        raw = self._collect(self.stream_fn(self.model, messages, tools=[]))
+        value = self._decode(raw)
+        if not isinstance(value, dict) or set(value) != {"instruction"}:
+            raise ValueError("修复规划必须只返回 instruction")
+        instruction = value.get("instruction")
+        if not isinstance(instruction, str) or not instruction.strip() or len(instruction) > 4000:
+            raise ValueError("修复 instruction 无效")
+        return instruction.strip(), "model"
+
     def _generate(self, text: str, cwd: str) -> str:
         messages = [
             {

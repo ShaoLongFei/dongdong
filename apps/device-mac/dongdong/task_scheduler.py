@@ -427,10 +427,30 @@ class TaskManager:
             for path in paths
         ):
             raise ValueError("原任务目录不属于会话当前项目")
+        repair_source = "user"
+        if not (instruction or "").strip() and self.model is not None:
+            try:
+                instruction, repair_source = self.planner.repair_instruction(target, run)
+                self.store.add_event(
+                    run_id,
+                    "repair_planning_done",
+                    {"failed_item_id": target["id"], "source": repair_source},
+                )
+            except Exception as exc:  # noqa: BLE001 模型失败必须回退安全默认指令
+                repair_source = "fallback"
+                self.store.add_event(
+                    run_id,
+                    "repair_planning_fallback",
+                    {"failed_item_id": target["id"], "reason": str(exc)[:4000]},
+                )
         self.store.add_event(
             run_id,
             "repair_requested",
-            {"failed_item_id": target["id"], "instruction": (instruction or "").strip()},
+            {
+                "failed_item_id": target["id"],
+                "instruction": (instruction or "").strip(),
+                "source": repair_source,
+            },
         )
         self.store.add_repair_item(run_id, target["id"], instruction)
         with self.store._lock, self.store._conn:

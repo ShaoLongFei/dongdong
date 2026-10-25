@@ -674,7 +674,6 @@ def test_optional_auto_recovery_across_manager_restart():
             poll_seconds=0.01,
         )
         assert manager.auto_recover is True
-        # automatic_id 已在第一次进程中暂停，模拟第二次进程再次遗留 running。
         with restored._lock, restored._conn:
             restored._conn.execute(
                 "UPDATE runs SET status='running', error='' WHERE id=?", (automatic_id,)
@@ -688,11 +687,45 @@ def test_optional_auto_recovery_across_manager_restart():
         finished = manager.wait(automatic_id, 3)
         assert finished["run"]["status"] == "done"
         assert finished["items"][0]["result"] == "continued"
-        events = [event["type"] for event in finished["events"]]
-        assert "run_recovered" in events
+        assert "run_recovered" in [event["type"] for event in finished["events"]]
         assert manager.recover_runs() == 0
         manager.close()
         restored.close()
+
+
+def test_model_repair_instruction_falls_back_safely():
+    from dongdong.task_model import AttemptResult
+    from dongdong.task_scheduler import TaskManager
+
+    with tempfile.TemporaryDirectory(prefix="dongdong-model-repair-") as tmp:
+        store = Store(Path(tmp) / "repair.db")
+        sid = store.create_session("repair")
+        rid = store.create_task_run(sid, RunSpec(goal_text="repair", workspace=tmp))
+        store.add_items(rid, [ItemSpec(id="failed", instruction="原任务", cwd=tmp)])
+        with store._lock, store._conn:
+            store._conn.execute(
+                "UPDATE items SET status='failed', error='temporary' WHERE id='failed'"
+            )
+            store._conn.execute("UPDATE runs SET status='failed' WHERE id=?", (rid,))
+
+        def stream(*_args, **_kwargs):
+            return '{"instruction":"模型建议的修复"}'
+
+        manager = TaskManager(
+            store,
+            cfg={"workspace": tmp},
+            model="model",
+            runner=lambda item, *_: AttemptResult("done", output=item["instruction"]),
+        )
+        manager.planner.stream_fn = stream
+        result = manager.repair(rid)
+        finished = manager.wait(rid, 3)
+        assert finished["run"]["status"] == "done"
+        assert any("模型建议的修复" in item["result"] for item in finished["items"])
+        assert any(event["type"] == "repair_planning_done" for event in finished["events"])
+        manager.close()
+        store.close()
+
 
 
 if __name__ == "__main__":
