@@ -20,6 +20,8 @@ DEFAULTS: dict = {
     "ws_url": "",
     "token": "",
     "agent": "codex",
+    # cli = 旧 codex/claude 子进程；builtin = 本地 Runtime（灵矽语音走 MCP 时用）
+    "code_backend": "cli",
     "cwd": "",
     "projects": ["~/OtherProjects"],
     "echo_guard": True,

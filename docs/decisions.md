@@ -20,6 +20,8 @@
 | 14 | shell 超时杀整个进程组 | `start_new_session=True` + `killpg` 才能杀掉管道和后台子进程，只杀顶层命令会留下孤儿 | 组内所有进程一起死，不能只杀其中一条 |
 | 15 | shell 是有意保留的逃生口；路径守卫只覆盖文件工具 | shell 本来就要能跑任意命令（只挡少量明显危险命令），工作区白名单只对读写工具有意义 | 本地单用户威胁模型；shell 能碰到工作区外、继承环境变量（含 key），接远端或多用户前必须加沙箱 |
 | 16 | Phase 1 关闭 DeepSeek thinking | DeepSeek V4 默认开思考；请求带 `tools` 时必须回传所有历史 `reasoning_content`，否则 400。Phase 1 不存思考内容，用 `extra_body` 关掉最省事 | 复杂任务少一层推理；以后要开思考，得在 messages 里持久化并回传 `reasoning_content` |
+| 17 | 灵矽语音走设备 MCP，不做公网穿透；`code_backend=builtin` 时本地 Runtime 跑在专用线程 + 事件循环 | 平台是 MCP client，Mac 主动连出去，不需要入站端口；同步 `tools/call` 用 8 秒等待 + job id，避免语音回合被长任务卡死 | 语音只能轮询结果，不能主动推送；`builtin` 的 shell 能力暴露给语音，需审批/沙箱才适合多人 |
+| 18 | 再加一套 `tests/agent_mcp.py` | MCP 的线程/事件循环、取消、默认 CLI 路由和 cwd 边界是会执行命令的边界，值得自动测 | 第四套测试文件，继续偏离「唯一测试文件」；由 `check.sh` 统一跑 |
 
 ## 已知的技术债（`shortcut:`）
 

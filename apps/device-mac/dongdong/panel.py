@@ -57,6 +57,10 @@ def make_handler(cfg: dict):
             instruction = (req.get("instruction") or "").strip()
             if not instruction:
                 return self._json(400, {"error": "instruction 不能为空"})
+            if cfg.get("code_backend") == "builtin":
+                return self._json(
+                    409, {"error": "builtin 模式请用语音派任务；面板任务还没接 Runtime"}
+                )
             name = (req.get("agent") or cfg["agent"]).strip()
             preset = cfg["agents"].get(name)
             if not preset:

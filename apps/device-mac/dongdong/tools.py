@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -10,6 +11,44 @@ from dataclasses import dataclass
 from . import agent, config, memory, screen, state
 
 log = logging.getLogger("dongdong.tools")
+
+_service = None
+_service_lock = threading.Lock()
+
+
+def _backend(cfg: dict) -> str:
+    backend = cfg.get("code_backend", "cli")
+    if backend not in {"cli", "builtin"}:
+        raise ValueError(f"未知 code_backend: {backend}，只能是 cli 或 builtin")
+    return backend
+
+
+def _get_service(cfg: dict):
+    global _service
+    from .agent_service import AgentService
+
+    with _service_lock:
+        if _service is None:
+            _service = AgentService(cfg)
+        return _service
+
+
+def _peek_service():
+    with _service_lock:
+        return _service
+
+
+def service_snapshot():
+    service = _peek_service()
+    return service.snapshot() if service else None
+
+
+def close_service() -> None:
+    global _service
+    with _service_lock:
+        service, _service = _service, None
+    if service:
+        service.close()
 
 
 @dataclass
@@ -64,6 +103,11 @@ def call(name: str, arguments: dict) -> dict:
 @tool("self.system.status", "查看咚咚当前状态：用哪个 agent、工作目录、有没有任务在跑")
 def _status(args: dict) -> str:
     cfg = config.load()
+    backend = _backend(cfg)
+    if backend == "builtin":
+        service = _peek_service()
+        job = service.current() if service else None
+        return f"agent=builtin 工作区={cfg['workspace']} 运行中任务={job.id if job else '无'}"
     job = agent.current()
     return (
         f"agent={cfg['agent']}（可选 {', '.join(cfg['agents'])}）"
@@ -77,19 +121,27 @@ def _status(args: dict) -> str:
 
 @tool(
     "self.code.run",
-    "让 code agent 执行一句编程任务并返回结果。agent 名字来自配置，默认 codex / claude / deepseek。"
+    "让本地 code agent 执行一句编程任务并返回结果。后端由配置 code_backend 决定："
+    "cli 用 codex/claude/deepseek，builtin 用内置 Runtime。"
     "任务通常要几十秒，指令要具体，比如「在 dongdong 项目里给 README 加一段安装说明」。",
     props={
         "instruction": {"type": "string", "description": "要 agent 做什么，自然语言，尽量具体"},
-        "agent": {"type": "string", "description": "配置里的 agent 名字，不填用默认那个"},
-        "cwd": {"type": "string", "description": "项目目录，必须在允许的项目路径下"},
-        "wait_seconds": {"type": "integer", "description": "最多等多少秒，默认 120"},
+        "agent": {"type": "string", "description": "CLI 后端的 agent 名字；builtin 忽略"},
+        "cwd": {"type": "string", "description": "项目目录，必须在工作区/允许的项目路径下"},
+        "wait_seconds": {
+            "type": "integer",
+            "description": "最多等多少秒；builtin 默认 8，语音固定最多 8",
+        },
     },
     required=["instruction"],
 )
 def _code_run(args: dict) -> str:
+    cfg = config.load()
+    if _backend(cfg) == "builtin":
+        wait = min(int(args["wait_seconds"]) if args.get("wait_seconds") else 8, 8)
+        return _get_service(cfg).start(args["instruction"], args.get("cwd"), wait)
     return agent.run(
-        config.load(),
+        cfg,
         args["instruction"],
         args.get("agent"),
         args.get("cwd"),
@@ -103,6 +155,9 @@ def _code_run(args: dict) -> str:
     props={"job_id": {"type": "string", "description": "任务号，不填就是最近一次"}},
 )
 def _code_result(args: dict) -> str:
+    if _backend(config.load()) == "builtin":
+        service = _peek_service()
+        return service.result(args.get("job_id") or "") if service else "还没有跑过任务。"
     return agent.result(args.get("job_id") or "")
 
 
@@ -112,6 +167,9 @@ def _code_result(args: dict) -> str:
     props={"job_id": {"type": "string", "description": "任务号，不填就停最近的"}},
 )
 def _code_stop(args: dict) -> str:
+    if _backend(config.load()) == "builtin":
+        service = _peek_service()
+        return service.stop(args.get("job_id") or "") if service else "没有可停的任务。"
     return agent.stop(args.get("job_id") or "")
 
 

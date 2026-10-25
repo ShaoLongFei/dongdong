@@ -94,6 +94,8 @@ def main(argv: list[str] | None = None) -> None:
             asyncio.run(device.run())
     except KeyboardInterrupt:
         print("\n再见")
+    finally:
+        tools.close_service()
 
 
 if __name__ == "__main__":

@@ -40,7 +40,7 @@ def record_call(name: str, arguments: dict, ms: int, result: dict) -> None:
 
 
 def snapshot(cfg: dict) -> dict:
-    from . import agent
+    from . import agent, tools
 
     with _lock:
         conn = _data["connection"]
@@ -56,8 +56,12 @@ def snapshot(cfg: dict) -> dict:
             "last_tts": _data["last_tts"],
             "calls": list(_data["calls"]),
         }
-    payload["job"] = agent.snapshot()
-    payload["default_agent"] = cfg.get("agent", "")
+    if cfg.get("code_backend") == "builtin":
+        payload["job"] = tools.service_snapshot()
+        payload["default_agent"] = "builtin"
+    else:
+        payload["job"] = agent.snapshot()
+        payload["default_agent"] = cfg.get("agent", "")
     payload["agents"] = list((cfg.get("agents") or {}).keys())
     return payload
 

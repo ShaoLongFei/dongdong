@@ -8,26 +8,16 @@ import signal
 from pathlib import Path
 
 from . import config
-from .llm import ModelConfig
+from .llm import ModelConfig, model_from_config
 from .runtime import Runtime
 from .store import Store
 
 
 def _model(cfg: dict) -> ModelConfig:
-    model = cfg["model"]
-    api_key = config.expand(model["api_key"])
-    if not api_key:
-        raise SystemExit(
-            "没有模型 key：在 ~/.dongdong/config.json 设置 model.api_key 或导出 DEEPSEEK_API_KEY"
-        )
-    return ModelConfig(
-        base_url=model["base_url"],
-        api_key=api_key,
-        model=model["model"],
-        temperature=float(model["temperature"]),
-        max_tokens=int(model["max_tokens"]),
-        extra_body=model.get("extra_body") or {},
-    )
+    try:
+        return model_from_config(cfg)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
 
 
 def _print_event(kind: str, data: dict) -> None:

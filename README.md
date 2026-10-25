@@ -35,10 +35,22 @@ export DEEPSEEK_API_KEY=...
 | --- | --- |
 | `apps/device-mac/` | Mac 设备端：灵矽 WS 协议、音频、MCP 工具实现 |
 | `firmware/` | ESP32 固件规划（复用 xiaozhi-esp32） |
-| `docs/` | [架构](docs/architecture.md) · [协议摘要](docs/linx-protocol.md) · [操作手册](docs/runbook.md) · [接入 agent](docs/agents.md) · [决策记录](docs/decisions.md) |
+| `docs/` | [架构](docs/architecture.md) · [协议摘要](docs/linx-protocol.md) · [操作手册](docs/runbook.md) · [接入 agent](docs/agents.md) · [语音提示词](docs/linx-voice-prompt.md) · [决策记录](docs/decisions.md) |
 | `scripts/` | setup / dev / check |
 | `deploy/` | launchd 自启、环境变量样例 |
-| `tests/` | 三套 smoke：协议/边界（`smoke.py`）+ agent loop（`agent_smoke.py`）+ 传输（`agent_transport.py`） |
+| `tests/` | 四套 smoke：协议/边界（`smoke.py`）+ agent loop（`agent_smoke.py`）+ 传输（`agent_transport.py`）+ MCP job（`agent_mcp.py`） |
+
+## 语音指挥本地 agent
+
+灵矽云端仍然负责 ASR/对话/TTS；需要操作 Mac 时，云端模型调用设备 MCP 的 `self.code.run`，
+Mac 上的 agent 执行。**不需要公网穿透，也不开放入站端口。**
+
+```json
+{ "code_backend": "builtin" }
+```
+
+默认 `cli` 保持旧 codex/claude 路径不变；改成 `builtin` 后走本地 `Runtime`。提示词模板、
+时间限制和安全边界见 [`docs/linx-voice-prompt.md`](docs/linx-voice-prompt.md)。
 
 ## 接入自己的 agent
 

@@ -62,19 +62,29 @@ C++ 参考实现（[linx-linux](https://github.com/sunqirui1987/linx-linux)）�
 | `builtin_tools.py` | 内置工具：shell、读、写、改、列目录、glob、grep |
 | `store.py` | SQLite 持久化：会话、消息、run、事件、工具调用；库在 `~/.dongdong/dongdong.db` |
 | `chat_cli.py` | 终端入口，`dongdong chat` 直接和内置 agent 对话 |
+| `agent_service.py` | 把 `Runtime` 包成后台 job，供灵矽 MCP 的同步 `tools/call` 使用 |
 
-- 旧 `agent.py` 仍是「CLI 执行器」，`dongdong run` 的灵矽语音链路完全不动。
+- 旧 `agent.py` 仍是「CLI 执行器」；`code_backend=cli`（默认）时灵矽语音链路完全不动。
+- 设置 `code_backend=builtin` 后，`self.code.run/result/stop` 改走本地 `Runtime`，工具名和提示词不变。
 - `dongdong chat` 不需要灵矽绑定，配好模型 key 就能用。
 - 默认关闭 DeepSeek thinking：带 `tools` 时它要求回传历史 `reasoning_content`，Phase 1 不存，开着会 400。
 - Web 面板和语音后续都复用 `Runtime`，不再各写一套循环。
-- 边界测试在 `tests/agent_smoke.py` 和 `tests/agent_transport.py`，由 `scripts/check.sh` 统一跑。
+- 边界测试在 `tests/agent_smoke.py`、`tests/agent_transport.py` 和 `tests/agent_mcp.py`，由 `scripts/check.sh` 统一跑。
+
+### 灵矽语音接本地 agent
+
+不开放入站端口，也不做公网穿透。灵矽平台仍是 MCP client，通过 Mac 主动建立的 WebSocket 下发
+`tools/call`；`code_backend=builtin` 时，`self.code.run` 把任务交给 `Runtime`，最多等 8 秒，
+没跑完返回 job id，之后用 `self.code.result` 查。
+
+系统提示词、配置和验证步骤见 [`docs/linx-voice-prompt.md`](linx-voice-prompt.md)。
 
 ## 工具清单
 
 | 工具名 | 作用 |
 | --- | --- |
 | `self.system.status` | 当前 agent、工作目录、投屏目标、运行中的任务 |
-| `self.code.run` | 把一句话交给 agent，同步等最多 N 秒，返回输出 |
+| `self.code.run` | 把一句话交给 agent，同步等最多 N 秒；CLI 或内置 Runtime 由 `code_backend` 决定 |
 | `self.code.result` | 查看上一条/指定任务的输出（跑太久时用） |
 | `self.code.stop` | 杀掉正在跑的任务 |
 | `self.screen.list` | 局域网里的 AirPlay 目标 |

@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from . import config
+
 
 @dataclass
 class ModelConfig:
@@ -17,6 +19,24 @@ class ModelConfig:
     temperature: float = 0.2
     max_tokens: int = 4096
     extra_body: dict = field(default_factory=dict)
+
+
+def model_from_config(cfg: dict) -> ModelConfig:
+    """从配置构造模型客户端参数；key 只在调用时展开。"""
+    model = cfg["model"]
+    api_key = config.expand(model["api_key"])
+    if not api_key:
+        raise ValueError(
+            "没有模型 key：在 ~/.dongdong/config.json 设置 model.api_key 或导出 DEEPSEEK_API_KEY"
+        )
+    return ModelConfig(
+        base_url=model["base_url"],
+        api_key=api_key,
+        model=model["model"],
+        temperature=float(model["temperature"]),
+        max_tokens=int(model["max_tokens"]),
+        extra_body=model.get("extra_body") or {},
+    )
 
 
 @dataclass

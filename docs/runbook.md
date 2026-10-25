@@ -78,6 +78,17 @@ agent 任务默认最多等 120 秒，超时会转后台，用「刚才那个任
 
 运行时打开 <http://127.0.0.1:8766> 可查看连接、对话、任务输出和工具调用，也可以直接派任务。要从手机或电视访问，在 `~/.dongdong/config.json` 设置 `panel.host` 为 `0.0.0.0` 并设置 `panel.token`，重启 `run` 后打开 `http://<Mac IP>:8766/?token=xxx`。
 
+### 语音调用本地内置 agent
+
+默认 `code_backend=cli`，语音还是走 codex/claude。要用新的内置 agent：
+
+```json
+{ "code_backend": "builtin", "workspace": "~/OtherProjects" }
+```
+
+重启 `run`。工具名仍是 `self.code.run`，平台提示词和配置见
+[`linx-voice-prompt.md`](linx-voice-prompt.md)。这条路径不需要公网穿透，也不加入站端口。
+
 ## 5. 投屏
 
 ```bash
