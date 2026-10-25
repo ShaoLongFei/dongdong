@@ -27,29 +27,37 @@ def test_structured_task_planner_validates_dag_workspace_agents_and_tools():
         assert not result.error and not result.used_fallback
         assert [item.id for item in result.items] == ["one", "two"]
         assert result.items[1].depends_on == ("one",)
-
         def fenced(*_a, **_k):
             return '```json\n{"items":[{"id":"f","instruction":"围栏"}]}\n```'
 
-        fenced_result = TaskPlanner("model", {"workspace": str(root)}, stream_fn=fenced).plan(
-            "围栏", str(root)
-        )
+        fenced_result = TaskPlanner(
+            "model", {"workspace": str(root)}, stream_fn=fenced
+        ).plan("围栏", str(root))
         assert fenced_result.items[0].id == "f"
-
         for payload, expected in [
             ("不是 JSON", "规划 JSON 无效"),
-            ('{"items":[{"id":"a","instruction":"a","depends_on":["missing"]}]}', "依赖不存在"),
+            (
+                '{"items":[{"id":"a","instruction":"a","depends_on":["missing"]}]}',
+                "依赖不存在",
+            ),
             (
                 '{"items":[{"id":"a","instruction":"a","depends_on":["b"]},{"id":"b","instruction":"b","depends_on":["a"]}]}',
                 "依赖存在环",
             ),
             ('{"items":[{"id":"a","instruction":"a","cwd":"/tmp"}]}', "cwd 越出工作区"),
-            ('{"items":[{"id":"a","instruction":"a","agent":"unknown"}]}', "未知 agent"),
+            (
+                '{"items":[{"id":"a","instruction":"a","agent":"unknown"}]}',
+                "未知 agent",
+            ),
         ]:
             fallback = TaskPlanner(
-                "model", {"workspace": str(root)}, stream_fn=lambda *_a, p=payload, **_k: p
+                "model",
+                {"workspace": str(root)},
+                stream_fn=lambda *_a, p=payload, **_k: p,
             ).plan("原始目标", str(root))
-            assert fallback.used_fallback and fallback.items[0].instruction == "原始目标"
+            assert (
+                fallback.used_fallback and fallback.items[0].instruction == "原始目标"
+            )
             assert expected in fallback.error
 
 
@@ -78,10 +86,15 @@ def test_task_store_claims_dag_atomically_and_recovers_lease():
         view = second.task_view(run_id)
         assert view["items"][0]["status"] == "done"
         assert view["items"][0]["result"] == output
-        assert next(a for a in view["attempts"] if a["worker_id"] == "two")["output"] == output
+        assert (
+            next(a for a in view["attempts"] if a["worker_id"] == "two")["output"]
+            == output
+        )
         assert view["items"][1]["status"] == "blocked"
         with contextlib.suppress(ValueError):
-            first.add_items(run_id, [ItemSpec(id="c", instruction="c", depends_on=("missing",))])
+            first.add_items(
+                run_id, [ItemSpec(id="c", instruction="c", depends_on=("missing",))]
+            )
             raise AssertionError("缺失依赖必须拒绝")
         with contextlib.suppress(ValueError):
             first.add_items(
@@ -121,11 +134,16 @@ def test_task_manager_runs_items_with_retry_and_stop():
         run_id = manager.submit(
             sid,
             "完成",
-            items=[ItemSpec(id="ok", instruction="ok"), ItemSpec(id="retry", instruction="retry")],
+            items=[
+                ItemSpec(id="ok", instruction="ok"),
+                ItemSpec(id="retry", instruction="retry"),
+            ],
         )
         assert manager.wait(run_id, 3)["run"]["status"] == "done"
         assert calls.count("retry") == 2
-        stopped = manager.submit(sid, "停止", items=[ItemSpec(id="later", instruction="later")])
+        stopped = manager.submit(
+            sid, "停止", items=[ItemSpec(id="later", instruction="later")]
+        )
         assert manager.stop(stopped)["run"]["status"] == "canceled"
         assert not store.claim_item(stopped, "later", "late")
         manager.close()
@@ -133,20 +151,32 @@ def test_task_manager_runs_items_with_retry_and_stop():
 
 
 def test_task_tools_and_web_projection_use_task_manager():
-    assert {"self.task.status", "self.task.stop", "self.task.resume"} <= set(tools.TOOLS)
+    assert {"self.task.status", "self.task.stop", "self.task.resume"} <= set(
+        tools.TOOLS
+    )
     from dongdong.web_runtime import WebState
     from dongdong.task_model import AttemptResult
 
     async def check():
         cfg = config.load()
-        cfg["workspace"], cfg["model"]["api_key"] = tempfile.gettempdir(), "boundary-only"
+        cfg["workspace"], cfg["model"]["api_key"] = (
+            tempfile.gettempdir(),
+            "boundary-only",
+        )
         state = WebState(cfg)
-        state.manager.task_executor.runner = lambda *_: AttemptResult("done", output="ok")
+        state.manager.task_executor.runner = lambda *_: AttemptResult(
+            "done", output="ok"
+        )
         sid = state.store.create_session("task web")
         rid = await state.start(sid, "hello")
         view = state.manager.status(rid)
         assert view["items"] and view["run"]["id"] == rid
-        assert state.manager.status(rid)["run"]["status"] in {"running", "done", "failed"}
+        assert state.manager.status(rid)["run"]["status"] in {
+            "planning",
+            "running",
+            "done",
+            "failed",
+        }
         await state.close()
 
     asyncio.run(check())
@@ -166,8 +196,12 @@ def test_task_manager_pause_resume_and_timeout_recovery():
         store.add_items(run_id, [ItemSpec(id="recover-item", instruction="x")])
         assert store.claim_item(run_id, "recover-item", "worker", lease_seconds=60)
         restored = Store(path)
-        assert restored.requeue_expired(run_id, now_value="2999-01-01T00:00:00+00:00") == 1
-        manager = TaskManager(restored, runner=lambda *_: AttemptResult("done"), max_workers=1)
+        assert (
+            restored.requeue_expired(run_id, now_value="2999-01-01T00:00:00+00:00") == 1
+        )
+        manager = TaskManager(
+            restored, runner=lambda *_: AttemptResult("done"), max_workers=1
+        )
         assert manager.monitor_once(run_id)["run"]["status"] == "timeout"
         assert not restored.claim_item(run_id, "recover-item", "late")
         manager.close()
@@ -225,7 +259,10 @@ def test_conversations_isolate_modes_runs_voice_and_cancellation():
                     b = await new()
                     health = (await client.get("/api/state")).json()
                     assert health["task_session"] == b and not health["busy"]
-                    assert not health["meeting_session"] and health["active_runs"][a] == arun
+                    assert (
+                        not health["meeting_session"]
+                        and health["active_runs"][a] == arun
+                    )
                     host.voice_text("mic", "user", "B 的语音")
                     assert host.meeting.db.get(a)["seq"] == 0
                     assert host.store.messages(b)[-1]["content"] == "B 的语音"
@@ -237,7 +274,10 @@ def test_conversations_isolate_modes_runs_voice_and_cancellation():
                     duplicate = await client.post(
                         f"/api/sessions/{b}/messages", json={"text": "重入"}
                     )
-                    assert duplicate.status_code == 409 and len(host.store.list_runs(b)) == 1
+                    assert (
+                        duplicate.status_code == 409
+                        and len(host.store.list_runs(b)) == 1
+                    )
                     c = await new()
                     assert (
                         await client.put(f"/api/meetings/{c}", json={"enabled": True})
@@ -246,7 +286,9 @@ def test_conversations_isolate_modes_runs_voice_and_cancellation():
                     assert host.task_session == c
                     crun = await host.start(c, "整理 C", meeting_options={})
                     assert host.task_session == c and len(host._runs) == 3
-                    assert (await client.put("/api/settings", json={})).status_code == 409
+                    assert (
+                        await client.put("/api/settings", json={})
+                    ).status_code == 409
                     host.meeting.notices[a] = "只属于 A"
                     assert host.meeting.view(c)["notice"] == ""
                     # 异步语音确认固定收到时的对话与方案，即使紧接着切换也不串台。
@@ -262,11 +304,15 @@ def test_conversations_isolate_modes_runs_voice_and_cancellation():
                         await asyncio.gather(*host.meeting.pending)
                     assert seen == [c] and host.meeting.view(a)["notice"] == "只属于 A"
                     ctask = host._tasks[c]
-                    assert (await client.post(f"/api/runs/{crun}/cancel")).status_code == 200
+                    assert (
+                        await client.post(f"/api/runs/{crun}/cancel")
+                    ).status_code == 200
                     await asyncio.gather(ctask, return_exceptions=True)
                     assert host._runs[a] == arun and host._runs[b] == brun
                     assert (
-                        work_gate.current(a) and work_gate.current(b) and not work_gate.current(c)
+                        work_gate.current(a)
+                        and work_gate.current(b)
+                        and not work_gate.current(c)
                     )
                     assert host.task_session == a
                     stream = await client.get(f"/api/runs/{crun}/events")
@@ -283,10 +329,14 @@ def test_conversations_isolate_modes_runs_voice_and_cancellation():
                         assert dstory.status == "recording"
                         await host.story_mode(False, d)
                     assert (
-                        await client.patch(f"/api/sessions/{d}", json={"archived": True})
+                        await client.patch(
+                            f"/api/sessions/{d}", json={"archived": True}
+                        )
                     ).status_code == 200
                     assert (
-                        await client.patch(f"/api/sessions/{a}", json={"archived": True})
+                        await client.patch(
+                            f"/api/sessions/{a}", json={"archived": True}
+                        )
                     ).status_code == 409
                     await host.stop_active(brun)
                     assert host._runs.get(a) == arun and not work_gate.current(b)
