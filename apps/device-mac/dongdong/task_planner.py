@@ -79,6 +79,51 @@ class TaskPlanner:
             raise ValueError("修复 instruction 无效")
         return instruction.strip(), "model"
 
+    def repair_items(self, item: dict, run: dict, max_items: int = 3) -> tuple[list[str], str]:
+        """生成受限修复指令；模型只能决定指令，执行上下文由 Store 继承。"""
+        limit = max(1, min(int(max_items), 3))
+        source = {
+            "instruction": str(item.get("instruction") or "")[:4000],
+            "error": str(item.get("error") or "")[:4000],
+            "result": str(item.get("result") or "")[-2000:],
+        }
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是失败任务修复规划器。只返回 JSON，格式为 "
+                    '{"items":[{"instruction":"一条可执行的修复指令"}]}。'
+                    f"最多返回 {limit} 条互相独立的修复指令；每条 instruction 非空且不超过 4000 字。"
+                    "不要返回 cwd、agent、scope、acceptance、依赖、工具调用或执行结果。"
+                ),
+            },
+            {"role": "user", "content": json.dumps(source, ensure_ascii=False)},
+        ]
+        raw = self._collect(self.stream_fn(self.model, messages, tools=[]))
+        value = self._decode(raw)
+        if isinstance(value, dict) and set(value) == {"instruction"}:
+            # 兼容旧版单条 repair 提示词，仍然经过同样的严格字段校验。
+            entries = [value]
+        elif isinstance(value, dict) and set(value) == {"items"}:
+            entries = value["items"]
+        else:
+            raise ValueError("修复规划必须只返回 items")
+        if not isinstance(entries, list) or not entries or len(entries) > limit:
+            raise ValueError(f"修复 Item 数量必须在 1 到 {limit} 之间")
+        instructions: list[str] = []
+        for entry in entries:
+            if not isinstance(entry, dict) or set(entry) != {"instruction"}:
+                raise ValueError("修复 Item 只能包含 instruction")
+            instruction = entry.get("instruction")
+            if (
+                not isinstance(instruction, str)
+                or not instruction.strip()
+                or len(instruction) > 4000
+            ):
+                raise ValueError("修复 instruction 无效")
+            instructions.append(instruction.strip())
+        return instructions, "model"
+
     def verify_goal(self, goal: dict, items: list[dict], evidence: dict) -> dict:
         """可选的只读最终验收；模型无法给出严格结论时保持人工复核。"""
         payload = {

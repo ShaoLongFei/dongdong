@@ -244,8 +244,16 @@ class TaskStore(GoalVerification, TaskProjection):
     def add_repair_item(
         self, run_id: str, failed_item_id: str, instruction: str | None = None
     ) -> str:
-        """追加修复 Item；旧 Item 与其 attempts 永远保留。"""
-        text = (instruction or "").strip()
+        """追加一个修复 Item；旧 Item 与其 attempts 永远保留。"""
+        return self.add_repair_items(run_id, failed_item_id, [instruction or ""])[0]
+
+    def add_repair_items(
+        self, run_id: str, failed_item_id: str, instructions: list[str]
+    ) -> list[str]:
+        """追加受限修复 Item；所有候选继承失败 Item 的执行上下文。"""
+        if not instructions or len(instructions) > 3:
+            raise ValueError("修复 Item 数量必须在 1 到 3 之间")
+        texts = [str(instruction or "").strip() for instruction in instructions]
         with self._lock, self._conn:
             run = self._conn.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
             failed = self._conn.execute(
@@ -264,62 +272,69 @@ class TaskStore(GoalVerification, TaskProjection):
                 "SELECT COUNT(*) FROM items WHERE run_id=? AND parent_id=?",
                 (run_id, failed_item_id),
             ).fetchone()[0]
-            if total >= self.MAX_REPAIR_ITEMS_PER_RUN or count >= self.MAX_REPAIRS_PER_ITEM:
+            if (
+                total + len(texts) > self.MAX_REPAIR_ITEMS_PER_RUN
+                or count + len(texts) > self.MAX_REPAIRS_PER_ITEM
+            ):
                 raise ValueError("修复 Item 数量已达上限")
-            item_id = f"{run_id}-repair-{uuid.uuid4().hex[:8]}"
             ts = now()
             failure_summary = (
                 "\n失败结果摘要：" + ((failed["error"] or failed["result"] or "无")[-2000:])
             )
-            repair_instruction = (
-                text + failure_summary
-                if text
-                else f"修复失败 Item：{failed['instruction']}\n原错误：{failed['error'] or '无'}"
-            )
+            item_ids: list[str] = []
             goal = self._conn.execute(
                 "SELECT goal_id FROM items WHERE id=?", (failed_item_id,)
             ).fetchone()
-            self._conn.execute(
-                "INSERT INTO items(id, run_id, goal_id, parent_id, instruction, acceptance, agent, cwd,"
-                " priority, max_attempts, scope_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    item_id,
-                    run_id,
-                    goal[0] if goal else None,
-                    failed_item_id,
-                    repair_instruction,
-                    failed["acceptance"],
-                    failed["agent"],
-                    failed["cwd"],
-                    failed["priority"],
-                    failed["max_attempts"],
-                    failed["scope_json"] or "{}",
-                    ts,
-                    ts,
-                ),
-            )
-            self._conn.execute(
-                "INSERT INTO item_deps(item_id, depends_on_id) VALUES (?,?)",
-                (item_id, failed_item_id),
-            )
-            self._conn.execute(
-                "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
-                (
-                    run_id,
-                    "repair_planned",
-                    json.dumps(
-                        {
-                            "item_id": item_id,
-                            "failed_item_id": failed_item_id,
-                            "agent": failed["agent"],
-                            "cwd": failed["cwd"],
-                        },
-                        ensure_ascii=False,
+            for text in texts:
+                item_id = f"{run_id}-repair-{uuid.uuid4().hex[:8]}"
+                repair_instruction = (
+                    text + failure_summary
+                    if text
+                    else f"修复失败 Item：{failed['instruction']}\n原错误：{failed['error'] or '无'}"
+                )
+                self._conn.execute(
+                    "INSERT INTO items(id, run_id, goal_id, parent_id, instruction, acceptance, agent, cwd,"
+                    " priority, max_attempts, scope_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        item_id,
+                        run_id,
+                        goal[0] if goal else None,
+                        failed_item_id,
+                        repair_instruction,
+                        failed["acceptance"],
+                        failed["agent"],
+                        failed["cwd"],
+                        failed["priority"],
+                        failed["max_attempts"],
+                        failed["scope_json"] or "{}",
+                        ts,
+                        ts,
                     ),
-                    ts,
-                ),
-            )
-            return item_id
+                )
+                self._conn.execute(
+                    "INSERT INTO item_deps(item_id, depends_on_id) VALUES (?,?)",
+                    (item_id, failed_item_id),
+                )
+                self._conn.execute(
+                    "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
+                    (
+                        run_id,
+                        "repair_planned",
+                        json.dumps(
+                            {
+                                "item_id": item_id,
+                                "failed_item_id": failed_item_id,
+                                "agent": failed["agent"],
+                                "cwd": failed["cwd"],
+                                "candidate_count": len(texts),
+                            },
+                            ensure_ascii=False,
+                        ),
+                        ts,
+                    ),
+                )
+                item_ids.append(item_id)
+            return item_ids
 
     @staticmethod
     def _assert_acyclic(edges: dict[str, set[str]]) -> None:

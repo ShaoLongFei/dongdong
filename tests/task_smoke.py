@@ -709,7 +709,7 @@ def test_model_repair_instruction_falls_back_safely():
             store._conn.execute("UPDATE runs SET status='failed' WHERE id=?", (rid,))
 
         def stream(*_args, **_kwargs):
-            return '{"instruction":"模型建议的修复"}'
+            return '{"items":[{"instruction":"模型建议的修复"},{"instruction":"模型建议的补救"}]}'
 
         manager = TaskManager(
             store,
@@ -722,9 +722,52 @@ def test_model_repair_instruction_falls_back_safely():
         finished = manager.wait(rid, 3)
         assert finished["run"]["status"] == "done"
         assert any("模型建议的修复" in item["result"] for item in finished["items"])
-        assert any(event["type"] == "repair_planning_done" for event in finished["events"])
+        repair_items = [item for item in finished["items"] if item["parent_id"] == "failed"]
+        assert len(repair_items) == 2
+        assert {item["cwd"] for item in repair_items} == {tmp}
+        assert {item["agent"] for item in repair_items} == {"builtin"}
+        planning = [
+            event for event in finished["events"] if event["type"] == "repair_planning_done"
+        ]
+        assert planning and planning[-1]["data"]["item_count"] == 2
+        planned = [event for event in finished["events"] if event["type"] == "repair_planned"]
+        assert len(planned) == 2
         manager.close()
         store.close()
+
+
+def test_model_repair_invalid_shape_falls_back_to_one_item():
+    from dongdong.task_model import AttemptResult
+    from dongdong.task_scheduler import TaskManager
+
+    with tempfile.TemporaryDirectory(prefix="dongdong-model-repair-fallback-") as tmp:
+        for payload in (
+            '{"items":[{"instruction":"a"},{"instruction":"b"},{"instruction":"c"},{"instruction":"d"}]}',
+            '{"items":[{"instruction":"a","cwd":"/tmp"}]}',
+        ):
+            store = Store(Path(tmp) / f"{len(payload)}.db")
+            sid = store.create_session("repair fallback")
+            rid = store.create_task_run(sid, RunSpec(goal_text="repair", workspace=tmp))
+            store.add_items(rid, [ItemSpec(id="failed", instruction="原任务", cwd=tmp)])
+            with store._lock, store._conn:
+                store._conn.execute(
+                    "UPDATE items SET status='failed', error='temporary' WHERE id='failed'"
+                )
+                store._conn.execute("UPDATE runs SET status='failed' WHERE id=?", (rid,))
+            manager = TaskManager(
+                store,
+                cfg={"workspace": tmp},
+                model="model",
+                runner=lambda item, *_: AttemptResult("done", output=item["instruction"]),
+            )
+            manager.planner.stream_fn = lambda *_args, _payload=payload, **_kwargs: _payload
+            finished = manager.repair(rid)
+            finished = manager.wait(rid, 3)
+            repair_items = [item for item in finished["items"] if item["parent_id"] == "failed"]
+            assert finished["run"]["status"] == "done" and len(repair_items) == 1
+            assert any(event["type"] == "repair_planning_fallback" for event in finished["events"])
+            manager.close()
+            store.close()
 
 
 def test_optional_model_final_verifier_keeps_uncertain_results_reviewable():

@@ -433,13 +433,20 @@ class TaskManager:
         ):
             raise ValueError("原任务目录不属于会话当前项目")
         repair_source = "user"
+        repair_instructions = [(instruction or "").strip()] or [""]
         if not (instruction or "").strip() and self.model is not None:
             try:
-                instruction, repair_source = self.planner.repair_instruction(target, run)
+                repair_instructions, repair_source = self.planner.repair_items(
+                    target, run, max_items=min(self.store.MAX_REPAIRS_PER_ITEM, 3)
+                )
                 self.store.add_event(
                     run_id,
                     "repair_planning_done",
-                    {"failed_item_id": target["id"], "source": repair_source},
+                    {
+                        "failed_item_id": target["id"],
+                        "source": repair_source,
+                        "item_count": len(repair_instructions),
+                    },
                 )
             except Exception as exc:  # noqa: BLE001 模型失败必须回退安全默认指令
                 repair_source = "fallback"
@@ -453,11 +460,12 @@ class TaskManager:
             "repair_requested",
             {
                 "failed_item_id": target["id"],
-                "instruction": (instruction or "").strip(),
+                "instruction": repair_instructions[0],
+                "item_count": len(repair_instructions),
                 "source": repair_source,
             },
         )
-        self.store.add_repair_item(run_id, target["id"], instruction)
+        self.store.add_repair_items(run_id, target["id"], repair_instructions)
         with self.store._lock, self.store._conn:
             changed = self.store._conn.execute(
                 "UPDATE runs SET status='running', error='', ended_at=NULL WHERE id=? AND status IN ('failed','needs_review')",
