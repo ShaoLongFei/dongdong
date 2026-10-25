@@ -7,9 +7,9 @@
 1. **Goal 验收证据**：已完成。Run 收口前持久化 acceptance、Item 结果摘要和 `goal_verified` 事件；有约束但无 verifier 时进入 `needs_review`。
 2. **失败修复与重新规划**：已完成受限 repair/replan。失败 Item 保留原 Attempt，追加最多 3 个修复 Item（每 Run 最多 8 个），复用 workspace/agent/cwd，记录 repair 事件并重新验收 Goal；修复成功后恢复可继续的下游依赖。完整的模型自动修复规划仍可继续增强。
 3. **文件范围冲突**：已完成。Item 支持工作区相对读写范围；SQLite 事务内按绝对路径和嵌套工作区检测重叠，读读可并行，读写/写写和未声明范围默认串行等待。
-4. **完整 Monitor 与收口**：停摆检测和有限 drain 已完成；仍需最终验收 Planner 和严格收口顺序。
+4. **完整 Monitor 与收口**：停摆检测、有限 drain、最终验收阶段和严格终态 CAS 已完成；最终验收 Planner 仍可继续增强。
 5. **调度配置化**：增加 `task_scheduler` 配置节，统一约束 worker、lease、poll、retry、deadline 和 drain。
-6. **跨进程恢复**：在现有 WAL/CAS/lease 之上实现真正的 worker 协调与可选自动恢复；当前重启策略仍要求用户显式恢复遗留 Run。
+6. **跨进程恢复**：在现有 WAL/CAS/lease 之上实现真正的 worker 协调与可选自动接管；当前重启策略仍要求用户显式恢复遗留 Run。
 
 故事模式、真实浏览器视觉交互、真实 DeepSeek、灵矽音频、用户自有 MCP 和云端记忆不属于本模块剩余事项。
 
