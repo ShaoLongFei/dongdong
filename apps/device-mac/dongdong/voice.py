@@ -5,9 +5,16 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from pydantic import BaseModel, Field
+
 from . import state
 
 log = logging.getLogger("dongdong.voice")
+
+
+class VoiceIn(BaseModel):
+    enabled: bool = Field(strict=True)
+    session_id: str | None = None
 
 
 class Voice:

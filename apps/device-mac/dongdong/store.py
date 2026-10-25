@@ -42,6 +42,15 @@ class Store(TaskStore):
             )
 
     def _migrate_columns(self) -> None:
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(messages)")}
+        if "source" not in columns:
+            self._conn.execute(
+                "ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'agent'"
+            )
+            self._conn.execute(
+                "UPDATE messages SET source='voice' WHERE session_id IN "
+                "(SELECT id FROM sessions WHERE channel='linx-voice')"
+            )
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(runs)")}
         additions = {
             "channel": "TEXT NOT NULL DEFAULT 'web'",
@@ -138,12 +147,14 @@ class Store(TaskStore):
         content: str = "",
         tool_calls: list | None = None,
         tool_call_id: str = "",
+        *,
+        source: str = "agent",
     ) -> int:
         ts = now()
         with self._lock, self._conn:
             cur = self._conn.execute(
                 "INSERT INTO messages(session_id, role, content, tool_calls, tool_call_id,"
-                " created_at) VALUES (?,?,?,?,?,?)",
+                " created_at, source) VALUES (?,?,?,?,?,?,?)",
                 (
                     session_id,
                     role,
@@ -151,6 +162,7 @@ class Store(TaskStore):
                     json.dumps(tool_calls or [], ensure_ascii=False),
                     tool_call_id,
                     ts,
+                    source,
                 ),
             )
             self._conn.execute("UPDATE sessions SET updated_at=? WHERE id=?", (ts, session_id))

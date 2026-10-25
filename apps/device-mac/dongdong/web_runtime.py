@@ -34,15 +34,17 @@ class WebState:
         self._run_id = ""
         self._last_run = ""
         self.task_session = ""
-        self.voice_session = ""
         self.current_project = None
         self._project_tasks = {}
-        self._project_voices = {}
         self.loop = None
         self.reload()
         from .meeting import Meeting
 
         self.meeting = Meeting(self)
+        active = self.meeting.db.active()
+        if active:
+            self.task_session = active["sid"]
+            self.current_project = self.store.get_session(active["sid"])["project_id"]
         self.manager = TaskManager(
             self.store, cfg=cfg, model=self.model, approve=self.approvals.request
         )
@@ -73,28 +75,29 @@ class WebState:
             raise ValueError("项目目录不存在")
         self.current_project = project_id
         self.task_session = self._project_tasks.get(project_id, "")
-        self.voice_session = self._project_voices.get(project_id, "")
 
     def forget_session(self, sid: str) -> None:
-        for mapping in (self._project_tasks, self._project_voices):
-            for key in [key for key, value in mapping.items() if value == sid]:
-                mapping.pop(key)
+        for key in [key for key, value in self._project_tasks.items() if value == sid]:
+            self._project_tasks.pop(key)
         if self.task_session == sid:
             self.task_session = ""
-        if self.voice_session == sid:
-            self.voice_session = ""
 
     def new_session(self, title: str, channel: str, project_id: str | None) -> str:
         sid = self.store.create_session(title, channel, project_id)
         self._project_tasks[project_id] = sid
         if project_id == self.current_project:
-            self.task_session, self.voice_session = sid, ""
-            self._project_voices.pop(project_id, None)
+            self.task_session = sid
         return sid
 
     def voice_text(self, _connection: str, role: str, text: str) -> None:
         if not text.strip():
             return
+        active = self.meeting.db.active()
+        sid = active["sid"] if active else self.task_session
+        session = self.store.get_session(sid) if sid else None
+        if not session or session["archived_at"]:
+            sid = self.new_session("新对话", "web", self.current_project)
+        self.store.append_message(sid, role, text, source="voice")
         command = self._story_command(text) if role == "user" else None
         if command:
             if self.loop and self.loop.is_running():
@@ -103,20 +106,16 @@ class WebState:
         if role == "user" and self.story_enabled:
             self.story.accept_text(text)
             return
-        if role == "user" and self.meeting.voice(text):
-            return
-        # 平台可能每轮结束就断链，连接 ID 不能作为用户会话的边界。
-        if not self.voice_session:
-            self.voice_session = self.store.create_session(
-                "语音对话", "linx-voice", self.current_project
-            )
-            self._project_voices[self.current_project] = self.voice_session
-        self.store.append_message(self.voice_session, role, text)
+        if role == "user":
+            self.meeting.voice(text)
 
     @staticmethod
     def _story_command(text: str) -> str | None:
         normalized = "".join(str(text).split())
-        if any(phrase in normalized for phrase in ("结束讲故事", "停止讲故事", "退出故事模式", "结束故事")):
+        if any(
+            phrase in normalized
+            for phrase in ("结束讲故事", "停止讲故事", "退出故事模式", "结束故事")
+        ):
             return "stop"
         if any(phrase in normalized for phrase in ("开始讲故事", "进入故事模式", "开启故事模式")):
             return "start"

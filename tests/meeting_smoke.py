@@ -19,6 +19,53 @@ from dongdong.meeting import Meeting
 from dongdong.store import Store
 
 
+def test_unified_voice_session_preserves_execution_boundaries():
+    from dongdong.web_runtime import WebState
+    from dongdong.projects import use_session
+    from dongdong.runtime import Runtime
+    from dongdong.llm import ModelConfig
+
+    async def check():
+        cfg = config.load()
+        cfg["workspace"], cfg["model"]["api_key"] = str(config.HOME), "boundary-only"
+        host = WebState(cfg)
+        sid = host.new_session("统一对话", "web", None)
+        before = len(host.store.list_sessions(limit=100))
+        host.voice_text("first", "user", "看看这个项目")
+        host.voice_text("reconnected", "assistant", "按这个方案实施")
+        assert host.task_session == sid
+        rows = host.store.messages(sid)
+        assert [row["source"] for row in rows] == ["voice", "voice"]
+        assert len(host.store.list_sessions(limit=100)) == before
+        runtime = Runtime(host.store, ModelConfig("", "", ""), config.HOME)
+        assert len(runtime._messages(sid)) == 1, "语音口播不能成为模型指令或完成事实"
+        host.meeting.db.open(sid, str(config.HOME))
+        host.voice_text("meeting", "user", "补充会议意见")
+        host.voice_text("meeting", "assistant", "按这个方案实施")
+        assert host.meeting.db.get(sid)["seq"] == 1
+        assert host.store.messages(sid)[-1]["content"] == "按这个方案实施"
+        assert len(runtime._messages(sid)) == 1
+        host.meeting.db.close(sid)
+        pid = host.store.create_project("隔离项目", str(config.HOME))
+        other = host.new_session("其他项目", "web", pid)
+        use_session(host, other)
+        host.voice_text("other", "user", "隔离意见")
+        assert host.store.messages(other)[-1]["content"] == "隔离意见"
+        use_session(host, sid)
+        host.voice_text("back", "assistant", "回到原对话")
+        assert host.store.messages(sid)[-1]["content"] == "回到原对话"
+        host.store.update_session(other, {"archived_at": "2026-10-25"})
+        try:
+            use_session(host, other)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("归档会话不能绑定语音")
+        await host.close()
+
+    asyncio.run(check())
+
+
 def test_meeting_confirmation_and_control_boundaries():
     from dongdong import birdview, skills
     from dongdong.meeting_store import Meetings

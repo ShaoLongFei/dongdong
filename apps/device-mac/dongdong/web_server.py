@@ -26,7 +26,7 @@ from . import (
     work_gate,
 )
 from . import state as device_state
-from .voice import Voice
+from .voice import Voice, VoiceIn
 from .web_runtime import WebAgent, WebState
 
 STATIC = Path(__file__).with_name("static")
@@ -34,10 +34,6 @@ STATIC = Path(__file__).with_name("static")
 
 class MessageIn(BaseModel):
     text: str
-
-
-class VoiceIn(BaseModel):
-    enabled: bool = Field(strict=True)
 
 
 class StoryModeIn(BaseModel):
@@ -103,13 +99,18 @@ def create_app(cfg: dict) -> FastAPI:
             "task_session": active["session_id"] if active else state.task_session,
             "busy": bool(work_gate.current()),
             "voice": device_state.snapshot(cfg),
-            "voice_session": state.voice_session,
+            "voice_session": state.task_session,
             "voice_enabled": voice.enabled,
             "voice_error": voice.error,
         }
 
     @app.put("/api/voice")
     async def api_voice(body: VoiceIn):
+        if body.enabled and body.session_id:
+            try:
+                projects.use_session(state, body.session_id)
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from None
         await voice.set_enabled(body.enabled)
         return {"enabled": voice.enabled}
 
