@@ -19,6 +19,9 @@ def _validate(name: str, body: dict, previous: dict) -> dict:
         raise HTTPException(400, "不支持的传输类型")
     if not isinstance(body.get("enabled"), bool):
         raise HTTPException(400, "enabled 必须为布尔值")
+    for field in ("command", "url"):
+        if field in body and not isinstance(body[field], str):
+            raise HTTPException(400, f"{field} 必须为字符串")
     result = dict(body)
     for field in ("env", "headers"):
         value = body.get(field, previous.get(field, {}))

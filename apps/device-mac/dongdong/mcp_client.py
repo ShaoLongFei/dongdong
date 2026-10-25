@@ -63,17 +63,28 @@ class MCPTools:
                             }
                         )
                 except BaseException as exc:
-                    await stack.aclose()
+                    try:
+                        await stack.aclose()
+                    except Exception:
+                        # SDK 清理失败不能覆盖原始取消，也不能阻止连接其它服务。
+                        pass
                     if not isinstance(exc, Exception):
                         raise
                     self.errors.append(f"{name}: 连接或发现失败 ({type(exc).__name__})")
             return self
         except BaseException:
-            await self._stack.aclose()
+            try:
+                await self._stack.aclose()
+            except Exception:
+                pass
             raise
 
     async def __aexit__(self, *exc):
-        return await self._stack.__aexit__(*exc)
+        try:
+            return await self._stack.__aexit__(*exc)
+        except Exception as error:
+            self.errors.append(f"连接清理失败 ({type(error).__name__})")
+            return False
 
     async def _connect(self, stack: AsyncExitStack, server: dict):
         transport = server["transport"]

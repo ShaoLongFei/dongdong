@@ -24,6 +24,7 @@
 | 18 | 再加一套 `tests/agent_mcp.py` | MCP 的线程/事件循环、取消、默认 CLI 路由和 cwd 边界是会执行命令的边界，值得自动测 | 第四套测试文件，继续偏离「唯一测试文件」；由 `check.sh` 统一跑 |
 
 - 2026-10-25：Skills 只发现本地 SKILL.md，按需读取；外部 MCP 用官方 Python SDK，连接限定一次 run，避免另建插件框架或常驻服务管理器。审批默认 auto 保留体验，ask 只批准一次准确调用，CLI 没有 UI 时拒绝；不把审批当作沙箱。三条能力并行实现，共享 Runtime/配置/页面入口由主 agent 集中接入。
+- 2026-10-25：MCP SDK 在初始化超时后关闭流可能抛出含 BrokenResourceError 的 ExceptionGroup；清理阶段隔离普通异常，保留原始取消/任务异常，避免一个服务失败阻断其它工具，或把已完成任务改判失败。
 
 ## 已知的技术债（`shortcut:`）
 

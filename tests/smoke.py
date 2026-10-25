@@ -7,7 +7,8 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
@@ -41,9 +42,8 @@ def test_tool_registry_shape():
     for name, tool in tools.TOOLS.items():
         assert name.startswith("self."), name
         described = tool.describe()
-        assert described["inputSchema"]["type"] == "object"
-        assert described["type"] == 0
         schema = described["inputSchema"]
+        assert schema["type"] == "object" and described["type"] == 0
         assert set(schema["required"]) <= set(schema["properties"]), name
 
 
@@ -73,7 +73,7 @@ def test_resolve_dir_blocks_escape():
 
 
 def test_agent_argv_and_env():
-    assert agent.required_env({"cmd": ["x"]}) == []
+    assert not agent.required_env({"cmd": ["x"]})
     assert "DEEPSEEK_API_KEY" in agent.required_env(config.load()["agents"]["deepseek"])
     os.environ["SMOKE_KEY"] = "k123"
     assert agent._expand({"K": "${SMOKE_KEY}"}) == {"K": "k123"}
@@ -85,9 +85,7 @@ def test_agent_argv_and_env():
             [sys.executable, "-c", "import os;os.write(1,bytes([255]))"],
             dict(os.environ),
         )
-        assert job.done.wait(2)
-        assert not work_gate.current()
-        assert "\ufffd" in job.output
+        assert job.done.wait(2) and not work_gate.current() and "\ufffd" in job.output
 
 
 def test_memory_delete_validates_all_owners_before_deleting():
@@ -100,23 +98,18 @@ def test_memory_delete_validates_all_owners_before_deleting():
         def delete(self, memory_id):
             self.deleted.append(memory_id)
 
-    original, stub = memory._memory, MemoryStub()
-    memory._memory = stub
-    try:
+    stub = MemoryStub()
+    with patch.object(memory, "_memory", stub):
         with contextlib.suppress(ValueError):
             memory.delete(["owned", "other"], "u1")
             raise AssertionError("另一用户的 memory ID 必须拒绝")
         assert stub.deleted == [], "必须先验证完整列表再删除"
-        assert memory.delete(["owned"], "u1") == ["owned"]
-        assert stub.deleted == ["owned"]
-    finally:
-        memory._memory = original
+        assert memory.delete(["owned"], "u1") == ["owned"] and stub.deleted == ["owned"]
 
 
 def test_memory_tools_reject_empty_inputs_before_sdk_init():
-    original, initialized = memory._get_memory, []
-    memory._get_memory = lambda: initialized.append(True)
-    try:
+    initialized = []
+    with patch.object(memory, "_get_memory", lambda: initialized.append(True)):
         for name, args in (
             ("delete", {"memory_ids": []}),
             ("search", {"query": ""}),
@@ -124,49 +117,29 @@ def test_memory_tools_reject_empty_inputs_before_sdk_init():
         ):
             assert tools.call("self.memory." + name, args)["isError"] is True
         assert not initialized, "空输入不应初始化 Mem0 SDK"
-    finally:
-        memory._get_memory = original
 
 
 def test_memory_save_reports_empty_results_accurately():
-    original = memory.save
-    memory.save = lambda text, user_id: {"results": []}
-    try:
+    with patch.object(memory, "save", lambda text, user_id: {"results": []}):
         response = tools._memory_save({"text": "长期偏好"})
         assert response == "没有提取到可保存的新记忆。", response
-    finally:
-        memory.save = original
 
 
 def test_memory_tightens_existing_data_dir_permissions():
-    class MemoryFactory:
-        @staticmethod
-        def from_config(config):
-            return config
-
-    original_dir, original_memory = memory.DATA_DIR, memory._memory
-    original_key, original_module = os.environ.get("OPENAI_API_KEY"), sys.modules.get("mem0")
+    module = ModuleType("mem0")
+    module.Memory = SimpleNamespace(from_config=lambda config: config)
     with tempfile.TemporaryDirectory(prefix="dongdong-memory-") as temp_dir:
         data_dir = Path(temp_dir) / ".memory"
         data_dir.mkdir()
         data_dir.chmod(0o755)
-        memory.DATA_DIR, memory._memory = data_dir, None
-        os.environ["OPENAI_API_KEY"] = "test-only"
-        sys.modules["mem0"] = ModuleType("mem0")
-        sys.modules["mem0"].Memory = MemoryFactory
-        try:
+        with (
+            patch.object(memory, "DATA_DIR", data_dir),
+            patch.object(memory, "_memory", None),
+            patch.dict(os.environ, OPENAI_API_KEY="test-only"),
+            patch.dict(sys.modules, mem0=module),
+        ):
             memory._get_memory()
             assert data_dir.stat().st_mode & 0o777 == 0o700
-        finally:
-            memory.DATA_DIR, memory._memory = original_dir, original_memory
-            if original_key is None:
-                os.environ.pop("OPENAI_API_KEY", None)
-            else:
-                os.environ["OPENAI_API_KEY"] = original_key
-            if original_module is None:
-                sys.modules.pop("mem0", None)
-            else:
-                sys.modules["mem0"] = original_module
 
 
 def test_opus_roundtrip():
@@ -175,8 +148,7 @@ def test_opus_roundtrip():
     enc = opuslib.Encoder(16000, 1, opuslib.APPLICATION_VOIP)
     dec = opuslib.Decoder(16000, 1)
     packet = enc.encode(b"\x00\x01" * 960, 960)
-    assert 0 < len(packet) < 200
-    assert len(dec.decode(packet, 5760)) == 1920
+    assert 0 < len(packet) < 200 and len(dec.decode(packet, 5760)) == 1920
 
 
 def test_airplay_script_escapes_target():
@@ -269,8 +241,9 @@ def test_skill_and_approval_boundaries():
             )
             await asyncio.sleep(0)
             assert not manager.resolve("other", "call", True)
-            assert manager.resolve("run", "call", approved)
-            assert not manager.resolve("run", "call", approved)
+            assert manager.resolve("run", "call", approved) and not manager.resolve(
+                "run", "call", approved
+            )
             assert await task is approved and not manager.pending()
         task = asyncio.create_task(
             manager.request("run", "cancel", "shell", {}, lambda k, d: events.append(k))
@@ -279,6 +252,36 @@ def test_skill_and_approval_boundaries():
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
         assert not manager.pending() and events.count("approval_result") == 3
+
+    asyncio.run(check())
+
+
+def test_mcp_cleanup_preserves_result_and_cancellation():
+    from dongdong.mcp_client import MCPTools
+
+    async def broken_cleanup():
+        raise ExceptionGroup("cleanup", [RuntimeError("secret")])
+
+    async def broken_connect(stack, server):
+        stack.push_async_callback(broken_cleanup)
+        raise ValueError("secret")
+
+    async def check():
+        async with MCPTools({}) as external:
+            external._stack.push_async_callback(broken_cleanup)
+        assert external.errors == ["连接清理失败 (ExceptionGroup)"]
+        try:
+            async with MCPTools({}) as external:
+                external._stack.push_async_callback(broken_cleanup)
+                raise asyncio.CancelledError("body")
+        except asyncio.CancelledError as error:
+            assert str(error) == "body"
+        else:
+            raise AssertionError("清理异常不能覆盖取消")
+        external = MCPTools({"bad": {"enabled": True}})
+        with patch.object(external, "_connect", broken_connect):
+            async with external:
+                assert external.errors == ["bad: 连接或发现失败 (ValueError)"]
 
     asyncio.run(check())
 
