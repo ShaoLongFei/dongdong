@@ -211,6 +211,17 @@ class StorySession:
             cursor = 0
         return [item for item in self._events if item["id"] > cursor]
 
+    def record_command(self, command: str, text: str = "") -> None:
+        """把语音模式命令留在故事事件流，不写入普通会话。"""
+        self._publish(
+            "command",
+            {
+                "storyId": self.story_id,
+                "command": command,
+                "text": str(text or ""),
+            },
+        )
+
     def replay(self, story_id: str) -> list[dict]:
         """重新发布已保存场景，供断线后的画布恢复。"""
         data = self.store.load(story_id)
@@ -270,10 +281,13 @@ def story_command(text: str) -> str | None:
     return None
 
 
-async def set_story_mode(host, enabled: bool, sid: str | None = None) -> dict:
+async def set_story_mode(
+    host, enabled: bool, sid: str | None = None, command_text: str = ""
+) -> dict:
     sid = host.task_session if sid is None else sid
     if sid not in host.stories:
-        host.stories[sid] = StorySession(model=host.model, store=host.story.store)
+        store = getattr(host, "story_store", None) or host.story.store
+        host.stories[sid] = StorySession(model=host.model, store=store)
     story = host.stories[sid]
     story.session_id = sid
     if enabled:
@@ -283,8 +297,14 @@ async def set_story_mode(host, enabled: bool, sid: str | None = None) -> dict:
         manifest = story.store.load(story.story_id)["manifest"]
         manifest["sessionId"] = sid
         story.store.save_manifest(story.story_id, manifest)
+        if command_text:
+            story.record_command("start", command_text)
     else:
+        if command_text:
+            story.record_command("stop", command_text)
         await story.stop()
+    if hasattr(host, "recover_stories"):
+        host.recover_stories()
     return story.state()
 
 
@@ -292,7 +312,8 @@ def story_for(host, story_id: str) -> StorySession:
     for story in host.stories.values():
         if story.story_id == story_id:
             return story
-    story = StorySession(model=host.model, store=host.story.store)
+    store = getattr(host, "story_store", None) or host.story.store
+    story = StorySession(model=host.model, store=store)
     story.restore(story_id)
     # 历史故事不再占用当前会话的 story 槽位，避免串入普通聊天或新故事。
     host.stories[story_id] = story

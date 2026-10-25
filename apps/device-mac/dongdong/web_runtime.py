@@ -25,6 +25,8 @@ class WebState:
         self.cfg = cfg
         self.approvals = Approvals()
         self.store = Store(config.HOME / "dongdong.db")
+        self.story_store = StoryStore(config.HOME / "stories")
+        self.story_index = self.story_store.list_stories()
         if not work_gate.current():
             self.store.stop_orphan_runs()
         self.workspace = Path(cfg["workspace"]).expanduser().resolve()
@@ -88,21 +90,24 @@ class WebState:
     def voice_text(self, _connection: str, role: str, text: str) -> None:
         if not text.strip():
             return
+        command = self._story_command(text) if role == "user" else None
+        if command:
+            recording = self._recording_story()
+            sid = recording.session_id if command == "stop" and recording else self.task_session
+            if self.loop and self.loop.is_running():
+                self.loop.create_task(
+                    self.story_mode(command == "start", sid, command_text=text)
+                ).add_done_callback(self._consume)
+            return
+        recording = self._recording_story() if role == "user" else None
+        if recording:
+            recording.accept_text(text)
+            return
         sid = self.task_session
         session = self.store.get_session(sid) if sid else None
         if not session or session["archived_at"]:
             sid = self.new_session("新对话", "web", self.current_project)
         self.store.append_message(sid, role, text, source="voice")
-        command = self._story_command(text) if role == "user" else None
-        if command:
-            if self.loop and self.loop.is_running():
-                self.loop.create_task(self.story_mode(command == "start", sid)).add_done_callback(
-                    self._consume
-                )
-            return
-        if role == "user" and self.story.status == "recording":
-            self.story.accept_text(text)
-            return
         if role == "user":
             self.meeting.voice(text)
 
@@ -112,13 +117,33 @@ class WebState:
     def story(self):
         sid = self.task_session
         if sid not in self.stories:
-            self.stories[sid] = StorySession(
-                model=self.model, store=StoryStore(config.HOME / "stories")
-            )
+            self.stories[sid] = StorySession(model=self.model, store=self.story_store)
         return self.stories[sid]
 
-    async def story_mode(self, enabled: bool, sid: str | None = None) -> dict:
-        return await set_story_mode(self, enabled, sid)
+    def _recording_story(self) -> StorySession | None:
+        current = self.stories.get(self.task_session)
+        if current and current.status == "recording":
+            return current
+        return next(
+            (story for story in self.stories.values() if story.status == "recording"), None
+        )
+
+    def recover_stories(self) -> list[dict]:
+        """刷新磁盘故事索引；只恢复元数据，不启动录音或麦克风。"""
+        self.story_index = self.story_store.list_stories()
+        return self.story_index
+
+    def recover_story(self, story_id: str) -> StorySession:
+        from .story import story_for
+
+        story = story_for(self, story_id)
+        self.recover_stories()
+        return story
+
+    async def story_mode(
+        self, enabled: bool, sid: str | None = None, *, command_text: str = ""
+    ) -> dict:
+        return await set_story_mode(self, enabled, sid, command_text)
 
     def reload(self) -> None:
         try:

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import platform
+import re
 import struct
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -17,6 +19,21 @@ from dongdong.story_schema import normalize_scene  # noqa: E402
 from dongdong.story_store import StoryStore  # noqa: E402
 from dongdong.story_svg import scene_to_svg  # noqa: E402
 from dongdong.web_runtime import WebState  # noqa: E402
+
+
+def _probe_mp4(ffmpeg: Path, path: Path) -> tuple[float, bool]:
+    result = subprocess.run(
+        [str(ffmpeg), "-hide_banner", "-i", str(path), "-f", "null", "-"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = result.stderr + result.stdout
+    match = re.search(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", output)
+    return (
+        float(match.group(1)) * 3600 + float(match.group(2)) * 60 + float(match.group(3)),
+        bool(re.search(r"Stream #\d+:\d+.*Audio", output)),
+    )
 
 
 def main() -> None:
@@ -108,6 +125,9 @@ def main() -> None:
         if has_ffmpeg:
             mp4 = export_story(Path(tmp) / "stories" / story_id, "mp4")
             assert mp4.read_bytes()[4:8] == b"ftyp"
+            duration, has_audio = _probe_mp4(bundled_ffmpeg(), mp4)
+            assert 2.5 <= duration <= 3.0
+            assert has_audio
         for scene_id in ("scene-10", "scene-2", "scene-1"):
             store.save_scene(story_id, {**scene, "sceneId": scene_id})
         assert [item["sceneId"] for item in store.load(story_id)["scenes"]] == [
@@ -229,6 +249,53 @@ def main() -> None:
         asyncio.run(session_smoke())
         asyncio.run(buffering_smoke())
         asyncio.run(lifecycle_smoke())
+
+        # 故事中的 STT 只进入故事缓冲区，命令也不应污染普通会话消息。
+        class MemoryStore:
+            def __init__(self):
+                self.rows = []
+
+            def get_session(self, _sid):
+                return {"archived_at": None}
+
+            def append_message(self, _sid, role, text, source=""):
+                self.rows.append((role, text, source))
+
+        class Meeting:
+            class db:
+                @staticmethod
+                def active(_sid):
+                    return None
+
+            def voice(self, _text):
+                raise AssertionError("故事语音不应进入会议")
+
+        async def voice_route_smoke() -> None:
+            host = object.__new__(WebState)
+            host.task_session = "chat-1"
+            host.current_project = None
+            host._project_tasks = {}
+            host.stories = {}
+            host.store = MemoryStore()
+            host.meeting = Meeting()
+            host.loop = asyncio.get_running_loop()
+            host.model = None
+            host.story_store = store
+            host.session_busy = lambda _sid: False
+            host.recover_stories = list
+            story = StorySession(None, store=store)
+            story.session_id = "chat-1"
+            story.start()
+            host.stories["chat-1"] = story
+            host.voice_text("mic", "user", "小兔子走进森林")
+            assert story.state()["bufferedText"]
+            assert host.store.rows == []
+            host.voice_text("mic", "user", "请停止讲故事")
+            await asyncio.sleep(0)
+            assert host.store.rows == []
+            await story.close()
+
+        asyncio.run(voice_route_smoke())
 
     assert WebState._story_command("请开始讲故事") == "start"
     assert WebState._story_command("进入故事模式吧") == "start"
