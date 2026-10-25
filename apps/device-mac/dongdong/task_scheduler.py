@@ -154,7 +154,7 @@ class TaskManager:
                     )
                 view = self.store.task_view(run_id)
                 statuses = {item["status"] for item in view["items"]}
-                if statuses and statuses <= {"done"}:
+                if statuses and self._items_resolved(view["items"]):
                     self._finish(run_id, "done")
                     break
                 if statuses and not statuses & {"open", "running"}:
@@ -170,6 +170,23 @@ class TaskManager:
                     work_gate.release(run_id)
                 if self.on_finished:
                     self.on_finished(run_id)
+
+    @staticmethod
+    def _items_resolved(items: list[dict]) -> bool:
+        """失败 Item 只有在其 repair 子 Item 完成后才算收口。"""
+        by_parent: dict[str, list[dict]] = {}
+        for item in items:
+            if item.get("parent_id"):
+                by_parent.setdefault(item["parent_id"], []).append(item)
+
+        def resolved(item: dict) -> bool:
+            if item["status"] == "done":
+                return True
+            if item["status"] in {"blocked", "exhausted", "failed", "error"}:
+                return any(child["status"] == "done" for child in by_parent.get(item["id"], []))
+            return False
+
+        return bool(items) and all(resolved(item) for item in items)
 
     def _execute(self, run_id: str, worker: str, item_id: str, cancel: threading.Event) -> None:
         view = self.store.task_view(run_id)
@@ -301,6 +318,50 @@ class TaskManager:
         if not self.status(run_id)["items"]:
             self._planning[run_id] = (run.get("goal_text", ""), run.get("workspace", ""))
             self.store.set_task_status(run_id, "planning", event_type="planning_queued")
+        self._launch(run_id)
+        return self.status(run_id)
+
+    def repair(
+        self, run_id: str, item_id: str | None = None, instruction: str | None = None
+    ) -> dict:
+        """显式重规划失败 Item，并在完成后重新验收 Goal。"""
+        run = self.store.get_run(run_id)
+        if not run or run["status"] not in {"failed", "needs_review"}:
+            raise ValueError("只有失败或待验收 Run 可以修复")
+        view = self.status(run_id)
+        failed = [
+            item
+            for item in view["items"]
+            if item["status"] in {"blocked", "exhausted", "failed", "error"}
+        ]
+        target = next((item for item in failed if item["id"] == item_id), None) if item_id else None
+        if item_id and target is None:
+            raise ValueError("指定 Item 不是失败状态或不属于该 Run")
+        target = target or next((item for item in failed if not item.get("parent_id")), None)
+        if target is None:
+            raise ValueError("没有可修复的失败 Item")
+        session = self.store.get_session(run["session_id"])
+        project = self.store.get_project(session.get("project_id")) if session else None
+        root = Path(project["path"] if project else self.cfg["workspace"]).expanduser().resolve()
+        paths = [run.get("workspace") or str(root), target.get("cwd") or str(root)]
+        if any(
+            not Path(path).is_dir() or not Path(path).resolve().is_relative_to(root)
+            for path in paths
+        ):
+            raise ValueError("原任务目录不属于会话当前项目")
+        self.store.add_event(
+            run_id,
+            "repair_requested",
+            {"failed_item_id": target["id"], "instruction": (instruction or "").strip()},
+        )
+        self.store.add_repair_item(run_id, target["id"], instruction)
+        with self.store._lock, self.store._conn:
+            changed = self.store._conn.execute(
+                "UPDATE runs SET status='running', error='', ended_at=NULL WHERE id=? AND status IN ('failed','needs_review')",
+                (run_id,),
+            ).rowcount
+            if changed != 1:
+                raise ValueError("Run 状态已变化，请刷新后重试")
         self._launch(run_id)
         return self.status(run_id)
 

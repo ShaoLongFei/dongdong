@@ -14,6 +14,9 @@ def now() -> str:
 
 
 class TaskStore(GoalVerification, TaskProjection):
+    MAX_REPAIR_ITEMS_PER_RUN = 8
+    MAX_REPAIRS_PER_ITEM = 3
+
     def begin_settle(self, run_id: str) -> bool:
         """原子地占用运行收口，避免 stop/timeout/worker 重复收口。"""
         with self._lock, self._conn:
@@ -212,6 +215,79 @@ class TaskStore(GoalVerification, TaskProjection):
                     )
             return [item_id for _, item_id in resolved]
 
+    def add_repair_item(
+        self, run_id: str, failed_item_id: str, instruction: str | None = None
+    ) -> str:
+        """追加修复 Item；旧 Item 与其 attempts 永远保留。"""
+        text = (instruction or "").strip()
+        with self._lock, self._conn:
+            run = self._conn.execute(
+                "SELECT status FROM runs WHERE id=?", (run_id,)
+            ).fetchone()
+            failed = self._conn.execute(
+                "SELECT * FROM items WHERE id=? AND run_id=?", (failed_item_id, run_id)
+            ).fetchone()
+            if not run or not failed:
+                raise ValueError("Run 或失败 Item 不存在")
+            if run[0] not in {"failed", "needs_review"}:
+                raise ValueError("只有失败或待验收 Run 可以修复")
+            if failed["status"] not in {"blocked", "exhausted", "failed", "error"}:
+                raise ValueError("只能修复已失败的 Item")
+            total = self._conn.execute(
+                "SELECT COUNT(*) FROM items WHERE run_id=? AND parent_id IS NOT NULL", (run_id,)
+            ).fetchone()[0]
+            count = self._conn.execute(
+                "SELECT COUNT(*) FROM items WHERE run_id=? AND parent_id=?",
+                (run_id, failed_item_id),
+            ).fetchone()[0]
+            if total >= self.MAX_REPAIR_ITEMS_PER_RUN or count >= self.MAX_REPAIRS_PER_ITEM:
+                raise ValueError("修复 Item 数量已达上限")
+            item_id = f"{run_id}-repair-{uuid.uuid4().hex[:8]}"
+            ts = now()
+            goal = self._conn.execute(
+                "SELECT goal_id FROM items WHERE id=?", (failed_item_id,)
+            ).fetchone()
+            self._conn.execute(
+                "INSERT INTO items(id, run_id, goal_id, parent_id, instruction, acceptance, agent, cwd,"
+                " priority, max_attempts, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    item_id,
+                    run_id,
+                    goal[0] if goal else None,
+                    failed_item_id,
+                    text or f"修复失败 Item：{failed['instruction']}",
+                    failed["acceptance"],
+                    failed["agent"],
+                    failed["cwd"],
+                    failed["priority"],
+                    failed["max_attempts"],
+                    ts,
+                    ts,
+                ),
+            )
+            self._conn.execute(
+                "INSERT INTO item_deps(item_id, depends_on_id) VALUES (?,?)",
+                (item_id, failed_item_id),
+            )
+            self._conn.execute(
+                "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
+                (
+                    run_id,
+                    "repair_planned",
+                    json.dumps(
+                        {
+                            "item_id": item_id,
+                            "failed_item_id": failed_item_id,
+                            "agent": failed["agent"],
+                            "cwd": failed["cwd"],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    ts,
+                ),
+            )
+            return item_id
+
     @staticmethod
     def _assert_acyclic(edges: dict[str, set[str]]) -> None:
         visiting, visited = set(), set()
@@ -247,7 +323,9 @@ class TaskStore(GoalVerification, TaskProjection):
                     " updated_at=? WHERE id=? AND run_id=? AND status='open' AND EXISTS"
                     " (SELECT 1 FROM runs WHERE id=items.run_id AND status='running') AND NOT EXISTS"
                     " (SELECT 1 FROM item_deps d JOIN items p ON p.id=d.depends_on_id"
-                    " WHERE d.item_id=items.id AND p.status!='done')",
+                    " WHERE d.item_id=items.id AND p.status!='done' AND NOT"
+                    " (p.status!='done' AND items.parent_id=p.id AND"
+                    " p.status IN ('blocked','exhausted','failed','error'))) ",
                     (worker_id, expiry, stamp, item_id, run_id),
                 )
                 if cur.rowcount != 1:
@@ -346,6 +424,33 @@ class TaskStore(GoalVerification, TaskProjection):
                 self._conn.execute(
                     "UPDATE items SET status='blocked', error=? WHERE id IN (SELECT item_id FROM item_deps WHERE depends_on_id=?) AND status='open'",
                     (f"依赖 {item_id} 未完成", item_id),
+                )
+            parent = self._conn.execute(
+                "SELECT parent_id FROM items WHERE id=?", (item_id,)
+            ).fetchone()
+            if parent and parent[0] and status in {"blocked", "exhausted"}:
+                self._conn.execute(
+                    "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
+                    (
+                        row[0],
+                        "repair_failed",
+                        json.dumps(
+                            {"item_id": item_id, "failed_item_id": parent[0], "error": error},
+                            ensure_ascii=False,
+                        ),
+                        ts,
+                    ),
+                )
+            if status == "done" and self._conn.execute(
+                "SELECT 1 FROM items WHERE id=? AND parent_id IS NOT NULL", (item_id,)
+            ).fetchone():
+                self._conn.execute(
+                    "WITH RECURSIVE descendants(id) AS ("
+                    " SELECT ? UNION SELECT d.item_id FROM item_deps d JOIN descendants x"
+                    " ON d.depends_on_id=x.id)"
+                    " UPDATE items SET status='open', error='', updated_at=? WHERE run_id=?"
+                    " AND status='blocked' AND id IN descendants",
+                    (item_id, ts, row[0]),
                 )
             return True
 

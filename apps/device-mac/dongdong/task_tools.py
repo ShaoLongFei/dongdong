@@ -38,3 +38,33 @@ def _task_resume(args: dict) -> str:
     if service and hasattr(service, "task_resume"):
         return service.task_resume(args.get("run_id") or "")
     return "当前入口暂不支持恢复任务。"
+
+
+@tool(
+    "self.task.repair",
+    "为失败 Item 追加受限修复任务并重新验收 Goal。",
+    props={
+        "run_id": {"type": "string", "description": "任务号"},
+        "item_id": {"type": "string", "description": "失败 Item，不填自动选择"},
+        "instruction": {"type": "string", "description": "修复指令"},
+    },
+    required=["run_id"],
+)
+def _task_repair(args: dict) -> str:
+    service = _peek_service()
+    if service and hasattr(service, "task_repair"):
+        return service.task_repair(
+            args.get("run_id") or "", args.get("item_id") or "", args.get("instruction") or ""
+        )
+    if service and getattr(service, "state", None) and hasattr(service.state, "manager"):
+        import json
+
+        return json.dumps(
+            service.state.manager.repair(
+                args.get("run_id") or "",
+                args.get("item_id") or None,
+                args.get("instruction") or None,
+            ),
+            ensure_ascii=False,
+        )
+    return "当前入口暂不支持修复任务。"
