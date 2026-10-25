@@ -81,6 +81,14 @@ def _shape(element: dict) -> str:
             f'<path d="M{cx - 16},{cy - 16} q16,14 32,0" fill="none" stroke="#3D382F" stroke-width="4" stroke-linecap="round"/>'
             f'<path d="M{cx - w // 6},{y + h * 4 // 5} h{w // 7} M{cx + w // 12},{y + h * 4 // 5} h{w // 7}" stroke="#5B5550" stroke-width="10" stroke-linecap="round"/>'
         )
+    if kind == "person" and any(word in label for word in ("安安", "女孩", "小女孩")):
+        cx, head_y = x + w // 2, y + h // 4
+        return (
+            f'<circle cx="{cx}" cy="{head_y}" r="{min(w, h) // 7 + 8}" fill="#F2C7A5" stroke="#5B5550" stroke-width="4"/>'
+            f'<path d="M{cx - 42} {head_y - 8} q42 -54 84 0" fill="#6B4A3A" stroke="#5B5550" stroke-width="4"/>'
+            f'<path d="M{cx} {y + h // 3} v{h // 3} m-{w // 5},-{h // 6} h{w // 2} m-{w // 8},{h // 3} l-{w // 6},{h // 4} m{w // 8},{h // 4} l{w // 6},{h // 4}" fill="none" stroke="{c}" stroke-width="12" stroke-linecap="round"/>'
+            f'<circle cx="{cx - 12}" cy="{head_y + 2}" r="4" fill="#3D382F"/><circle cx="{cx + 12}" cy="{head_y + 2}" r="4" fill="#3D382F"/>'
+        )
     if (
         kind in {"object", "simple_shape"}
         and any(word in label for word in ("种子", "月亮种子"))
@@ -106,6 +114,44 @@ def _shape(element: dict) -> str:
             f'<path d="M{knot_x} {y + h} q18 24 -8 48 q-22 22 8 44 q30 20 8 42" fill="none" stroke="#D7A84B" stroke-width="5"/>'
             f'<path d="M{knot_x} {knot_y} L{x + w // 2 + 28} {knot_y - 24}" stroke="#FFF4B1" stroke-width="4"/>'
         )
+    if kind in {"object", "simple_shape"} and any(word in label for word in ("猫", "小猫")):
+        cx, cy = x + w // 2, y + h // 2
+        return (
+            f'<ellipse cx="{cx}" cy="{cy + 14}" rx="{w // 3}" ry="{h // 3}" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
+            f'<path d="M{cx - 28} {cy - 12} l-18 -30 l32 14 M{cx + 28} {cy - 12} l18 -30 l-32 14" fill="{c}" stroke="#5B5550" stroke-width="4" stroke-linejoin="round"/>'
+            f'<circle cx="{cx - 12}" cy="{cy + 2}" r="4" fill="#3D382F"/><circle cx="{cx + 12}" cy="{cy + 2}" r="4" fill="#3D382F"/>'
+            f'<path d="M{cx - 12} {cy + 20} q12 10 24 0" fill="none" stroke="#5B5550" stroke-width="3"/>'
+        )
+    if kind in {"object", "simple_shape"} and any(word in label for word in ("雨伞", "伞")):
+        cx = x + w // 2
+        return (
+            f'<path d="M{x} {y + h // 2} Q{cx} {y - 18} {x + w} {y + h // 2} Q{x + w - 24} {y + h // 2 + 28} {x + w - 48} {y + h // 2} Q{x + w - 72} {y + h // 2 + 28} {x + w - 96} {y + h // 2} Q{x + w - 120} {y + h // 2 + 28} {x + w - 144} {y + h // 2} Z" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
+            f'<path d="M{cx} {y + h // 2} V{y + h} q0 20 18 20" fill="none" stroke="#8B5A2B" stroke-width="5" stroke-linecap="round"/>'
+        )
+    if kind in {"object", "simple_shape"} and "气球" in label:
+        cx, cy = x + w // 2, y + h // 3
+        return (
+            f'<ellipse cx="{cx}" cy="{cy}" rx="{max(24, w // 3)}" ry="{max(30, h // 3)}" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
+            f'<path d="M{cx} {cy + h // 3} q-18 28 0 52 q18 24 0 46" fill="none" stroke="#D7A84B" stroke-width="4"/>'
+        )
+    if kind in {"object", "simple_shape"} and "彩虹" in label:
+        cx, cy = x + w // 2, y + h
+        arcs = []
+        for offset, color in (
+            (0, "#E56B6F"),
+            (16, "#F2B84B"),
+            (32, "#F6D84A"),
+            (48, "#78B84A"),
+            (64, "#6A9CC9"),
+        ):
+            arcs.append(
+                f'<path d="M{x + 20} {cy} Q{cx} {y + offset} {x + w - 20} {cy}" fill="none" stroke="{color}" stroke-width="10"/>'
+            )
+        return "".join(arcs)
+    if kind in {"object", "simple_shape"} and "石板路" in label:
+        return f'<path d="M{x} {y + h // 2} H{x + w}" stroke="{c}" stroke-width="{max(22, h // 2)}" stroke-linecap="round" stroke-dasharray="28 18"/>'
+    if kind in {"object", "simple_shape"} and "公园门口" in label:
+        return f'<path d="M{x} {y + h} V{y + 50} H{x + w} V{y + h}" fill="none" stroke="{c}" stroke-width="18"/><path d="M{x + w // 2 - 28} {y + h} V{y + h // 2} H{x + w // 2 + 28} V{y + h}" fill="none" stroke="#8B5A2B" stroke-width="8"/>'
     if kind in {"object", "simple_shape"} and any(word in label for word in ("溪", "水")):
         return (
             f'<path d="M{x},{y + h // 2} q{w // 8},-{h // 2} {w // 4},0 t{w // 4},0 t{w // 4},0 t{w // 4},0 V{y + h} H{x} Z" fill="{c}" opacity=".9"/>'
@@ -186,7 +232,13 @@ def _shape(element: dict) -> str:
             f'<circle cx="{x + w * 2 // 3}" cy="{y + h // 3 - 4}" r="4" fill="#3D382F"/>'
         )
     if kind == "person":
-        return f'<circle cx="{x + w // 2}" cy="{y + h // 4}" r="{min(w, h) // 7}" fill="{c}"/><path d="M{x + w // 2},{y + h // 3} v{h // 3} m-{w // 5},-{h // 6} h{w // 2} m-{w // 8},{h // 3} l-{w // 6},{h // 4} m{w // 8},{h // 4} l{w // 6},{h // 4}" fill="none" stroke="{c}" stroke-width="12" stroke-linecap="round"/>'
+        cx, head_y = x + w // 2, y + h // 4
+        return (
+            f'<circle cx="{cx}" cy="{head_y}" r="{min(w, h) // 7 + 8}" fill="#F2C7A5" stroke="#5B5550" stroke-width="4"/>'
+            f'<path d="M{cx - 38} {head_y - 8} q38 -42 76 0" fill="#6B4A3A" stroke="#5B5550" stroke-width="4"/>'
+            f'<path d="M{cx} {y + h // 3} v{h // 3} m-{w // 5},-{h // 6} h{w // 2} m-{w // 8},{h // 3} l-{w // 6},{h // 4} m{w // 8},{h // 4} l{w // 6},{h // 4}" fill="none" stroke="{c}" stroke-width="12" stroke-linecap="round"/>'
+            f'<circle cx="{cx - 11}" cy="{head_y + 2}" r="4" fill="#3D382F"/><circle cx="{cx + 11}" cy="{head_y + 2}" r="4" fill="#3D382F"/>'
+        )
     if kind == "house":
         return f'<path d="M{x},{y + h // 3} L{x + w // 2},{y} L{x + w},{y + h // 3} V{y + h} H{x} Z" fill="{c}"/><rect x="{x + w // 3}" y="{y + h // 2}" width="{w // 3}" height="{h // 2}" fill="{BACKGROUND}"/>'
     if kind == "sun":
@@ -491,6 +543,25 @@ def _interaction(element: dict, raw_elements: list[dict]) -> str:
             f'<path d="M{tx - 100} {ty - 70} q45 -35 90 0 q45 35 90 0" fill="none" stroke="{element["color"]}" stroke-width="6" stroke-linecap="round"/>'
             f'<path d="M{tx + 72} {ty - 70} l22 -10 M{tx + 72} {ty - 70} l18 15" stroke="{element["color"]}" stroke-width="6" stroke-linecap="round"/>'
         )
+    if any(word in label for word in ("递", "挥", "道谢")):
+        people = [
+            e for e in raw_elements if e["kind"] in {"person", "bear", "fox", "rabbit", "hedgehog"}
+        ]
+        cat = _find_element(raw_elements, "object", ("猫", "小猫"))
+        balloon = _find_element(raw_elements, "object", ("气球",))
+        if "递" in label and cat and balloon:
+            sx, sy = cat["x"] + cat["width"] // 2, cat["y"] + cat["height"] // 2
+            bx, by = balloon["x"] + balloon["width"] // 2, balloon["y"] + balloon["height"] // 2
+            return f'<path d="M{sx} {sy} Q{(sx + bx) // 2} {by + 42} {bx} {by + 20}" fill="none" stroke="#D94B4B" stroke-width="6" stroke-dasharray="10 10" stroke-linecap="round"/><path d="M{bx} {by + 20} l-18 4 M{bx} {by + 20} l-5 17" stroke="#D94B4B" stroke-width="6" stroke-linecap="round"/>'
+        if people:
+            parts = []
+            for person in people[:2]:
+                px = person["x"] + person["width"] // 2
+                py = person["y"] + person["height"] // 3
+                parts.append(
+                    f'<path d="M{px} {py + 25} q-28 -28 -42 0 M{px} {py + 25} q28 -28 42 0" fill="none" stroke="{element["color"]}" stroke-width="6" stroke-linecap="round"/>'
+                )
+            return "".join(parts)
     if any(word in label for word in ("划行", "捞回", "捞种子", "小船", "船")):
         boat = _find_element(raw_elements, "object", ("船", "叶"))
         seed = _find_element(raw_elements, "object", ("种子", "月亮种子"))
@@ -558,7 +629,12 @@ def scene_to_svg(scene: dict) -> str:
             f'<path d="M{bx + 18} {rim_y} Q{bx + bw // 2} {rim_y + 34} {bx + bw - 18} {rim_y}" '
             'fill="none" stroke="#5B5550" stroke-width="9" stroke-linecap="round"/>'
         )
+    seen_interactions: set[str] = set()
     for element in ordered:
+        interaction_key = element["label"].strip()
+        if interaction_key in seen_interactions:
+            continue
+        seen_interactions.add(interaction_key)
         if interaction := _interaction(element, ordered):
             parts.append(interaction)
     for element in ordered:
@@ -572,7 +648,9 @@ def scene_to_svg(scene: dict) -> str:
     seen_labels: set[str] = set()
     for index, element in enumerate(ordered):
         label = escape(_display_label(element), quote=True)
-        label_key = label or element["label"]
+        label_key = (label or element["label"]).strip()
+        if element["kind"] == "action_lines" and label_key in seen_labels:
+            continue
         if label_key == "蒲公英" and label_key in seen_labels:
             continue
         seen_labels.add(label_key)

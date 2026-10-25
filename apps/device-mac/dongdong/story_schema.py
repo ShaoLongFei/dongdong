@@ -55,6 +55,14 @@ def _visual_color(item: dict) -> str:
         (("萤火虫", "点点"), "#FFD34E"),
         (("小熊", "熊", "米米"), "#D9B38C"),
         (("风筝",), "#F2C14E"),
+        (("安安", "女孩", "小女孩"), "#F2A65A"),
+        (("主人", "爸爸", "妈妈"), "#6A8EBD"),
+        (("猫", "小猫"), "#B7B7B7"),
+        (("雨伞", "伞"), "#F2C14E"),
+        (("气球",), "#D94B4B"),
+        (("彩虹",), "#ECA6A6"),
+        (("石板路", "小路"), "#A9A9A9"),
+        (("公园",), "#6B8E68"),
         (("兔子", "小兔"), "#E8D7C5"),
         (("种子", "月亮种子"), "#D9B7FF"),
         (("发光的花", "小花"), "#F6D84A"),
@@ -91,6 +99,12 @@ def _kind(item: dict) -> str:
 
 def _scene_title(text: str) -> str:
     text = str(text or "").strip()
+    if "小猫" in text and "气球" in text and "彩虹" in text:
+        return "雨后帮小猫找气球"
+    if "小猫" in text and "主人" in text:
+        return "小猫找回家"
+    if "小猫" in text and ("发现" in text or "遇见" in text):
+        return "公园门口遇见小猫"
     if ("缠住" in text or "被困" in text) and ("发现" in text or "哭声" in text):
         return "发现被困的团团"
     if "啄木鸟" in text and ("剪断" in text or "帮忙" in text):
@@ -308,6 +322,42 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
             )
         elif item["kind"] == "object" and "果" in label:
             item.update(x=535, y=390, width=max(item["width"], 64), height=max(item["height"], 64))
+        elif item["kind"] == "object" and any(word in label for word in ("猫", "小猫")):
+            item.update(
+                x=520,
+                y=405,
+                width=max(90, min(item["width"], 150)),
+                height=max(90, min(item["height"], 110)),
+            )
+        elif item["kind"] == "object" and any(word in label for word in ("雨伞", "伞")):
+            item.update(
+                x=350, y=190, width=max(item["width"], 240), height=max(item["height"], 125)
+            )
+        elif item["kind"] == "object" and "气球" in label:
+            if any(word in text for word in ("小桥下", "桥下", "递给")):
+                item.update(
+                    x=610, y=300, width=max(item["width"], 75), height=max(item["height"], 95)
+                )
+            elif any(word in text for word in ("天空", "彩虹", "告别")):
+                item.update(
+                    x=585, y=300, width=max(item["width"], 75), height=max(item["height"], 95)
+                )
+            else:
+                item.update(
+                    x=900, y=180, width=max(item["width"], 75), height=max(item["height"], 95)
+                )
+        elif item["kind"] in {"object", "simple_shape"} and "彩虹" in label:
+            item.update(
+                x=850, y=165, width=max(item["width"], 300), height=max(item["height"], 130)
+            )
+        elif item["kind"] in {"object", "simple_shape"} and "石板路" in label:
+            item.update(x=190, y=500, width=max(item["width"], 850), height=max(item["height"], 55))
+        elif item["kind"] in {"object", "simple_shape"} and "公园门口" in label:
+            item.update(x=70, y=180, width=max(item["width"], 390), height=max(item["height"], 240))
+        elif item["kind"] in {"object", "simple_shape"} and "桥" in label:
+            item.update(
+                x=580, y=430, width=max(item["width"], 360), height=max(item["height"], 100)
+            )
         elif item["kind"] == "object" and "风筝" in label:
             if any(word in label for word in ("天空", "飞")) or any(
                 word in text for word in ("放上天空", "重新放", "升空", "放飞")
@@ -356,6 +406,10 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
             elif "约定" in label:
                 item.update(
                     x=460, y=275, width=max(item["width"], 300), height=max(item["height"], 150)
+                )
+            elif any(word in label for word in ("递", "挥", "雨滴", "气球")):
+                item.update(
+                    x=430, y=235, width=max(item["width"], 360), height=max(item["height"], 180)
                 )
             else:
                 item.update(
@@ -463,6 +517,9 @@ def normalize_scene(
                         "草坡",
                         "蒲公英",
                         "约定",
+                        "小猫",
+                        "气球",
+                        "彩虹",
                     )
                 )
                 else str(data.get("title") or _scene_title(story_text)).strip()[:80]
