@@ -98,7 +98,10 @@ export default function StoryCanvas({ state, onModeChange }) {
     }
   }
   const recording = state?.status === 'recording';
-  const ready = !recording && ['ready', 'done'].includes(selectedStoryStatus || state?.status) && Boolean(activeStoryId) && scenes.length > 0;
+  // 当前故事的状态以轮询到的 state 为准；否则停止录音后旧的 selectedStoryStatus
+  // 仍是 recording，会让导出按钮一直保持禁用。
+  const activeStoryStatus = activeStoryId === state?.storyId ? state?.status : selectedStoryStatus;
+  const ready = !recording && ['ready', 'done'].includes(activeStoryStatus) && Boolean(activeStoryId) && scenes.length > 0;
 
   useEffect(() => {
     if (!exportJob?.jobId || !activeStoryId || ['done', 'error', 'failed', 'missing'].includes(exportJob.status)) return undefined;
@@ -147,7 +150,7 @@ export default function StoryCanvas({ state, onModeChange }) {
     <div className="story-history" aria-label="故事历史">
       <div className="story-history-head"><span><BookOpen size={14} />最近故事</span><button className="story-history-refresh" onClick={loadStories} disabled={historyLoading} aria-label="刷新故事历史">{historyLoading ? <LoaderCircle size={13} className="spin" /> : <RotateCcw size={13} />}</button></div>
       {historyError && <p className="story-history-error">{historyError}</p>}
-      {stories.length ? <div className="story-history-list">{stories.slice(0, 8).map(story => <button key={story.storyId} className={story.storyId === selectedStoryId ? 'is-selected' : ''} onClick={() => loadStory(story.storyId)}><span>{story.title || '未命名故事'}</span><small>{story.scenes?.length || story.sceneCount || 0} 幕</small></button>)}</div> : <p className="story-history-empty">还没有保存的故事</p>}
+      {stories.length ? <div className="story-history-list">{stories.slice(0, 8).map(story => <button key={story.storyId} className={story.storyId === selectedStoryId ? 'is-selected' : ''} onClick={() => loadStory(story.storyId)} disabled={recording} title={recording ? '结束当前故事后再查看历史' : '查看故事'}><span>{story.title || '未命名故事'}</span><small>{story.scenes?.length || story.sceneCount || 0} 幕</small></button>)}</div> : <p className="story-history-empty">还没有保存的故事</p>}
       {currentStory && <p className="story-history-current">当前：{currentStory.title || currentStory.storyId}</p>}
     </div>
     {error && <div className="notice">{error}</div>}
