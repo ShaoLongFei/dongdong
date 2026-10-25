@@ -7,10 +7,29 @@ import re
 
 WIDTH, HEIGHT = 1280, 720
 BACKGROUND = "#F5EBD7"
-ALLOWED_COLORS = {"#5B5550", "#C94C4C", "#E88A3D", "#4C78A8", BACKGROUND}
+ALLOWED_COLORS = {
+    BACKGROUND,
+    "#5B5550",
+    "#C94C4C",
+    "#E88A3D",
+    "#4C78A8",
+    "#6B4226",
+    "#D9B38C",
+    "#B8A080",
+    "#77BBDD",
+    "#806040",
+    "#6A9CC9",
+    "#FFD45C",
+    "#4F8B45",
+    "#9B6B3D",
+    "#E5A83B",
+    "#F28C45",
+    "#C94F5C",
+}
 ALLOWED_KINDS = {
     "tree",
     "rabbit",
+    "hedgehog",
     "person",
     "house",
     "sun",
@@ -19,6 +38,12 @@ ALLOWED_KINDS = {
     "simple_shape",
 }
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def _color(value: object, default: str = "#5B5550") -> str:
+    value = str(value or "")
+    return value if value in ALLOWED_COLORS or _HEX_COLOR.fullmatch(value) else default
 
 
 def _safe_int(value: object, default: int, low: int, high: int) -> int:
@@ -32,7 +57,7 @@ def _safe_int(value: object, default: int, low: int, high: int) -> int:
 def _element(raw: object, index: int, start_ms: int) -> dict:
     item = raw if isinstance(raw, dict) else {}
     kind = item.get("kind") if item.get("kind") in ALLOWED_KINDS else "simple_shape"
-    color = item.get("color") if item.get("color") in ALLOWED_COLORS else "#5B5550"
+    color = _color(item.get("color"))
     width = _safe_int(item.get("width"), 180, 1, WIDTH)
     height = _safe_int(item.get("height"), 160, 1, HEIGHT)
     x = _safe_int(item.get("x"), 40 + (index * 150) % (WIDTH - width + 1), 0, WIDTH - width)
@@ -107,9 +132,7 @@ def normalize_scene(
                     {
                         "id": str(item.get("id") or "character")[:64],
                         "kind": item.get("kind") if item.get("kind") in ALLOWED_KINDS else "person",
-                        "color": item.get("color")
-                        if item.get("color") in ALLOWED_COLORS
-                        else "#5B5550",
+                        "color": _color(item.get("color")),
                     }
                 )
         duration = max(cursor, _safe_int(data.get("durationMs"), cursor, 100, 30_000))
@@ -125,3 +148,23 @@ def normalize_scene(
         if strict:
             raise
         return default_scene(story_text, scene_id)
+
+
+def normalize_scenes(raw: dict | str, story_text: str, scene_number: int) -> list[dict]:
+    """保留模型返回的连续分镜，而不是只取 scenes[0]。"""
+    data = json.loads(raw) if isinstance(raw, str) else raw
+    if not isinstance(data, dict):
+        raise ValueError("scenes must be an object")
+    raw_scenes = data.get("scenes")
+    if not isinstance(raw_scenes, list):
+        raw_scenes = [data]
+    scenes = []
+    for index, item in enumerate(raw_scenes[:4]):
+        if not isinstance(item, dict):
+            raise ValueError(f"第 {index + 1} 幕不是对象")
+        scene_text = str(item.get("description") or story_text).strip()[:500]
+        scene_id = f"scene-{scene_number + index:03d}"
+        scenes.append(normalize_scene(item, scene_text, scene_id, strict=True))
+    if not scenes:
+        raise ValueError("模型没有返回任何场景")
+    return scenes

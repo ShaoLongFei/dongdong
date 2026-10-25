@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
 
 from dongdong.story import StorySession, story_for  # noqa: E402
 from dongdong.story_export import bundled_ffmpeg, export_story  # noqa: E402
-from dongdong.story_schema import normalize_scene  # noqa: E402
+from dongdong.story_schema import normalize_scene, normalize_scenes  # noqa: E402
 from dongdong.story_store import StoryStore  # noqa: E402
 from dongdong.story_svg import scene_to_svg  # noqa: E402
 from dongdong.web_runtime import WebState  # noqa: E402
@@ -136,6 +136,32 @@ def main() -> None:
     )
     fallback = normalize_scene("{bad", "默认故事", "scene-002")
     assert len(fallback["elements"]) == 3
+    multi = normalize_scenes(
+        {
+            "scenes": [
+                {
+                    "description": "米米在树下发现断桥",
+                    "elements": [
+                        {"kind": "tree", "color": "#6B4226", "label": "老橡树"},
+                        {"kind": "rabbit", "color": "#D9B38C", "label": "米米"},
+                        {"kind": "object", "color": "#77BBDD", "label": "溪水"},
+                    ],
+                },
+                {
+                    "description": "米米和圆圆修好木桥",
+                    "elements": [
+                        {"kind": "rabbit", "color": "#D9B38C", "label": "米米"},
+                        {"kind": "person", "color": "#8B6F47", "label": "圆圆"},
+                        {"kind": "object", "color": "#8B5A2B", "label": "木桥"},
+                    ],
+                },
+            ]
+        },
+        "完整故事",
+        1,
+    )
+    assert [item["sceneId"] for item in multi] == ["scene-001", "scene-002"]
+    assert multi[0]["elements"][0]["color"] == "#6B4226"
     hostile = normalize_scene(
         {
             "elements": [
@@ -304,15 +330,15 @@ def main() -> None:
             event_word.start()
             event_word.accept_text("小兔子于是")
             await asyncio.sleep(0.01)
-            assert event_word.state()["bufferedText"] == ""
-            assert event_word.state()["sceneCount"] == 1
+            assert event_word.state()["bufferedText"] == "小兔子于是"
+            assert event_word.state()["sceneCount"] == 0
             await event_word.close()
 
             fixed_buffer = StorySession(BrokenModel(), store=store, flush_seconds=60)
             fixed_buffer.start()
             fixed_buffer.accept_text("甲" * 40)
-            assert fixed_buffer.state()["bufferedText"] == ""
-            assert fixed_buffer.state()["sceneCount"] == 1
+            assert fixed_buffer.state()["bufferedText"] == "甲" * 40
+            assert fixed_buffer.state()["sceneCount"] == 0
             await fixed_buffer.close()
 
         async def lifecycle_smoke() -> None:

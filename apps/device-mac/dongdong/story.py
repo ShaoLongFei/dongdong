@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
 from collections.abc import Awaitable
@@ -9,12 +8,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .llm import ModelConfig, stream_chat
-from .story_schema import normalize_scene
+from .story_schema import normalize_scenes
 from .story_store import StoryStore
 from .story_svg import scene_to_svg
 
 log = logging.getLogger("dongdong.story")
-_WORDS = re.compile(r"[。！？!?；;\n]+|然后|突然|于是|看见|跑向|拿起|变成")
+_BOUNDARY = re.compile(r"[。！？!?；;\n]")
+_MIN_CHUNK = 36
+_MAX_CHUNK = 180
 
 
 class StorySession:
@@ -25,7 +26,7 @@ class StorySession:
         root: Path | None = None,
         *,
         flush_seconds: float = 2.0,
-        max_tasks: int = 2,
+        max_tasks: int = 1,
     ):
         self.model = model
         self.store = store or StoryStore(root or Path.home() / ".dongdong" / "stories")
@@ -38,9 +39,11 @@ class StorySession:
         self._tasks: set[asyncio.Task] = set()
         self._sem = asyncio.Semaphore(max(1, max_tasks))
         self._scene_number = 0
+        self._batch_number = 0
         self._events: list[dict] = []
         self._cursor = 0
         self._characters: list[dict] = []
+        self._story_so_far = ""
         self._pending: dict[str, str] = {}
         self._error = ""
 
@@ -53,7 +56,9 @@ class StorySession:
         self._events = []
         self._cursor = 0
         self._scene_number = 0
+        self._batch_number = 0
         self._characters = []
+        self._story_so_far = ""
         self._pending = {}
         self._error = ""
         self._publish("state", {"status": self.status, "storyId": self.story_id})
@@ -62,11 +67,11 @@ class StorySession:
     def accept_text(self, text: str) -> None:
         if self.status != "recording" or not str(text or "").strip():
             return
-        self._buffer += " " + str(text).strip()
-        while len(self._buffer.strip()) >= 40:
-            chunk, self._buffer = self._buffer.strip()[:40], self._buffer.strip()[40:]
+        text = str(text).strip()
+        self._buffer += (" " if self._buffer else "") + text
+        while chunk := self._next_chunk():
             self._submit(chunk)
-        if _WORDS.search(self._buffer):
+        if _BOUNDARY.search(self._buffer) and len(self._buffer.strip()) >= _MIN_CHUNK:
             self._schedule_flush()
         elif self._timer is None or self._timer.done():
             try:
@@ -92,44 +97,72 @@ class StorySession:
         self._flush()
 
     def _flush(self) -> None:
+        while chunk := self._next_chunk(force=True):
+            self._submit(chunk)
+
+    def _next_chunk(self, force: bool = False) -> str:
         text = self._buffer.strip()
-        self._buffer = ""
-        self._submit(text)
+        if not text:
+            return ""
+        boundary = next(
+            (
+                match.end()
+                for match in _BOUNDARY.finditer(text)
+                if _MIN_CHUNK <= match.end() <= _MAX_CHUNK
+            ),
+            None,
+        )
+        if boundary is None and len(text) < _MAX_CHUNK and not force:
+            return ""
+        cut = boundary or min(len(text), _MAX_CHUNK)
+        if boundary is None and cut == _MAX_CHUNK:
+            comma = max(text.rfind("，", 70, cut), text.rfind(",", 70, cut))
+            if comma >= _MIN_CHUNK:
+                cut = comma + 1
+        self._buffer = text[cut:].lstrip()
+        return text[:cut].strip()
 
     def _submit(self, text: str) -> None:
         if not text or self.status != "recording":
             return
-        self._scene_number += 1
-        scene_id = f"scene-{self._scene_number:03d}"
-        self._pending[scene_id] = text
-        task = asyncio.create_task(self._generate(scene_id, text))
+        self._batch_number += 1
+        batch_id = f"batch-{self._batch_number:03d}"
+        self._pending[batch_id] = text
+        task = asyncio.create_task(self._generate(batch_id, text))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    async def _generate(self, scene_id: str, text: str) -> None:
+    async def _generate(self, batch_id: str, text: str) -> None:
         async with self._sem:
             try:
                 raw = await self._request_scene(text)
-                scene = normalize_scene(raw, text, scene_id, strict=True)
-                self._characters = scene.get("characters", [])
-                self.store.save_scene(self.story_id, scene)
-                scene["svg"] = scene_to_svg(scene)
-                self._publish("scene", {"storyId": self.story_id, "scene": scene})
-                self._pending.pop(scene_id, None)
+                scenes = normalize_scenes(raw, text, self._scene_number + 1)
+                self._scene_number += len(scenes)
+                for scene in scenes:
+                    self._characters = scene.get("characters", [])
+                    self.store.save_scene(self.story_id, scene)
+                    scene["svg"] = scene_to_svg(scene)
+                    self._publish("scene", {"storyId": self.story_id, "scene": scene})
+                self._story_so_far = (self._story_so_far + " " + text).strip()[-1600:]
+                self._pending.pop(batch_id, None)
             except Exception as exc:  # model and disk errors are visible in the event stream
                 log.warning("故事场景失败: %s", exc)
-                self._pending.pop(scene_id, None)
+                self._pending.pop(batch_id, None)
                 self._error = str(exc)
                 self.status = "error"
-                self._publish("error", {"message": str(exc), "sceneId": scene_id})
+                self._publish("error", {"message": str(exc), "batchId": batch_id})
                 self._save_manifest_status()
 
     async def _request_scene(self, text: str) -> dict | str:
         prompt = (
-            "把下面的儿童故事片段转换为白板动画 JSON 场景。只输出 JSON，不要 Markdown。"
-            "elements 至少 3 个，每个元素必须有 kind、x、y、width、height、color、label；"
-            "kind 只能是 tree、rabbit、person、house、sun、object、action_lines、simple_shape。"
-            f"\n前文角色：{json.dumps(self._characters, ensure_ascii=False)}\n片段：{text}"
+            "把下面的儿童故事口述整理成连续的白板动画分镜 JSON，只输出 JSON，不要 Markdown。"
+            "只为本次新增片段返回 1-3 幕 scenes；已经讲过的故事只用于保持角色和场景连续，不能重复生成。"
+            "每幕必须有 description 和至少 3 个 elements。"
+            "每个元素必须有 kind、x、y、width、height、color、label；"
+            "kind 只能是 tree、rabbit、hedgehog、person、house、sun、object、action_lines、simple_shape。"
+            "画布是 1280x720；角色在相邻场景中保持相同 kind、颜色和称呼；"
+            "不要凭空添加故事里没有的角色或物件，动作要用 action_lines 表现。"
+            f"\n已经讲过的故事（仅作连续性参考）：{self._story_so_far}\n本次新增片段（只画这一段）：{text}"
         )
         if self.model is None:
             raise RuntimeError("模型未配置")
@@ -139,7 +172,7 @@ class StorySession:
         messages = [
             {
                 "role": "system",
-                "content": "你是儿童故事白板动画分镜生成器，只返回符合协议的 JSON。",
+                "content": "你是儿童故事白板动画分镜生成器，只返回符合协议的 JSON，不重复已经生成过的情节。",
             },
             {"role": "user", "content": prompt},
         ]
@@ -158,7 +191,8 @@ class StorySession:
         self._flush()
         self.status = "stopping"
         if self._tasks:
-            _, waiting = await asyncio.wait(set(self._tasks), timeout=5)
+            # 故事分镜是一次完整模型请求，给队列留出正常的网络响应时间。
+            _, waiting = await asyncio.wait(set(self._tasks), timeout=30)
             for task in waiting:
                 task.cancel()
             if waiting:
@@ -180,11 +214,11 @@ class StorySession:
         return self.state()
 
     def _save_pending(self) -> None:
-        for scene_id, text in list(self._pending.items()):
-            self._pending.pop(scene_id, None)
+        for batch_id, text in list(self._pending.items()):
+            self._pending.pop(batch_id, None)
             self._error = self._error or "场景生成未完成，未生成伪画面"
             self.status = "error"
-            self._publish("error", {"message": self._error, "sceneId": scene_id})
+            self._publish("error", {"message": self._error, "batchId": batch_id})
         self._save_manifest_status()
 
     def _save_manifest_status(self) -> None:
@@ -200,7 +234,7 @@ class StorySession:
             "storyId": self.story_id,
             "status": self.status,
             "bufferedText": self._buffer,
-            "sceneCount": self._scene_number,
+            "sceneCount": self._scene_number + len(self._pending),
             "cursor": self._cursor,
         }
 

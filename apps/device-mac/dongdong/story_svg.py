@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from html import escape
 
-from .story_schema import ALLOWED_COLORS, ALLOWED_KINDS, BACKGROUND, HEIGHT, WIDTH
+from .story_schema import ALLOWED_KINDS, BACKGROUND, HEIGHT, WIDTH, _color
 
 
 def _number(value: object, default: int, low: int, high: int) -> int:
@@ -23,7 +23,7 @@ def _safe_element(raw: object, index: int) -> dict:
     color = item.get("color")
     return {
         "kind": kind if isinstance(kind, str) and kind in ALLOWED_KINDS else "simple_shape",
-        "color": color if isinstance(color, str) and color in ALLOWED_COLORS else "#5B5550",
+        "color": _color(color),
         "label": str(item.get("label") or "")[:120],
         "x": _number(item.get("x"), 40 + (index * 150) % (WIDTH - width + 1), 0, WIDTH - width),
         "y": _number(item.get("y"), 80 + (index * 70) % (HEIGHT - height + 1), 0, HEIGHT - height),
@@ -43,6 +43,8 @@ def _shape(element: dict) -> str:
         return f'<rect x="{x + w // 2 - 16}" y="{y + h // 2}" width="32" height="{h // 2}" fill="{c}"/><circle cx="{x + w // 2}" cy="{y + h // 3}" r="{min(w, h) // 3}" fill="{c}"/>'
     if kind == "rabbit":
         return f'<ellipse cx="{x + w // 2}" cy="{y + h // 2}" rx="{w // 3}" ry="{h // 3}" fill="{c}"/><circle cx="{x + w // 2}" cy="{y + h // 4}" r="{min(w, h) // 5}" fill="{c}"/><path d="M{x + w // 2 - 22},{y + h // 5} l-12,-{h // 4} l28,18 M{x + w // 2 + 22},{y + h // 5} l12,-{h // 4} l-28,18" fill="none" stroke="{c}" stroke-width="10"/>'
+    if kind == "hedgehog":
+        return f'<ellipse cx="{x + w // 2}" cy="{y + h // 2}" rx="{w // 2 - 8}" ry="{h // 3}" fill="{c}"/><path d="M{x + w // 4},{y + h // 3} l-18,-28 m{w // 4 + 18},28 l0,-35 m28,35 l18,-28" fill="none" stroke="#5B5550" stroke-width="8" stroke-linecap="round"/><circle cx="{x + w * 3 // 4}" cy="{y + h // 2 - 8}" r="5" fill="#5B5550"/>'
     if kind == "person":
         return f'<circle cx="{x + w // 2}" cy="{y + h // 4}" r="{min(w, h) // 7}" fill="{c}"/><path d="M{x + w // 2},{y + h // 3} v{h // 3} m-{w // 5},-{h // 6} h{w // 2} m-{w // 8},{h // 3} l-{w // 6},{h // 4} m{w // 8},{h // 4} l{w // 6},{h // 4}" fill="none" stroke="{c}" stroke-width="12" stroke-linecap="round"/>'
     if kind == "house":
