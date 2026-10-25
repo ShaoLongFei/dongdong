@@ -1,0 +1,479 @@
+{
+  "revision": "378f453cb7391482cc2b7610876465b825623c91",
+  "scope": "完整审阅根 AGENTS.md 的项目约束，另提炼 docs/decisions.md 中与当前运行边界相关的9条决策；历史过程与 vendor 内技能引用不视为全项目有效规则。vendor 来源仅收集未逐条语义审阅，两个缺失链接保留。当前用户补充和未跟踪本地 Birdview 已单独阅读，不伪造 committed HEAD 历史；不声称全环境规则全集或全部实现合规。",
+  "groups": [
+    {
+      "sourcePath": "AGENTS.md",
+      "category": "interfaces",
+      "topic": {
+        "id": "simplicity",
+        "name": "设计与改动边界"
+      },
+      "rules": [
+        {
+          "id": "no-abstraction",
+          "name": "第二个调用方出现后再抽象",
+          "anchor": "没有第二个调用方，不写抽象",
+          "condition": "设计函数、类或模块时",
+          "explanation": "只有一个调用方时保持具体实现。",
+          "verification": "检查调用点及新增接口的实际调用方。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "delete-first",
+          "name": "优先复用和删除",
+          "anchor": "删除优于新增",
+          "condition": "新增文件或调整逻辑时",
+          "explanation": "先找现成实现，最少行数完成需求。",
+          "verification": "检查是否有重复实现与无用文件。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "file-limit",
+          "name": "自有单文件不超过 300 行",
+          "anchor": "单文件 ≤ 300 行",
+          "condition": "修改自有代码时",
+          "explanation": "保持职责小；vendor 分发例外见决策记录；当前 task_store 等超长现状不代表合规。",
+          "verification": "统计自有文件行数并对照显式例外。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "callers-first",
+          "name": "修改前查齐调用方",
+          "anchor": "改之前先看调用方",
+          "condition": "变更公共函数或行为时",
+          "explanation": "先检查所有调用点，一次同步修改。",
+          "verification": "rg 调用符号并核对所有入口。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "no-guess",
+          "name": "不确定先查证",
+          "anchor": "不确定就查文档或问人",
+          "condition": "外部协议或平台行为不确定时",
+          "explanation": "查官方资料；无法消除的捷径标 shortcut。",
+          "verification": "检查证据与 shortcut 说明。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "happy-path",
+          "name": "先跑通再优化",
+          "anchor": "先跑通再优化",
+          "condition": "取舍性能与交付复杂度时",
+          "explanation": "先完成比赛 happy path，有真实瓶颈后才优化。",
+          "verification": "检查优化是否有真实需求。",
+          "applicability": "conditional"
+        }
+      ]
+    },
+    {
+      "sourcePath": "AGENTS.md",
+      "category": "testing",
+      "topic": {
+        "id": "test-scope",
+        "name": "边界测试与验证"
+      },
+      "rules": [
+        {
+          "id": "no-extra-tests",
+          "name": "默认不增加普通单元测试",
+          "anchor": "默认零测试",
+          "condition": "新增普通功能时",
+          "explanation": "getter、配置、CLI/UI 胶水不补测试。",
+          "verification": "审查新增测试必要性。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "protocol-tests",
+          "name": "协议解析与序列化须测",
+          "anchor": "协议解析/序列化：灵矽 WS 消息",
+          "condition": "更改协议边界时",
+          "explanation": "保护 WS / MCP / OTA 消息。",
+          "verification": "运行对应 smoke 断言。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "audio-tests",
+          "name": "编解码与采样率须测",
+          "anchor": "音频编解码、采样率换算",
+          "condition": "更改音频转换时",
+          "explanation": "覆盖真实编解码和采样率边界。",
+          "verification": "运行音频 smoke。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "execution-tests",
+          "name": "执行命令和数据边界须测",
+          "anchor": "会破坏用户数据或执行命令的边界",
+          "condition": "更改路径、超时或重入时",
+          "explanation": "只覆盖会执行命令或破坏数据的边界。",
+          "verification": "运行路径、超时、重入检查。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "auth-tests",
+          "name": "鉴权与计费须测",
+          "anchor": "- 鉴权、计费",
+          "condition": "变更鉴权或计费时",
+          "explanation": "验证授权和计费边界。",
+          "verification": "运行相关断言。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "test-prohibitions",
+          "name": "不 mock 协议或堆测试基建",
+          "anchor": "mock 第三方协议",
+          "condition": "设计测试时",
+          "explanation": "不为单分支堆多个用例；不用快照、覆盖率门槛或 CI 矩阵。",
+          "verification": "人工查看测试策略。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "no-tdd",
+          "name": "项目不采用 TDD",
+          "anchor": "本项目不 TDD",
+          "condition": "实现功能或修复时",
+          "explanation": "遵循本项目默认边界验证策略。",
+          "verification": "审查实施流程。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "smoke-contract",
+          "name": "规范要求单文件纯 assert",
+          "anchor": "写法约定",
+          "condition": "新增必要测试时",
+          "explanation": "规范要求 tests/smoke.py、纯 assert、10 秒内由 check.sh 调用；当前实际七个文件，记录差异，不能静默改写规范。",
+          "verification": "对照 scripts/check.sh、tests 和 decisions #13/#18。",
+          "applicability": "conditional"
+        }
+      ]
+    },
+    {
+      "sourcePath": "AGENTS.md",
+      "category": "configuration",
+      "topic": {
+        "id": "deps",
+        "name": "依赖与平台实现"
+      },
+      "rules": [
+        {
+          "id": "dependency-order",
+          "name": "依赖按标准库到成熟库优先",
+          "anchor": "1. 标准库",
+          "condition": "选技术方案时",
+          "explanation": "依次标准库、已装依赖、成熟库、自写≤50行；更多需说明理由。",
+          "verification": "对照已有清单与替代方案。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "no-reinvention",
+          "name": "不自研已有协议与基础能力",
+          "anchor": "**禁止自己实现**",
+          "condition": "接入网络、音频、发现或语音能力时",
+          "explanation": "优先库；WS、Opus、mDNS、JSON-RPC、HTTP、音频抽象、AppleScript、ASR/TTS 不重复造。",
+          "verification": "核对依赖调用及自写实现。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "platform-exception",
+          "name": "平台例外写决策与替换时机",
+          "anchor": "但必须在 `docs/decisions.md` 记一行",
+          "condition": "确无成熟库必须自写时",
+          "explanation": "记录原因、边界、未来替换条件。",
+          "verification": "检查 decisions 对应行。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "large-dependency",
+          "name": "大型或需编译依赖先征同意",
+          "anchor": "加依赖的门槛",
+          "condition": "依赖>20MB、需 sudo 或 C 编译时",
+          "explanation": "安装前说明理由并得到同意。",
+          "verification": "核对依赖体积与授权记录。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "declare-dependency",
+          "name": "新依赖必须写入清单",
+          "anchor": "新依赖必须写进",
+          "condition": "新增 Python 依赖时",
+          "explanation": "同句后半“允许 pip install 但不记录”与前半有歧义；按前半明确 must 记录，本次无依赖变更。",
+          "verification": "核对 pyproject.toml 与安装动作。",
+          "applicability": "conditional"
+        }
+      ]
+    },
+    {
+      "sourcePath": "AGENTS.md",
+      "category": "delivery",
+      "topic": {
+        "id": "layout",
+        "name": "目录与交付"
+      },
+      "rules": [
+        {
+          "id": "directory-duty",
+          "name": "新文件遵循目录职责",
+          "anchor": "新文件先问",
+          "condition": "新增文件时",
+          "explanation": "apps/device-mac、firmware、docs、scripts、deploy、tests 各司其职；apps/web 为已存在的实现，规范目录表未列出。",
+          "verification": "检查文件归属。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "temporary",
+          "name": "临时脚本不进仓库",
+          "anchor": "临时脚本放 `/tmp`",
+          "condition": "编写临时验证或生成脚本时",
+          "explanation": "临时脚本放 /tmp；用户补充的服务器备份要求 ~/tmp。",
+          "verification": "检查 Git 差异与临时文件位置。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "commit-progress",
+          "name": "可验证进展及时提交推送",
+          "anchor": "每取得一个可验证的进展就提交",
+          "condition": "完成验证后",
+          "explanation": "按项目要求每个逻辑进展提交并推送。",
+          "verification": "查看提交和远端状态。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "commit-prefix",
+          "name": "提交使用 feat/fix/docs/chore",
+          "anchor": "提交前缀",
+          "condition": "创建提交时",
+          "explanation": "按真实改动类型命名。",
+          "verification": "检查提交标题。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "atomic-commit",
+          "name": "功能和顺手重构分开",
+          "anchor": "一个功能一个提交",
+          "condition": "组织提交时",
+          "explanation": "单个提交仅包含同一逻辑变更。",
+          "verification": "检查 staged diff。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "check-before-commit",
+          "name": "check.sh 红了不提交",
+          "anchor": "提交前跑 `./scripts/check.sh`",
+          "condition": "提交前",
+          "explanation": "运行已有格式、lint 和全部 smoke。",
+          "verification": "保留 check.sh 输出。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "rebase-before-push",
+          "name": "推送前 pull --rebase",
+          "anchor": "推送前先",
+          "condition": "推送前",
+          "explanation": "先同步上游，避免分叉。",
+          "verification": "检查 pull 和 push 结果。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "no-secrets",
+          "name": "不提交密钥和本地运行数据",
+          "anchor": "不提交 `.venv/`",
+          "condition": "暂存或发布产物时",
+          "explanation": "排除 venv、用户数据、token 和 API key。",
+          "verification": "查看完整 staged 文件清单与内容。",
+          "applicability": "conditional"
+        }
+      ]
+    },
+    {
+      "sourcePath": "AGENTS.md",
+      "category": "interfaces",
+      "topic": {
+        "id": "style",
+        "name": "代码风格与复杂度"
+      },
+      "rules": [
+        {
+          "id": "python-style",
+          "name": "Python 3.12 / Ruff / 100 列",
+          "anchor": "Python 3.12",
+          "condition": "开发 Python 时",
+          "explanation": "这是规范；清单目前 >=3.11 / py311，差异未改。",
+          "verification": "对照 pyproject、setup 和 check。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "typing",
+          "name": "类型只标模块边界",
+          "anchor": "类型注解只写在模块边界",
+          "condition": "编写 Python 时",
+          "explanation": "函数签名标类型，函数体不增加注解。",
+          "verification": "代码审查。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "comments",
+          "name": "注释只解释原因",
+          "anchor": "注释只解释「为什么」",
+          "condition": "写注释时",
+          "explanation": "避免复述代码；领域注释可用中文。",
+          "verification": "代码审查。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "logging",
+          "name": "日志使用标准 logging",
+          "anchor": "日志用 `logging`",
+          "condition": "新增日志时",
+          "explanation": "不引入 loguru/structlog。",
+          "verification": "检查导入和日志调用。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "blacklist",
+          "name": "不引入过度设计结构",
+          "anchor": "只有一个实现的接口/ABC",
+          "condition": "设计扩展与重构时",
+          "explanation": "禁止单实现接口、DI、非必要总线/队列、自研状态机/重试/配置中心、嵌套配置、常量集中、未来开关、通用化搬迁与半成品抽象。",
+          "verification": "逐项检查结构是否有当前真实调用需要。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "pitfall-log",
+          "name": "平台坑及时写入决策记录",
+          "anchor": "遇到平台/硬件的坑",
+          "condition": "修复平台或硬件问题后",
+          "explanation": "记录事实、原因、边界和后续条件。",
+          "verification": "核对 docs/decisions.md。",
+          "applicability": "conditional"
+        }
+      ]
+    },
+    {
+      "sourcePath": "docs/decisions.md",
+      "category": "security",
+      "topic": {
+        "id": "execution-safety",
+        "name": "已实现运行边界（决策证据）"
+      },
+      "rules": [
+        {
+          "id": "shell-not-sandbox",
+          "name": "文件白名单不约束 shell",
+          "anchor": "shell 是有意保留的逃生口",
+          "condition": "执行 shell 或开放多人访问前",
+          "explanation": "shell 持有进程权限及环境变量；当前本机单用户，审批不构成沙箱。",
+          "verification": "核对 builtin_tools._shell、resolve_path 与 Runtime 审批。",
+          "applicability": "conditional",
+          "modules": [
+            "runtime",
+            "capabilities",
+            "device-tools"
+          ]
+        },
+        {
+          "id": "kill-group",
+          "name": "超时终止整个命令进程组",
+          "anchor": "shell 超时杀整个进程组",
+          "condition": "shell 超时或取消时",
+          "explanation": "start_new_session + killpg 处理管道及后台子进程。",
+          "verification": "核对超时/取消 smoke 与实际清理。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "meeting-confirm",
+          "name": "会议必须显式整理和确认",
+          "anchor": "会议代码修改模式显式开启",
+          "condition": "会议模式生成或实施时",
+          "explanation": "普通 STT 只记录；生成只读，确认绑定方案哈希、展示记录、讨论截止和基线。",
+          "verification": "核对 Meeting 与 Meetings.claim。",
+          "applicability": "conditional",
+          "modules": [
+            "meeting"
+          ]
+        },
+        {
+          "id": "scope-audit",
+          "name": "shell 范围检查是事后检测",
+          "anchor": "实施 shell 完成后对比 Git 可见文件指纹",
+          "condition": "会议实施 shell 返回时",
+          "explanation": "额外变更导致停止记录，不回滚；不能覆盖忽略路径或工作区外，仍非沙箱。",
+          "verification": "检查 meeting_execution 的 before/after 差异。",
+          "applicability": "conditional"
+        }
+      ]
+    },
+    {
+      "sourcePath": "docs/decisions.md",
+      "category": "lifecycle",
+      "topic": {
+        "id": "runtime-boundaries",
+        "name": "生命周期与集成（决策证据）"
+      },
+      "rules": [
+        {
+          "id": "outbound-mcp",
+          "name": "语音使用主动连接设备 MCP",
+          "anchor": "灵矽语音走设备 MCP",
+          "condition": "使用语音编程时",
+          "explanation": "Mac 主动连云端，不开放语音入站；builtin 最多同步等8秒再返回任务号。",
+          "verification": "核对 linx、tools 与 WebAgent。",
+          "applicability": "conditional"
+        },
+        {
+          "id": "restart-pause",
+          "name": "重启默认暂停持久任务",
+          "anchor": "任务调度采用 SQLite WAL",
+          "condition": "调度恢复时",
+          "explanation": "SQLite claim/lease，不引入 Redis/RabbitMQ；恢复细节结合最新集成决策与源码，默认暂停，auto_recover 明确开才续跑。",
+          "verification": "检查 task_lifecycle 和 task_scheduler.recover_runs。",
+          "applicability": "conditional",
+          "modules": [
+            "scheduler",
+            "storage"
+          ]
+        },
+        {
+          "id": "session-isolation",
+          "name": "会话隔离不等于磁盘隔离",
+          "anchor": "移除 meetings 单活唯一索引",
+          "condition": "多对话后台运行时",
+          "explanation": "work_gate 按会话隔离，配置全局独占；磁盘仍共享，普通任务最多4 worker。",
+          "verification": "检查 work_gate、claim 范围和 WebState。",
+          "applicability": "conditional",
+          "modules": [
+            "host",
+            "scheduler",
+            "meeting"
+          ]
+        },
+        {
+          "id": "story-export",
+          "name": "导出使用仓库 FFmpeg 并验 SHA",
+          "anchor": "故事导出器只解析",
+          "condition": "导出 PNG/PDF/MP4 时",
+          "explanation": "FFmpeg 不回退 PATH；构建含 GPL/version3/nonfree，分发需复核；图片有 CairoSVG/Playwright/Quick Look 回退。",
+          "verification": "检查 story_export 和 tools/ffmpeg 许可说明。",
+          "applicability": "conditional",
+          "modules": [
+            "story"
+          ]
+        },
+        {
+          "id": "vendor-limit",
+          "name": "第三方分发不强拆 300 行",
+          "anchor": "Birdview 固定 cdea534",
+          "condition": "维护 vendor/Birdview 时",
+          "explanation": "固定上游和许可；第三方分发代码不按自有文件300行拆写。",
+          "verification": "检查 vendor 版本与许可。",
+          "applicability": "conditional"
+        }
+      ]
+    }
+  ],
+  "architectureBinding": {
+    "mapId": "dongdong-system",
+    "mapRevision": 3,
+    "sourceRevision": "378f453cb7391482cc2b7610876465b825623c91"
+  }
+}

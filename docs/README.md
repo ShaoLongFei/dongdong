@@ -1,6 +1,6 @@
 # 文档导航
 
-> 更新于 2026-10-25。当前架构以代码和 [项目架构](architecture.md) 为准；设计规格、实施计划记录各阶段的目标与过程，不代表全部已交付。
+> 更新于 2026-10-26。当前架构以代码和 [项目架构](architecture.md) 为准；设计规格、实施计划记录各阶段的目标与过程，不代表全部已交付。
 
 ## 从哪里开始
 
@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | 项目概况与启动 | [仓库首页](../README.md) | 能力、安装命令、目录 |
 | 整体设计与代码定位 | [项目架构](architecture.md) | 总体图、任务时序、数据关系、模块和实现边界 |
+| 架构与约束交互图 | [Birdview](birdview/architecture.html) / [数据](birdview/architecture.json) | 15 模块、30 关系、42 条已审阅规范/决策；离线快照，未作浏览器视觉验收 |
 | 安装、配置和排错 | [操作手册](runbook.md) | 绑定、语音开关、工作台、Skills/MCP/审批、投屏 |
 | 配置外部 CLI agent | [接入 code agent](agents.md) | codex/claude/deepseek 与自定义命令；仅 CLI 后端 |
 | 配置灵矽智能体 | [语音提示词](linx-voice-prompt.md) | 工具选择、8 秒等待、连续任务与审批 |
@@ -19,7 +20,7 @@
 
 ## 当前 API 定位
 
-Web API 由 `apps/device-mac/dongdong/web_server.py` 及三个能力 router 定义，默认仅在 `http://127.0.0.1:8766` 提供服务。运行后可通过 FastAPI 的 `/docs` 查看实际 schema。
+Web API 由 `apps/device-mac/dongdong/web_server.py` 及能力 router 定义，默认仅在 `http://127.0.0.1:8766` 提供服务。运行后可通过 FastAPI 的 `/docs` 查看实际 schema。
 
 | 接口 | 用途 |
 | --- | --- |
@@ -71,7 +72,7 @@ MP4 只调用仓库内的 FFmpeg：Apple Silicon 使用 `tools/ffmpeg/darwin-arm
 | [记忆规格](superpowers/specs/2026-10-24-mem0-memory-design.md) / [计划](superpowers/plans/2026-10-24-mem0-memory.md) | 设备工具层 Mem0 接入；不代表 Runtime 自动记忆 |
 | [Skills / MCP / 审批计划](superpowers/plans/2026-10-25-agent-capabilities.md) | 已实施，含验证和集成交付记录 |
 | [项目 / 分层记忆 / 归档设计](superpowers/specs/2026-10-25-projects-memory-archive-design.md) | 已实现并整合main：项目目录、分层记忆、会话归档/恢复 |
-| [会议代码修改模式与 Birdview](superpowers/specs/2026-10-25-meeting-code-mode-design.md) | 已确认显式召唤整理方案、按钮及语音确认；已在隔离分支实施，真实会议收音及视觉验收待进行；[实施记录](superpowers/plans/2026-10-25-meeting-code-mode.md) |
+| [会议代码修改模式与 Birdview](superpowers/specs/2026-10-25-meeting-code-mode-design.md) | 已确认显式召唤整理方案、按钮及语音确认；已整合 main，真实会议收音及视觉验收待进行；[实施记录](superpowers/plans/2026-10-25-meeting-code-mode.md) |
 | [旧面板交接单](panel-handoff.md) | 历史记录；panel.py/panel.html 不再由 run 启动 |
 
 ## 维护约定

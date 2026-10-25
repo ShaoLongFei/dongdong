@@ -1,0 +1,1375 @@
+{
+  "schemaVersion": 1,
+  "language": "zh",
+  "mapId": "dongdong-system",
+  "revision": 3,
+  "project": {
+    "id": "dongdong",
+    "name": "咚咚 (dongdong)",
+    "revision": "378f453cb7391482cc2b7610876465b825623c91"
+  },
+  "modules": [
+    {
+      "id": "web",
+      "name": "Web 工作台",
+      "role": "frontend",
+      "kind": "local",
+      "responsibility": "React 19 / Vite / Tailwind；会话、任务 SSE、审批、会议地图与故事 SVG。",
+      "ownership": [
+        {
+          "kind": "file",
+          "path": "apps/web/src/main.jsx"
+        },
+        {
+          "kind": "file",
+          "path": "apps/web/src/Conversation.jsx"
+        },
+        {
+          "kind": "file",
+          "path": "apps/web/src/Meeting.jsx"
+        },
+        {
+          "kind": "file",
+          "path": "apps/web/src/StoryCanvas.jsx"
+        },
+        {
+          "kind": "file",
+          "path": "apps/web/src/api.js"
+        }
+      ],
+      "evidence": [
+        {
+          "path": "apps/web/src/main.jsx",
+          "note": "React 19 / Vite / Tailwind；会话、任务 SSE、审批、会议地图与故事 SVG。",
+          "line": 17,
+          "symbol": "function App"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "layout": {
+        "row": 0,
+        "column": 0
+      }
+    },
+    {
+      "id": "host",
+      "name": "本机 API 与会话宿主",
+      "role": "backend",
+      "kind": "local",
+      "responsibility": "FastAPI 同源静态站点、REST/SSE、项目归档及语音开关；WebState 路由任务与模式。",
+      "ownership": [
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/web_server.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/web_runtime.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/web_agent.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/projects.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/config.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/__main__.py"
+        }
+      ],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/web_server.py",
+          "note": "FastAPI 同源静态站点、REST/SSE、项目归档及语音开关；WebState 路由任务与模式。",
+          "line": 52,
+          "symbol": "def create_app"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "layout": {
+        "row": 0,
+        "column": 1
+      }
+    },
+    {
+      "id": "scheduler",
+      "name": "SQLite 任务调度",
+      "role": "queue",
+      "kind": "local",
+      "responsibility": "Planner → DAG Item → claim/lease → 默认 4 worker；重试、暂停恢复、修复与 Goal 验收。",
+      "ownership": [
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/task_scheduler.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/task_planner.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/task_plan_runtime.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/task_runtime.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/task_lifecycle.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/task_model.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/task_tools.py"
+        }
+      ],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/task_scheduler.py",
+          "note": "Planner → DAG Item → claim/lease → 默认 4 worker；重试、暂停恢复、修复与 Goal 验收。",
+          "line": 23,
+          "symbol": "class TaskManager"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [
+        "跨进程自动接管和多机调度尚未实现；当前为单主机设计。"
+      ],
+      "layout": {
+        "row": 0,
+        "column": 2
+      }
+    },
+    {
+      "id": "runtime",
+      "name": "内置 Agent 循环",
+      "role": "backend",
+      "kind": "local",
+      "responsibility": "消费模型流、执行工具并记录事件；调度 Item 在 worker 独立事件循环执行，会议在主循环执行。",
+      "ownership": [
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/runtime.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/runtime_context.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/llm.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/progress.py"
+        }
+      ],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/runtime.py",
+          "note": "消费模型流、执行工具并记录事件；调度 Item 在 worker 独立事件循环执行，会议在主循环执行。",
+          "line": 21,
+          "symbol": "class Runtime"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "layout": {
+        "row": 0,
+        "column": 3
+      }
+    },
+    {
+      "id": "models",
+      "name": "编程与场景模型 API",
+      "role": "backend",
+      "kind": "external",
+      "responsibility": "OpenAI 兼容 chat/completions；编程 Runtime、无工具 Planner 和故事场景各有调用路径。",
+      "ownership": [],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/llm.py",
+          "note": "OpenAI 兼容 chat/completions；编程 Runtime、无工具 Planner 和故事场景各有调用路径。",
+          "line": 94,
+          "symbol": "async def stream_chat"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "layout": {
+        "row": 0,
+        "column": 4
+      }
+    },
+    {
+      "id": "voice",
+      "name": "Mac 语音设备",
+      "role": "backend",
+      "kind": "local",
+      "responsibility": "Voice 管启停；Device 主动 WSS 连接灵矽，Opus 录放，STT/TTS 文字分流回宿主。",
+      "ownership": [
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/voice.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/linx.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/audio.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/state.py"
+        }
+      ],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/voice.py",
+          "note": "Voice 管启停；Device 主动 WSS 连接灵矽，Opus 录放，STT/TTS 文字分流回宿主。",
+          "line": 15,
+          "symbol": "class Voice"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [
+        "本轮未验证真实收音、TTS、断线重连和平台限流。"
+      ],
+      "layout": {
+        "row": 1,
+        "column": 0
+      }
+    },
+    {
+      "id": "meeting",
+      "name": "会议与 Birdview",
+      "role": "backend",
+      "kind": "local",
+      "responsibility": "讨论仅记录；只读生成地图，确认绑定方案哈希、展示记录、截止序号与源码指纹后实施。",
+      "ownership": [
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/meeting.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/meeting_store.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/meeting_execution.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/meeting_tools.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/meeting_routes.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/birdview.py"
+        }
+      ],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/meeting.py",
+          "note": "讨论仅记录；只读生成地图，确认绑定方案哈希、展示记录、截止序号与源码指纹后实施。",
+          "line": 19,
+          "symbol": "class Meeting"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [
+        "shown 记录不证明人已阅读；shell 事后范围检查不是沙箱。"
+      ],
+      "layout": {
+        "row": 1,
+        "column": 1
+      }
+    },
+    {
+      "id": "storage",
+      "name": "本地持久化",
+      "role": "database",
+      "kind": "local",
+      "responsibility": "SQLite WAL 保存项目/会话/Run/Goal/Item/Attempt/事件；配置、技能及故事/会议产物另存文件。",
+      "ownership": [
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/store.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/task_store.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/task_goal.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/task_projection.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/schema.sql"
+        }
+      ],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/store.py",
+          "note": "SQLite WAL 保存项目/会话/Run/Goal/Item/Attempt/事件；配置、技能及故事/会议产物另存文件。",
+          "line": 21,
+          "symbol": "class Store"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "layout": {
+        "row": 1,
+        "column": 2
+      }
+    },
+    {
+      "id": "capabilities",
+      "name": "工具、扩展与审批",
+      "role": "backend",
+      "kind": "local",
+      "responsibility": "文件工具守工作区，shell 管进程组；本地 Skills 按需读，外部 MCP 按轮连接，ask 审批单次调用。",
+      "ownership": [
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/builtin_tools.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/skills.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/mcp_client.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/mcp_routes.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/approvals.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/work_gate.py"
+        }
+      ],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/builtin_tools.py",
+          "note": "文件工具守工作区，shell 管进程组；本地 Skills 按需读，外部 MCP 按轮连接，ask 审批单次调用。",
+          "line": 124,
+          "symbol": "def resolve_path"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [
+        "shell 与外部 MCP 持有进程权限，不能承诺系统隔离。"
+      ],
+      "layout": {
+        "row": 1,
+        "column": 3
+      }
+    },
+    {
+      "id": "external-mcp",
+      "name": "用户外部 MCP 服务",
+      "role": "backend",
+      "kind": "external",
+      "responsibility": "Runtime 通过官方 MCP SDK 连接启用的 stdio / Streamable HTTP / SSE 服务。",
+      "ownership": [],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/mcp_client.py",
+          "note": "Runtime 通过官方 MCP SDK 连接启用的 stdio / Streamable HTTP / SSE 服务。",
+          "line": 20,
+          "symbol": "class MCPTools"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "layout": {
+        "row": 1,
+        "column": 4
+      }
+    },
+    {
+      "id": "linx-cloud",
+      "name": "灵矽语音平台",
+      "role": "backend",
+      "kind": "external",
+      "responsibility": "云端 ASR、对话智能体和 TTS；作为设备 MCP client 选择调用 Mac 工具。",
+      "ownership": [],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/linx.py",
+          "note": "云端 ASR、对话智能体和 TTS；作为设备 MCP client 选择调用 Mac 工具。",
+          "line": 22,
+          "symbol": "class Device"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "layout": {
+        "row": 2,
+        "column": 0
+      }
+    },
+    {
+      "id": "device-tools",
+      "name": "设备工具与系统集成",
+      "role": "backend",
+      "kind": "local",
+      "responsibility": "设备 MCP / HTTP bridge 共用工具表；builtin 回 WebState，cli 启子进程，screen 做 mDNS 与投屏脚本。",
+      "ownership": [
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/tools.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/mcp.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/bridge.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/agent.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/agent_service.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/screen.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/chat_cli.py"
+        }
+      ],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/tools.py",
+          "note": "设备 MCP / HTTP bridge 共用工具表；builtin 回 WebState，cli 启子进程，screen 做 mDNS 与投屏脚本。",
+          "line": 89,
+          "symbol": "def call"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [
+        "AirPlay 自动镜像在已记录的 MenuBarAgent 环境受阻；ESP32 只有规划。"
+      ],
+      "layout": {
+        "row": 2,
+        "column": 1
+      }
+    },
+    {
+      "id": "story",
+      "name": "故事场景与导出",
+      "role": "backend",
+      "kind": "local",
+      "responsibility": "会话级 StorySession：STT → 受控 JSON → SVG；独立场景流，按故事 ID 保存并导出 PNG/PDF/MP4。",
+      "ownership": [
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/story.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/story_schema.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/story_svg.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/story_store.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/story_export.py"
+        }
+      ],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/story.py",
+          "note": "会话级 StorySession：STT → 受控 JSON → SVG；独立场景流，按故事 ID 保存并导出 PNG/PDF/MP4。",
+          "line": 20,
+          "symbol": "class StorySession"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [
+        "PNG/PDF 当前只导出首幕；MP4 为全场景加静音 AAC。"
+      ],
+      "layout": {
+        "row": 2,
+        "column": 2
+      }
+    },
+    {
+      "id": "memory",
+      "name": "分层长期记忆",
+      "role": "database",
+      "kind": "local",
+      "responsibility": "Mem0 使用全局/项目命名空间；本地 Qdrant 与 SQLite 历史，提取/嵌入调用 OpenAI。",
+      "ownership": [
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/memory.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/memory_tools.py"
+        },
+        {
+          "kind": "file",
+          "path": "apps/device-mac/dongdong/memory_routes.py"
+        }
+      ],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/memory.py",
+          "note": "Mem0 使用全局/项目命名空间；本地 Qdrant 与 SQLite 历史，提取/嵌入调用 OpenAI。",
+          "line": 14,
+          "symbol": "def _get_memory"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [
+        ".memory 位于源码仓库根，不随 DONGDONG_HOME 迁移。"
+      ],
+      "layout": {
+        "row": 2,
+        "column": 3
+      }
+    },
+    {
+      "id": "memory-cloud",
+      "name": "OpenAI 记忆服务",
+      "role": "backend",
+      "kind": "external",
+      "responsibility": "接收待保存文本及查询；提供 Mem0 的记忆提取模型和文本嵌入。",
+      "ownership": [],
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/memory.py",
+          "note": "接收待保存文本及查询；提供 Mem0 的记忆提取模型和文本嵌入。",
+          "line": 14,
+          "symbol": "def _get_memory"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "layout": {
+        "row": 2,
+        "column": 4
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "id": "web-host-1",
+      "from": "web",
+      "to": "host",
+      "label": "同源 REST / 任务 SSE",
+      "evidence": [
+        {
+          "path": "apps/web/src/main.jsx",
+          "note": "同源 REST / 任务 SSE",
+          "line": 17,
+          "symbol": "function App"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "host-web-2",
+      "from": "host",
+      "to": "web",
+      "label": "回放持久任务事件",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/web_server.py",
+          "note": "回放持久任务事件",
+          "line": 189,
+          "symbol": "async def api_events"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "event",
+      "visibility": "overview"
+    },
+    {
+      "id": "host-scheduler-3",
+      "from": "host",
+      "to": "scheduler",
+      "label": "普通消息提交持久任务",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/web_runtime.py",
+          "note": "普通消息提交持久任务",
+          "line": 207,
+          "symbol": "self.manager.submit"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "scheduler-runtime-4",
+      "from": "scheduler",
+      "to": "runtime",
+      "label": "worker 中执行 builtin Item",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/task_runtime.py",
+          "note": "worker 中执行 builtin Item",
+          "line": 30,
+          "symbol": "asyncio.run"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "scheduler-models-5",
+      "from": "scheduler",
+      "to": "models",
+      "label": "无工具结构化规划",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/task_planner.py",
+          "note": "无工具结构化规划"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "detail"
+    },
+    {
+      "id": "runtime-models-6",
+      "from": "runtime",
+      "to": "models",
+      "label": "流式模型请求与工具循环",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/runtime.py",
+          "note": "流式模型请求与工具循环",
+          "line": 47,
+          "symbol": "self._stream"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "models-runtime-7",
+      "from": "models",
+      "to": "runtime",
+      "label": "文字与 tool_calls",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/runtime.py",
+          "note": "文字与 tool_calls",
+          "line": 152,
+          "symbol": "async for event"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "result",
+      "visibility": "overview"
+    },
+    {
+      "id": "runtime-capabilities-8",
+      "from": "runtime",
+      "to": "capabilities",
+      "label": "执行文件 / shell / Skills / MCP；ask 等审批",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/runtime.py",
+          "note": "执行文件 / shell / Skills / MCP；ask 等审批",
+          "line": 217,
+          "symbol": "needs_approval"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "web-capabilities-9",
+      "from": "web",
+      "to": "capabilities",
+      "label": "允许一次或拒绝当前工具",
+      "evidence": [
+        {
+          "path": "apps/web/src/Approvals.jsx",
+          "note": "允许一次或拒绝当前工具"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "control",
+      "visibility": "overview"
+    },
+    {
+      "id": "capabilities-external-mcp-10",
+      "from": "capabilities",
+      "to": "external-mcp",
+      "label": "官方 SDK，轮内连接与关闭",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/mcp_client.py",
+          "note": "官方 SDK，轮内连接与关闭",
+          "line": 20,
+          "symbol": "class MCPTools"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "host-voice-11",
+      "from": "host",
+      "to": "voice",
+      "label": "用户显式开启/关闭",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/web_server.py",
+          "note": "用户显式开启/关闭",
+          "line": 109,
+          "symbol": "async def api_voice"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "control",
+      "visibility": "overview"
+    },
+    {
+      "id": "voice-linx-cloud-12",
+      "from": "voice",
+      "to": "linx-cloud",
+      "label": "主动 WSS；Opus 上行与下行",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/linx.py",
+          "note": "主动 WSS；Opus 上行与下行",
+          "line": 22,
+          "symbol": "class Device"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "linx-cloud-voice-13",
+      "from": "linx-cloud",
+      "to": "voice",
+      "label": "STT / TTS / 设备 MCP",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/linx.py",
+          "note": "STT / TTS / 设备 MCP",
+          "line": 104,
+          "symbol": "async def _on_message"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "event",
+      "visibility": "overview"
+    },
+    {
+      "id": "voice-host-14",
+      "from": "voice",
+      "to": "host",
+      "label": "识别与播报文字分流",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/web_runtime.py",
+          "note": "识别与播报文字分流",
+          "line": 90,
+          "symbol": "def voice_text"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "event",
+      "visibility": "overview"
+    },
+    {
+      "id": "voice-device-tools-15",
+      "from": "voice",
+      "to": "device-tools",
+      "label": "在线程分发设备 MCP",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/linx.py",
+          "note": "在线程分发设备 MCP",
+          "line": 144,
+          "symbol": "asyncio.to_thread(mcp.handle"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "device-tools-host-16",
+      "from": "device-tools",
+      "to": "host",
+      "label": "builtin 同步适配回主循环",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/web_agent.py",
+          "note": "builtin 同步适配回主循环",
+          "line": 8,
+          "symbol": "class WebAgent"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "device-tools-memory-17",
+      "from": "device-tools",
+      "to": "memory",
+      "label": "设备记忆工具复用命名空间",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/tools.py",
+          "note": "设备记忆工具复用命名空间",
+          "line": 239,
+          "symbol": "def _memory_search"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "detail"
+    },
+    {
+      "id": "host-meeting-18",
+      "from": "host",
+      "to": "meeting",
+      "label": "会议消息独立路由",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/web_server.py",
+          "note": "会议消息独立路由",
+          "line": 172,
+          "symbol": "state.meeting.message"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "meeting-runtime-19",
+      "from": "meeting",
+      "to": "runtime",
+      "label": "生成只读 / 确认后实施；主循环",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/meeting.py",
+          "note": "生成只读 / 确认后实施；主循环",
+          "line": 198,
+          "symbol": "meeting_options=options"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "meeting-storage-20",
+      "from": "meeting",
+      "to": "storage",
+      "label": "版本、讨论、确认条件更新",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/meeting_store.py",
+          "note": "版本、讨论、确认条件更新",
+          "line": 16,
+          "symbol": "class Meetings"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "detail"
+    },
+    {
+      "id": "host-story-21",
+      "from": "host",
+      "to": "story",
+      "label": "故事模式与场景 SSE 路由",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/web_server.py",
+          "note": "故事模式与场景 SSE 路由",
+          "line": 119,
+          "symbol": "async def api_story_events"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "story-models-22",
+      "from": "story",
+      "to": "models",
+      "label": "无工具场景 JSON 生成",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/story.py",
+          "note": "无工具场景 JSON 生成",
+          "line": 135,
+          "symbol": "async def _request_scene"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "story-storage-23",
+      "from": "story",
+      "to": "storage",
+      "label": "manifest / 场景 JSON、SVG / 导出文件",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/story_store.py",
+          "note": "manifest / 场景 JSON、SVG / 导出文件",
+          "line": 39,
+          "symbol": "class StoryStore"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "detail"
+    },
+    {
+      "id": "runtime-storage-24",
+      "from": "runtime",
+      "to": "storage",
+      "label": "工具调用和模型事件持久化",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/runtime.py",
+          "note": "工具调用和模型事件持久化",
+          "line": 268,
+          "symbol": "self.store.record_tool_call"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "event",
+      "visibility": "detail"
+    },
+    {
+      "id": "scheduler-storage-25",
+      "from": "scheduler",
+      "to": "storage",
+      "label": "DAG / 原子 claim / lease / Goal",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/task_store.py",
+          "note": "DAG / 原子 claim / lease / Goal",
+          "line": 343,
+          "symbol": "BEGIN IMMEDIATE"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "host-storage-26",
+      "from": "host",
+      "to": "storage",
+      "label": "项目、会话、历史与事件查询",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/web_server.py",
+          "note": "项目、会话、历史与事件查询",
+          "line": 186,
+          "symbol": "state.store.events"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "detail"
+    },
+    {
+      "id": "runtime-memory-27",
+      "from": "runtime",
+      "to": "memory",
+      "label": "非 isolated 轮次自动检索；显式工具保存",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/runtime.py",
+          "note": "非 isolated 轮次自动检索；显式工具保存",
+          "line": 118,
+          "symbol": "if not self.isolated"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "detail"
+    },
+    {
+      "id": "capabilities-memory-28",
+      "from": "capabilities",
+      "to": "memory",
+      "label": "memory_search / memory_save 工具",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/runtime.py",
+          "note": "memory_search / memory_save 工具",
+          "line": 242,
+          "symbol": "memory_tools.call"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "detail"
+    },
+    {
+      "id": "memory-memory-cloud-29",
+      "from": "memory",
+      "to": "memory-cloud",
+      "label": "保存文本与查询发给 OpenAI",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/memory.py",
+          "note": "保存文本与查询发给 OpenAI",
+          "line": 24,
+          "symbol": "Memory.from_config"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "request",
+      "visibility": "overview"
+    },
+    {
+      "id": "device-tools-runtime-standalone",
+      "from": "device-tools",
+      "to": "runtime",
+      "label": "standalone builtin 懒建 AgentService 执行 Runtime",
+      "evidence": [
+        {
+          "path": "apps/device-mac/dongdong/agent_service.py",
+          "note": "standalone builtin 懒建 AgentService",
+          "line": 62,
+          "symbol": "class AgentService"
+        }
+      ],
+      "status": "supported",
+      "openQuestions": [],
+      "kind": "dependency",
+      "visibility": "detail"
+    }
+  ],
+  "constraintDiscovery": {
+    "checkedAt": "2026-10-25T16:13:39.186877+00:00",
+    "checkedPaths": [
+      "AGENTS.md",
+      "docs/decisions.md",
+      "README.md",
+      "docs/architecture.md",
+      "docs/README.md",
+      "apps/device-mac/pyproject.toml",
+      "apps/web/package.json",
+      "scripts/check.sh",
+      ".agents/skills/birdview/SKILL.md"
+    ],
+    "uninspectedPaths": [
+      "design",
+      "design2"
+    ]
+  },
+  "constraints": [
+    {
+      "id": "no-abstraction",
+      "name": "第二个调用方出现后再抽象",
+      "note": "只有一个调用方时保持具体实现。",
+      "origin": "local",
+      "strength": "required",
+      "applicability": "applicable",
+      "scope": "project",
+      "modules": [],
+      "relationships": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "line": 16,
+          "note": "设计函数、类或模块时",
+          "quote": "1. **没有第二个调用方，不写抽象。** 一个函数够用就停，别加类；一个类够用就停，别加模块。"
+        }
+      ],
+      "verification": "检查调用点及新增接口的实际调用方。",
+      "baselineCommit": "378f453cb7391482cc2b7610876465b825623c91"
+    },
+    {
+      "id": "file-limit",
+      "name": "自有单文件不超过 300 行",
+      "note": "保持职责小；vendor 分发例外见决策记录；当前 task_store 等超长现状不代表合规。",
+      "origin": "local",
+      "strength": "required",
+      "applicability": "applicable",
+      "scope": "project",
+      "modules": [],
+      "relationships": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "line": 18,
+          "note": "修改自有代码时",
+          "quote": "3. **单文件 ≤ 300 行。** 超了说明在重复造轮子，回去找库。"
+        }
+      ],
+      "verification": "统计自有文件行数并对照显式例外。",
+      "baselineCommit": "378f453cb7391482cc2b7610876465b825623c91"
+    },
+    {
+      "id": "callers-first",
+      "name": "修改前查齐调用方",
+      "note": "先检查所有调用点，一次同步修改。",
+      "origin": "local",
+      "strength": "required",
+      "applicability": "applicable",
+      "scope": "project",
+      "modules": [],
+      "relationships": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "line": 19,
+          "note": "变更公共函数或行为时",
+          "quote": "4. **改之前先看调用方。** grep 完所有调用点再动手，一次改完，不留「以后再说」。"
+        }
+      ],
+      "verification": "rg 调用符号并核对所有入口。",
+      "baselineCommit": "378f453cb7391482cc2b7610876465b825623c91"
+    },
+    {
+      "id": "no-secrets",
+      "name": "不提交密钥和本地运行数据",
+      "note": "排除 venv、用户数据、token 和 API key。",
+      "origin": "local",
+      "strength": "required",
+      "applicability": "applicable",
+      "scope": "project",
+      "modules": [],
+      "relationships": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "line": 93,
+          "note": "暂存或发布产物时",
+          "quote": "- 不提交 `.venv/`、`~/.dongdong/` 里的数据、任何 token / API key"
+        }
+      ],
+      "verification": "查看完整 staged 文件清单与内容。",
+      "baselineCommit": "378f453cb7391482cc2b7610876465b825623c91"
+    },
+    {
+      "id": "shell-not-sandbox",
+      "name": "文件白名单不约束 shell",
+      "note": "shell 持有进程权限及环境变量；当前本机单用户，审批不构成沙箱。",
+      "origin": "local",
+      "strength": "required",
+      "applicability": "applicable",
+      "scope": "modules",
+      "modules": [
+        "runtime",
+        "capabilities",
+        "device-tools"
+      ],
+      "relationships": [],
+      "evidence": [
+        {
+          "path": "docs/decisions.md",
+          "line": 25,
+          "note": "执行 shell 或开放多人访问前",
+          "quote": "| 15 | shell 是有意保留的逃生口；路径守卫只覆盖文件工具 | shell 本来就要能跑任意命令（只挡少量明显危险命令），工作区白名单只对读写工具有意义 | 本地单用户威胁模型；shell 能碰到工作区外、继承环境变量（含 key），接远端或多用户前必须加沙箱 |"
+        }
+      ],
+      "verification": "核对 builtin_tools._shell、resolve_path 与 Runtime 审批。",
+      "baselineCommit": "378f453cb7391482cc2b7610876465b825623c91"
+    },
+    {
+      "id": "meeting-confirm",
+      "name": "会议必须显式整理和确认",
+      "note": "普通 STT 只记录；生成只读，确认绑定方案哈希、展示记录、讨论截止和基线。",
+      "origin": "local",
+      "strength": "required",
+      "applicability": "applicable",
+      "scope": "modules",
+      "modules": [
+        "meeting"
+      ],
+      "relationships": [],
+      "evidence": [
+        {
+          "path": "docs/decisions.md",
+          "line": 80,
+          "note": "会议模式生成或实施时",
+          "quote": "- 2026-10-25：会议代码修改模式显式开启，STT 普通讨论只持久化；本地完整指令触发整理/确认，MCP 只返回模式状态，避免云端改写讨论绕过确认。确认使用 SQLite 条件更新绑定当前方案哈希、展示回执和讨论截止序号。生成只提供只读工具和固定 Node 渲染，实施保留现有 shell 边界，不宣称文件级沙箱。"
+        }
+      ],
+      "verification": "核对 Meeting 与 Meetings.claim。",
+      "baselineCommit": "378f453cb7391482cc2b7610876465b825623c91"
+    },
+    {
+      "id": "restart-pause",
+      "name": "重启默认暂停持久任务",
+      "note": "SQLite claim/lease，不引入 Redis/RabbitMQ；恢复细节结合最新集成决策与源码，默认暂停，auto_recover 明确开才续跑。",
+      "origin": "local",
+      "strength": "required",
+      "applicability": "applicable",
+      "scope": "modules",
+      "modules": [
+        "scheduler",
+        "storage"
+      ],
+      "relationships": [],
+      "evidence": [
+        {
+          "path": "docs/decisions.md",
+          "line": 32,
+          "note": "调度恢复时",
+          "quote": "- 2026-10-25：任务调度采用 SQLite WAL + 条件更新 claim/lease，不引入 Redis/RabbitMQ；本地单机已有持久化数据库，足以支持线程池和跨进程恢复，代价是暂不支持多机共享工作区。"
+        }
+      ],
+      "verification": "检查 task_lifecycle 和 task_scheduler.recover_runs。",
+      "baselineCommit": "378f453cb7391482cc2b7610876465b825623c91"
+    },
+    {
+      "id": "session-isolation",
+      "name": "会话隔离不等于磁盘隔离",
+      "note": "work_gate 按会话隔离，配置全局独占；磁盘仍共享，普通任务最多4 worker。",
+      "origin": "local",
+      "strength": "required",
+      "applicability": "applicable",
+      "scope": "modules",
+      "modules": [
+        "host",
+        "scheduler",
+        "meeting"
+      ],
+      "relationships": [],
+      "evidence": [
+        {
+          "path": "docs/decisions.md",
+          "line": 86,
+          "note": "多对话后台运行时",
+          "quote": "- 2026-10-25：移除 meetings 单活唯一索引；work_gate 按会话 ID 互斥，配置仍全局独占。当前选择与各对话后台任务分开，语音只路由当前对话、确认固定接收时的方案；普通任务共享4个worker。会话隔离不隔离磁盘，同目录并行改动仍由方案基线和既有范围检查发现。"
+        }
+      ],
+      "verification": "检查 work_gate、claim 范围和 WebState。",
+      "baselineCommit": "378f453cb7391482cc2b7610876465b825623c91"
+    },
+    {
+      "id": "story-export",
+      "name": "导出使用仓库 FFmpeg 并验 SHA",
+      "note": "FFmpeg 不回退 PATH；构建含 GPL/version3/nonfree，分发需复核；图片有 CairoSVG/Playwright/Quick Look 回退。",
+      "origin": "local",
+      "strength": "required",
+      "applicability": "applicable",
+      "scope": "modules",
+      "modules": [
+        "story"
+      ],
+      "relationships": [],
+      "evidence": [
+        {
+          "path": "docs/decisions.md",
+          "line": 7,
+          "note": "导出 PNG/PDF/MP4 时",
+          "quote": "- 2026-10-25：故事导出器只解析 `tools/ffmpeg/<platform>/ffmpeg`，不回退到系统 PATH；随项目分发已核验的 macOS arm64 FFmpeg 6.0 构建（来源、SHA-256、许可证说明见 `tools/ffmpeg/`）。该构建启用了 GPL/version3/nonfree 组件，后续公开再分发前必须复核对应许可义务。PNG/PDF 优先使用 CairoSVG，缺失时尝试 Playwright，再回退到 macOS Quick Look，避免新增大型运行时依赖。"
+        }
+      ],
+      "verification": "检查 story_export 和 tools/ffmpeg 许可说明。",
+      "baselineCommit": "378f453cb7391482cc2b7610876465b825623c91"
+    },
+    {
+      "id": "documentation-only",
+      "name": "本次仅文档与架构产物，不修改代码",
+      "note": "当前用户明确要求；文档写入 docs 并同步 README，不操作浏览器。",
+      "origin": "user",
+      "strength": "required",
+      "applicability": "applicable",
+      "scope": "project",
+      "modules": [],
+      "relationships": [],
+      "evidence": [],
+      "verification": "git diff 仅涉及 README.md、docs 下文档和架构产物。"
+    }
+  ]
+}

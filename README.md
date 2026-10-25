@@ -4,19 +4,37 @@
 
 1024 程序设计大赛参赛项目：**通过 AirPlay 连接屏幕，通过语音控制 code agent 做开发。**
 
-```
-🎙 你说话
-   ↓
-灵矽平台（ASR → 大模型 → TTS）  ←── WebSocket ──┐
-   ↓ MCP tools/call                              │
-apps/device-mac（Python，跑在 Mac 上）──────────┘
-   ├── Web / builtin 语音任务 → SQLite 任务调度 → Runtime → 模型 / 文件 / shell
-   ├── Runtime 扩展 → 本地 Skills / 外部 MCP 工具
-   ├── CLI 语音任务 → codex / claude / deepseek 子进程
-   └── 设备工具 → 长期记忆 / AirPlay 发现与投屏脚本
+## 架构与约束速览
+
+> 2026-10-26 按源码核对；静态快照，不是实时监控。单机 Mac、单用户、一个 Python 服务进程；内部有调度线程及各自事件循环。
+
+```mermaid
+flowchart LR
+    UI[React 工作台] <-->|本机 REST / SSE| Host[FastAPI / WebState]
+    Cloud[灵矽 ASR / 智能体 / TTS] <-->|Mac 主动 WSS / Opus| Voice[Voice / Device]
+    Voice -->|设备 MCP| Tools[设备工具表]
+    Tools -->|builtin| Host
+    Tools -->|cli| CLI[codex / claude / deepseek]
+    Host -->|普通任务| Scheduler[SQLite DAG / 4 worker]
+    Scheduler --> Runtime[内置 Runtime]
+    Host --> Meeting[会议 / Birdview]
+    Meeting -->|只读生成 / 确认后实施| Runtime
+    Host --> Story[故事 JSON / SVG / 导出]
+    Runtime --> Model[OpenAI 兼容编程模型]
+    Story --> Model
+    Runtime --> Cap[文件 / shell / Skills / 外部 MCP / 审批]
+    Scheduler --> DB[(SQLite WAL / 事件)]
+    Runtime --> DB
+    Cap --> Memory[分层 Mem0 / 本地向量库 / OpenAI]
 ```
 
-完整架构图、任务时序和数据关系见 [项目架构](docs/architecture.md)；全部文档见 [文档导航](docs/README.md)。
+- **入口与执行**：`run/web` 同入口、默认 `127.0.0.1:8766`，语音默认关闭。Web 文字始终用 builtin；语音默认 `cli`，配置 `code_backend=builtin` 后复用工作台。普通任务先规划 DAG，再由默认 4 worker 执行；会议生成/实施通过专用 Runtime 路径。
+- **状态与存储**：SQLite 是任务、会话和事件的持久来源，任务 SSE 从库回放；故事有独立场景流和 JSON/SVG 文件。配置/会话/产物默认在 `~/.dongdong/`，Mem0 在仓库 `.memory/`，不随 `DONGDONG_HOME` 搬迁。
+- **执行边界**：本机 Host/Origin 校验；文件工具受工作区限制，shell/外部 MCP 仍持有进程权限。审批是一次调用确认，不是沙箱。会话闸门防重入，SQLite claim 处理声明文件范围冲突；重启默认暂停遗留调度任务。
+- **会议与能力限制**：普通讨论只记录，实施必须确认当前已展示方案和源码基线。调度 Item 使用隔离上下文，当前跳过 Runtime 自动历史/记忆注入；非隔离 Runtime 才自动检索。AirPlay 自动镜像受 macOS 限制；ESP32 尚未实现。
+- **开发约束**：先查调用方、优先复用和删除、不为单一调用方抽象、自有文件≤300行；默认不补普通测试，只保护协议/音频/执行边界/鉴权计费；依赖优先标准库和成熟库。规范与现状的差异单独记录，不据现状宣称合规。
+
+完整职责、证据与限制见 [项目架构](docs/architecture.md)；交互版见 [Birdview 架构与约束](docs/birdview/architecture.html)（下载后用浏览器打开）；全部文档见 [文档导航](docs/README.md)。
 
 ## 快速开始
 
@@ -57,7 +75,7 @@ export DEEPSEEK_API_KEY=...
 
 关闭语音会停止采音、播报并断开连接，已派发的编程任务继续执行；停止任务使用对话内的停止按钮。刷新页面保留语音开关状态，重启服务后回到关闭。
 
-对话内会展开执行卡：多步骤任务显示步骤清单、当前与接下来要做的事，工具调用和耗时实时更新。交付后自动折叠，可展开回看；刷新后保留历史。语音发起任务时，点击“查看当前步骤”进入对应任务。连续语音任务会追加到当前任务会话并保留上下文，重连和麦克风开关不会创建新会话；需要独立上下文时点击“开启新对话”。步骤由内置 agent 更新，模型未提供清单时显示实际工具或等待状态；此进度卡适用于 `builtin` 后端。
+对话内会展开执行卡：多步骤任务显示步骤清单、当前与接下来要做的事，工具调用和耗时实时更新。交付后自动折叠，可展开回看；刷新后保留历史。语音发起任务时，点击“查看当前步骤”进入对应任务。连续语音任务会追加到当前任务会话；普通调度 Item 使用隔离模型上下文，历史记录仍可回看，重连和麦克风开关不会创建新会话；需要独立上下文时点击“开启新对话”。步骤由内置 agent 更新，模型未提供清单时显示实际工具或等待状态；此进度卡适用于 `builtin` 后端。
 
 ## 任务状态与功能进度
 
@@ -80,7 +98,7 @@ Web 和内置语音任务已接入 SQLite 任务调度，运行记录展示任�
 
 ## 长期记忆与数据
 
-内置 Runtime 每轮自动检索全局与当前会话项目的记忆；用户明确要求记住时使用 `memory_save`，默认本项目，跨项目偏好选 `global`。逐次确认模式审批保存。工作台“记忆”页可按范围查看、添加和删除；设备工具 `self.memory.search/save/list/delete` 由灵矽模型选择调用，搜索合并两层，写入/删除按明确范围执行。需要为服务进程设置 `OPENAI_API_KEY`，它与编程模型的 key 独立。保存文字和搜索查询会发送到 OpenAI，向量和记忆历史存于仓库 `.memory/`。配置步骤见 [长期记忆](docs/runbook.md#7-长期记忆)。
+非隔离 Runtime 每轮自动检索全局与当前会话项目的记忆；当前普通调度 Item 使用隔离上下文，跳过自动检索，但可显式调用记忆工具。用户明确要求记住时使用 `memory_save`，默认本项目，跨项目偏好选 `global`。逐次确认模式审批保存。工作台“记忆”页可按范围查看、添加和删除；设备工具 `self.memory.search/save/list/delete` 由灵矽模型选择调用，搜索合并两层，写入/删除按明确范围执行。需要为服务进程设置 `OPENAI_API_KEY`，它与编程模型的 key 独立。保存文字和搜索查询会发送到 OpenAI，向量和记忆历史存于仓库 `.memory/`。配置步骤见 [长期记忆](docs/runbook.md#7-长期记忆)。
 
 配置默认存于 `~/.dongdong/config.json`，会话、运行、事件及任务状态存于 `~/.dongdong/dongdong.db`；普通语音只保存识别与播报文字，不保存音频。`DONGDONG_HOME` 可更换配置和会话库目录，Mem0 的 `.memory/` 路径不随之改变。
 
