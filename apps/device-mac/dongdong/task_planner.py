@@ -229,7 +229,7 @@ class TaskPlanner:
 
     @staticmethod
     def _scope_for_item(value: Any, item_cwd: str, item_id: str) -> dict[str, list[str]]:
-        """校验声明并存成绝对路径，跨 cwd 的冲突判断才不会失真。"""
+        """校验声明并保留相对路径；落库时再按 cwd 规范化为绝对路径。"""
         scope = normalize_scope(value)
         root = Path(item_cwd).resolve()
         result: dict[str, list[str]] = {}
@@ -240,7 +240,7 @@ class TaskPlanner:
                 path = (root / relative).resolve()
                 if not (path == root or path.is_relative_to(root)):
                     raise ValueError(f"Item {item_id} 的 scope 越出 cwd")
-                canonical = str(path)
+                canonical = relative
                 if canonical in seen:
                     raise ValueError(f"Item {item_id} 的 scope 存在重复或读写交叠")
                 seen.add(canonical)

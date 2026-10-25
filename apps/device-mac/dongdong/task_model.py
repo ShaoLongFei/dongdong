@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath, PureWindowsPath
 
-
 MAX_SCOPE_PATHS = 32
 MAX_SCOPE_PATH_LENGTH = 512
 

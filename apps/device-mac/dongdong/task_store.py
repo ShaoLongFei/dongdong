@@ -2,7 +2,7 @@
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .task_goal import GoalVerification
@@ -336,8 +336,6 @@ class TaskStore(GoalVerification, TaskProjection):
     def claim_item(
         self, run_id: str, item_id: str, worker_id: str, lease_seconds: int = 60
     ) -> bool:
-        from datetime import timedelta
-
         ts = datetime.now(UTC)
         expiry = (ts + timedelta(seconds=max(1, lease_seconds))).isoformat(timespec="seconds")
         stamp = ts.isoformat(timespec="seconds")
@@ -363,12 +361,15 @@ class TaskStore(GoalVerification, TaskProjection):
                     (item_id, run_id),
                 ).fetchone()
                 running = self._conn.execute(
-                    "SELECT i.id, i.scope_json FROM items i JOIN runs r ON r.id=i.run_id "
-                    "WHERE i.run_id=? AND r.status='running' AND i.status='running' AND i.id!=?",
-                    (run_id, item_id),
+                    "SELECT i.id, i.scope_json, r.workspace, r.id FROM items i "
+                    "JOIN runs r ON r.id=i.run_id WHERE r.status='running' "
+                    "AND i.status='running' AND i.id!=?",
+                    (item_id,),
                 ).fetchall()
                 if candidate and any(
-                    self._scope_conflicts(candidate[0], row[1], candidate[1], run_id) for row in running
+                    self._same_workspace(candidate[1], row[2])
+                    and self._scope_conflicts(candidate[0], row[1])
+                    for row in running
                 ):
                     self._conn.execute(
                         "UPDATE items SET status='open', lease_owner=NULL, lease_until=NULL, "
@@ -381,16 +382,20 @@ class TaskStore(GoalVerification, TaskProjection):
                         (stamp, item_id, worker_id),
                     )
                     recent = self._conn.execute(
-                        "SELECT 1 FROM events WHERE run_id=? AND type='scope_wait' "
+                        "SELECT 1 FROM events WHERE run_id=? AND type='scope_conflict' "
                         "AND json_extract(data, '$.item_id')=? AND created_at>? LIMIT 1",
-                        (run_id, item_id, (ts - timedelta(seconds=2)).isoformat(timespec="seconds")),
+                        (
+                            run_id,
+                            item_id,
+                            (ts - timedelta(seconds=2)).isoformat(timespec="seconds"),
+                        ),
                     ).fetchone()
                     if not recent:
                         self._conn.execute(
                             "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
                             (
                                 run_id,
-                                "scope_wait",
+                                "scope_conflict",
                                 json.dumps(
                                     {"item_id": item_id, "worker_id": worker_id}, ensure_ascii=False
                                 ),
@@ -419,7 +424,16 @@ class TaskStore(GoalVerification, TaskProjection):
                 raise
 
     @staticmethod
-    def _scope_conflicts(left_json: str, right_json: str, left_cwd: str = "", run_id: str = "") -> bool:
+    def _same_workspace(left: str, right: str) -> bool:
+        if not left or not right:
+            return left == right
+        try:
+            return Path(left).expanduser().resolve() == Path(right).expanduser().resolve()
+        except (OSError, RuntimeError, ValueError):
+            return left == right
+
+    @staticmethod
+    def _scope_conflicts(left_json: str, right_json: str) -> bool:
         """保守判断范围冲突；空、损坏或目录范围都按独占处理。"""
         try:
             left = json.loads(left_json or "{}")
@@ -440,9 +454,7 @@ class TaskStore(GoalVerification, TaskProjection):
 
         def overlaps(paths_a: set[str], paths_b: set[str]) -> bool:
             return any(
-                first == second
-                or first.startswith(second + "/")
-                or second.startswith(first + "/")
+                first == second or first.startswith(second + "/") or second.startswith(first + "/")
                 for first in paths_a
                 for second in paths_b
             )

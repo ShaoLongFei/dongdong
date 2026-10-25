@@ -297,6 +297,7 @@ def test_task_scope_conflicts_and_planner_boundaries():
         sid = store.create_session("scope")
 
         def run_with_items(items, workspace=str(root)):
+            Path(workspace).mkdir(parents=True, exist_ok=True)
             run = store.create_task_run(sid, RunSpec(goal_text="scope", workspace=workspace))
             store.add_items(run, items)
             return run
@@ -311,6 +312,8 @@ def test_task_scope_conflicts_and_planner_boundaries():
         assert store.claim_item(parallel, "write-a", "one")
         assert store.claim_item(parallel, "write-b", "two")
         assert not store.claim_item(parallel, "read-a", "three")
+        assert store.complete_item("write-a", "one")
+        assert store.complete_item("write-b", "two")
         conflict = run_with_items(
             [
                 ItemSpec(id="first", instruction="first", scope={"write": ["same.txt"]}),
@@ -320,17 +323,23 @@ def test_task_scope_conflicts_and_planner_boundaries():
         assert store.claim_item(conflict, "first", "one")
         assert not store.claim_item(conflict, "second", "two")
         assert any(event["type"] == "scope_conflict" for event in store.events(conflict))
+        assert store.complete_item("first", "one")
+        readers_workspace = root / "readers"
+        readers_workspace.mkdir()
         readers = run_with_items(
             [
                 ItemSpec(id="reader-a", instruction="a", scope={"read": ["same.txt"]}),
                 ItemSpec(id="reader-b", instruction="b", scope={"read": ["same.txt"]}),
-            ]
+            ],
+            workspace=str(readers_workspace),
         )
         assert store.claim_item(readers, "reader-a", "one")
         assert store.claim_item(readers, "reader-b", "two")
+        other_workspace = root / "other"
+        other_workspace.mkdir()
         other = run_with_items(
             [ItemSpec(id="other", instruction="other", scope={"write": ["same.txt"]})],
-            workspace=str(root / "other"),
+            workspace=str(other_workspace),
         )
         assert store.claim_item(other, "other", "three")
         store.close()

@@ -42,7 +42,9 @@ class Store(TaskStore):
             )
             columns = {row[1] for row in self._conn.execute("PRAGMA table_info(items)")}
             if "scope_json" not in columns:
-                self._conn.execute("ALTER TABLE items ADD COLUMN scope_json TEXT NOT NULL DEFAULT '{}'")
+                self._conn.execute(
+                    "ALTER TABLE items ADD COLUMN scope_json TEXT NOT NULL DEFAULT '{}'"
+                )
 
     def _migrate_columns(self) -> None:
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(messages)")}
