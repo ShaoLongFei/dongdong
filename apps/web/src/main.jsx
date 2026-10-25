@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as Tabs from '@radix-ui/react-tabs';
-import { ArrowUp, AudioLines, ChevronRight, Circle, MessageSquare, Mic, MicOff, Settings2, Square, Workflow, BookOpen, Plug } from 'lucide-react';
+import { ArrowUp, AudioLines, ChevronRight, Circle, MessageSquare, Mic, MicOff, Settings2, Square, Workflow, BookOpen, Plug, Sparkles } from 'lucide-react';
 import { api, statusText } from './api';
 import Settings from './Settings';
 import Conversation from './Conversation';
@@ -11,6 +11,7 @@ import Approvals from './Approvals';
 import Sidebar from './Sidebar';
 import Meeting from './Meeting';
 import Memories from './Memories';
+import StoryCanvas from './StoryCanvas';
 import './style.css';
 
 export function App() {
@@ -29,6 +30,7 @@ export function App() {
   const [watch, setWatch] = useState('');
   const [runDetail, setRunDetail] = useState(null);
   const [meetingEnabled, setMeetingEnabled] = useState(false);
+  const [storyState, setStoryState] = useState(null);
   const end = useRef(null);
   const selection = useRef('');
   const detailRequest = useRef(0);
@@ -39,6 +41,7 @@ export function App() {
     try {
       const health = await api('/state');
       setState(health);
+      if (health.story) setStoryState(health.story);
       if (health.meeting_session && !selection.current) { choose(health.meeting_session); return; }
       if (health.active_run && health.task_session && !selection.current) { choose(health.task_session); return; }
       if (health.voice_session && !selection.current) { choose(health.voice_session); return; }
@@ -126,6 +129,13 @@ export function App() {
     } catch (error) { report(error); }
     finally { setVoicePending(false); }
   }
+  async function toggleStory(enabled) {
+    try {
+      const next = await api('/story/mode', { method: 'PUT', body: { enabled } });
+      setStoryState(next);
+      setTab('story');
+    } catch (error) { report(error); }
+  }
   async function send(event) {
     event.preventDefault();
     if (!input.trim() || sending || detail?.archived_at) return;
@@ -169,6 +179,7 @@ export function App() {
         <Tabs.Trigger value="skills"><BookOpen size={16} />技能</Tabs.Trigger>
         <Tabs.Trigger value="mcp"><Plug size={16} />MCP</Tabs.Trigger>
         <Tabs.Trigger value="memories"><BookOpen size={16} />记忆</Tabs.Trigger>
+        <Tabs.Trigger value="story"><Sparkles size={16} />讲故事</Tabs.Trigger>
         <Tabs.Trigger value="settings"><Settings2 size={16} />设置</Tabs.Trigger>
       </Tabs.List>
     </Sidebar>
@@ -196,6 +207,7 @@ export function App() {
       <Tabs.Content value="skills" className="page-scroll"><Skills report={report} /></Tabs.Content>
       <Tabs.Content value="mcp" className="page-scroll"><MCP report={report} /></Tabs.Content>
       <Tabs.Content value="memories" className="page-scroll"><Memories report={report} /></Tabs.Content>
+      <Tabs.Content value="story" className="page-scroll"><StoryCanvas state={storyState} onModeChange={toggleStory} /></Tabs.Content>
       <Tabs.Content value="settings" className="page-scroll"><Settings onSaved={refresh} report={report} /></Tabs.Content>
     </main>
   </Tabs.Root>;

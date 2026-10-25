@@ -102,6 +102,7 @@ def create_app(cfg: dict) -> FastAPI:
             "voice_session": state.task_session,
             "voice_enabled": voice.enabled,
             "voice_error": voice.error,
+            "story": state.story.state(),
         }
 
     @app.put("/api/voice")

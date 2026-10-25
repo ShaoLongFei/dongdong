@@ -13,6 +13,7 @@ from pathlib import Path
 from .llm import ModelConfig, stream_chat
 from .story_schema import normalize_scene
 from .story_store import StoryStore
+from .story_svg import scene_to_svg
 
 log = logging.getLogger("dongdong.story")
 _WORDS = re.compile(r"[。！？!?；;\n]+|然后|突然|于是|看见|跑向|拿起|变成")
@@ -117,12 +118,14 @@ class StorySession:
                 scene = normalize_scene(raw, text, scene_id)
                 self._characters = scene.get("characters", [])
                 self.store.save_scene(self.story_id, scene)
+                scene["svg"] = scene_to_svg(scene)
                 self._publish("scene", {"storyId": self.story_id, "scene": scene})
             except Exception as exc:  # model and disk errors are visible in the event stream
                 log.warning("故事场景失败: %s", exc)
                 scene = normalize_scene({}, text, scene_id)
                 try:
                     self.store.save_scene(self.story_id, scene)
+                    scene["svg"] = scene_to_svg(scene)
                     self._publish(
                         "scene", {"storyId": self.story_id, "scene": scene, "fallback": True}
                     )
