@@ -18,14 +18,18 @@
 
 ## 当前 API 定位
 
-Web API 由 `apps/device-mac/dongdong/web_server.py` 及三个能力 router 定义，默认仅在 `http://127.0.0.1:8766` 提供服务。运行后可通过 FastAPI 的 `/docs` 查看实际 schema。
+Web API 由 `apps/device-mac/dongdong/web_server.py` 及项目、记忆和能力 router 定义，默认仅在 `http://127.0.0.1:8766` 提供服务。运行后可通过 FastAPI 的 `/docs` 查看实际 schema。
 
 | 接口 | 用途 |
 | --- | --- |
-| `GET /api/state` | 模型、任务、语音状态和当前会话入口 |
+| `GET /api/state` | 模型、任务、语音状态；current_project 和语音实际 workspace |
 | `PUT /api/voice` | `{enabled: bool}`，开关语音 |
-| `GET /api/sessions`、`POST /api/sessions` | 列出 / 新建会话 |
-| `GET /api/sessions/{sid}` | 会话消息与 runs |
+| `GET /api/projects`、`POST /api/projects` | `{projects,current_project}`；创建 `{name,path}`，真实目录唯一且固定 |
+| `PATCH /api/projects/{id}`、`PUT /api/projects/current` | 重命名 `{name}`；显式语音项目 `{project_id:null|string}` |
+| `GET /api/sessions`、`POST /api/sessions` | 列表支持 project_id/archived/limit/offset，返回 sessions/has_more；创建接受 project_id |
+| `PATCH /api/sessions/{sid}` | `{project_id?,archived?:bool}`，移动、归档或恢复，不删除记录 |
+| `GET/POST/DELETE /api/memories` | 全局/项目列表、添加、定向删除；未配置 key 列表 enabled:false |
+| `GET /api/sessions/{sid}` | 会话消息、runs、project_id/name/path 和 archived_at |
 | `POST /api/sessions/{sid}/messages` | `{text: string}`，发起任务并返回 run_id |
 | `GET /api/runs/{rid}` | 状态；`include_events=true` 包含历史事件 |
 | `GET /api/runs/{rid}/events` | SSE；`since` 指定事件游标，结束发 `event: end` |
@@ -38,7 +42,9 @@ Web API 由 `apps/device-mac/dongdong/web_server.py` 及三个能力 router 定�
 | `GET /api/approvals` | 全局待审批列表 |
 | `POST /api/approvals/{run_id}/{call_id}` | `{approved: bool}`，批准一次 / 拒绝 |
 
-设置和能力变更与任务共用进程内互斥，冲突返回409；已处理或过期审批也返回409。模型 key、MCP env/header 的值不经查询 API 回显。
+会话列表省略 project_id 查全部，空字符串查未分类，指定ID查项目；archived 默认 false，limit 默认20。记忆列表空 project_id 为全局，POST/DELETE 用 `{project_id:null|string,text}` / `{project_id:null|string,memory_ids:[...]}`。
+
+设置、项目、归档和记忆写删与任务共用进程内互斥，冲突返回409；已处理或过期审批也返回409。模型 key、MCP env/header 的值不经查询 API 回显。
 
 独立 `serve` 默认 `127.0.0.1:8765`，提供 `GET /tools` 与 `POST /call`，属于设备工具 HTTP bridge；不是上述 Web API，也没有实现灵矽自定义模型 `/v1/chat/completions` 入站接口。
 
@@ -53,9 +59,9 @@ Web API 由 `apps/device-mac/dongdong/web_server.py` 及三个能力 router 定�
 | [Web 工作台计划](superpowers/plans/2026-10-25-web-console.md) | Web MVP 的实施记录 |
 | [统一运行计划](superpowers/plans/2026-10-25-unified-runtime.md) | Web/语音共用执行宿主；后续演进为 run/web 同入口且语音默认关闭 |
 | [进度规格](superpowers/specs/2026-10-24-task-progress-design.md) / [计划](superpowers/plans/2026-10-24-task-progress.md) | 与内置 Runtime 无关的早期 CLI 多步骤调度方案，未作为当前实施依据 |
-| [记忆规格](superpowers/specs/2026-10-24-mem0-memory-design.md) / [计划](superpowers/plans/2026-10-24-mem0-memory.md) | 设备工具层 Mem0 接入；不代表 Runtime 自动记忆 |
+| [记忆规格](superpowers/specs/2026-10-24-mem0-memory-design.md) / [计划](superpowers/plans/2026-10-24-mem0-memory.md) | 早期设备工具接入；Runtime 自动分层检索以本次项目/记忆设计及架构为准 |
 | [Skills / MCP / 审批计划](superpowers/plans/2026-10-25-agent-capabilities.md) | 已实施，含验证和集成交付记录 |
-| [项目 / 分层记忆 / 归档设计](superpowers/specs/2026-10-25-projects-memory-archive-design.md) | 已确认项目绑定本地目录；完整设计待审阅，尚未实施 |
+| [项目 / 分层记忆 / 归档设计](superpowers/specs/2026-10-25-projects-memory-archive-design.md) | 用户已批准并已实施；本地隔离验证，最终审查/集成以[实施计划](superpowers/plans/2026-10-25-projects-memory-archive.md)记录为准 |
 | [旧面板交接单](panel-handoff.md) | 历史记录；panel.py/panel.html 不再由 run 启动 |
 
 ## 维护约定

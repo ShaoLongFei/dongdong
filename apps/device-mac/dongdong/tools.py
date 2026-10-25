@@ -112,8 +112,11 @@ def call(name: str, arguments: dict) -> dict:
 def _status(args: dict) -> str:
     cfg = config.load()
     backend = _backend(cfg)
+    service = _peek_service()
+    if service and hasattr(service, "execution_workspace"):
+        cfg = {**cfg, "workspace": service.execution_workspace()}
+        cfg.update(projects=[cfg["workspace"]], cwd=cfg["workspace"])
     if backend == "builtin":
-        service = _peek_service()
         job = service.current() if service else None
         return f"agent=builtin 工作区={cfg['workspace']} 运行中任务={job.id if job else '无'}"
     job = agent.current()
@@ -148,6 +151,10 @@ def _code_run(args: dict) -> str:
     if _backend(cfg) == "builtin":
         wait = min(int(args["wait_seconds"]) if args.get("wait_seconds") else 8, 8)
         return _get_service(cfg).start(args["instruction"], args.get("cwd"), wait)
+    service = _peek_service()
+    if service and hasattr(service, "execution_workspace"):
+        root = service.execution_workspace()
+        cfg = {**cfg, "projects": [root], "cwd": root}
     return agent.run(
         cfg,
         args["instruction"],
@@ -209,28 +216,52 @@ def _screen_stop(args: dict) -> str:
 
 # ---------------------------------------------------------------- 记忆
 
+_MEMORY_SCOPE = {
+    "type": "string",
+    "enum": ["project", "global"],
+    "description": "默认 project：当前明确选择的项目，无项目时为全局；global：跨项目记忆",
+}
+
+
+def _memory_user(args: dict) -> str:
+    scope = args.get("scope", "project")
+    if scope not in {"project", "global"}:
+        raise ValueError("scope 必须为 project 或 global")
+    service = _peek_service()
+    project = service.memory_project() if service and hasattr(service, "memory_project") else None
+    return memory.namespace(config.load()["device_id"], project if scope == "project" else None)
+
 
 @tool(
     "self.memory.search",
-    "搜索最多 5 条相关记忆，供回答前参考。记忆只用于当前设备用户。",
-    props={"query": {"type": "string", "description": "要查找的主题或问题"}},
+    "搜索全局及当前项目各最多 5 条记忆，供回答前参考；scope=global 仅查全局。",
+    props={
+        "query": {"type": "string", "description": "要查找的主题或问题"},
+        "scope": _MEMORY_SCOPE,
+    },
     required=["query"],
 )
 def _memory_search(args: dict) -> str:
-    results = memory.search(args["query"], config.load()["device_id"])
-    if not results:
-        return "没有找到相关记忆。"
-    return "\n".join(f"{item['id']}: {item.get('memory', '')}" for item in results)
+    user_id = _memory_user(args)
+    global_id = _memory_user({"scope": "global"})
+    scope = "project" if user_id != global_id else "global"
+    results = [{**r, "scope": scope} for r in memory.search(args["query"], user_id)]
+    if user_id != global_id:
+        results = [
+            {**r, "scope": "global"} for r in memory.search(args["query"], global_id)
+        ] + results
+    text = "\n".join(f"[{r['scope']}] {r['id']}: {r.get('memory', '')}" for r in results)
+    return text or "没有找到相关记忆。"
 
 
 @tool(
     "self.memory.save",
     "保存用户明确要求记住的内容、稳定偏好或长期项目事实。不要保存临时请求、密码、token 或凭证。",
-    props={"text": {"type": "string", "description": "要保存的事实或偏好"}},
+    props={"text": {"type": "string", "description": "要保存的事实或偏好"}, "scope": _MEMORY_SCOPE},
     required=["text"],
 )
 def _memory_save(args: dict) -> str:
-    result = memory.save(args["text"], config.load()["device_id"])
+    result = memory.save(args["text"], _memory_user(args))
     saved = result.get("results", [])
     if not saved:
         return "没有提取到可保存的新记忆。"
@@ -239,9 +270,13 @@ def _memory_save(args: dict) -> str:
     )
 
 
-@tool("self.memory.list", "列出当前设备用户的记忆及 ID，供检查和后续按 ID 删除。")
+@tool(
+    "self.memory.list",
+    "列出当前项目的记忆及 ID；scope=global 列出跨项目记忆。",
+    props={"scope": _MEMORY_SCOPE},
+)
 def _memory_list(args: dict) -> str:
-    items = memory.list_(config.load()["device_id"])
+    items = memory.list_(_memory_user(args))
     if not items:
         return "当前没有已保存的记忆。"
     return "\n".join(f"{item['id']}: {item.get('memory', '')}" for item in items)
@@ -249,16 +284,17 @@ def _memory_list(args: dict) -> str:
 
 @tool(
     "self.memory.delete",
-    "按 ID 删除当前设备用户指定的记忆。只删除用户明确指定的记忆，不要删除其他 ID。",
+    "按 ID 删除当前项目指定的记忆；scope=global 删除全局记忆。只删除用户明确指定的 ID。",
     props={
         "memory_ids": {
             "type": "array",
             "items": {"type": "string"},
             "description": "要删除的记忆 ID 列表",
-        }
+        },
+        "scope": _MEMORY_SCOPE,
     },
     required=["memory_ids"],
 )
 def _memory_delete(args: dict) -> str:
-    deleted = memory.delete(args["memory_ids"], config.load()["device_id"])
+    deleted = memory.delete(args["memory_ids"], _memory_user(args))
     return "已删除记忆：" + ", ".join(deleted)

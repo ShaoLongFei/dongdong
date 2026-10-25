@@ -8,7 +8,7 @@ import json
 import time
 from collections.abc import Callable
 
-from . import builtin_tools, config, skills
+from . import builtin_tools, config, memory_tools, skills
 from .llm import ModelConfig, ToolCall, stream_chat
 from .mcp_client import MCPTools
 from .progress import PLAN_TOOL, _plan  # noqa: F401
@@ -26,6 +26,7 @@ SYSTEM_PROMPT = """你是咚咚，一个跑在用户 Mac 上的通用 agent。
 - 不要编造工具结果；工具报错就换方案。
 - 多步骤任务先用 update_plan 给出简短步骤清单，切换步骤时更新状态；简单问答无需计划。
 - 计划只记录实际进度，未执行的步骤不能标 completed；完成后再给最终交付结果。
+- 仅在用户明确要求长期记住时调用 memory_save；项目事实保存到 project，跨项目偏好保存到 global。
 - 回答简洁，说清楚做了什么、结果是什么。"""
 
 READ_SKILL = {
@@ -138,6 +139,7 @@ class Runtime:
         usage: dict = {}
         try:
             run_id = self.store.create_run(session_id)
+            project_id = self.store.get_session(session_id)["project_id"]
             user_id = self.store.append_message(session_id, "user", user_text)
             self.store.add_event(
                 run_id, "run_start", {"session_id": session_id, "user_message_id": user_id}
@@ -149,6 +151,12 @@ class Runtime:
                 emit(kind, data)
 
             self.system_prompt = SYSTEM_PROMPT.format(workspace=self.workspace)
+            try:
+                context = await memory_tools.context(self.cfg, project_id, user_text)
+                if context:
+                    self.system_prompt += "\n" + context
+            except Exception:
+                record("memory_error", {"message": "记忆检索失败，本次任务继续执行"})
             available = skills.list_skills(self.cfg)
             enabled = [s for s in available if s["enabled"]]
             if enabled:
@@ -159,18 +167,22 @@ class Runtime:
             async with MCPTools(self.cfg.get("mcp_servers", {})) as external:
                 for error in external.errors:
                     record("mcp_error", {"message": error})
-                specs = [*builtin_tools.TOOL_SPECS, PLAN_TOOL, READ_SKILL, *external.specs]
+                specs = [
+                    *builtin_tools.TOOL_SPECS,
+                    PLAN_TOOL,
+                    READ_SKILL,
+                    *memory_tools.SPECS,
+                    *external.specs,
+                ]
                 for _ in range(self.max_steps):
-                    self.store.add_event(run_id, "model_start", {})
-                    emit("model_start", {})
+                    record("model_start", {})
                     messages = self._messages(session_id, user_id)
                     text = ""
                     calls: list[ToolCall] = []
                     async for event in self._stream(self.model, messages, specs):
                         if event.text:
                             text += event.text
-                            self.store.add_event(run_id, "text", {"delta": event.text})
-                            emit("text", {"delta": event.text})
+                            record("text", {"delta": event.text})
                         if event.tool_calls:
                             calls = event.tool_calls
                         if event.usage:
@@ -197,12 +209,7 @@ class Runtime:
                     )
                     for call in calls:
                         started = time.monotonic()
-                        self.store.add_event(
-                            run_id,
-                            "tool_call",
-                            {"id": call.id, "name": call.name, "arguments": call.arguments},
-                        )
-                        emit(
+                        record(
                             "tool_call",
                             {"id": call.id, "name": call.name, "arguments": call.arguments},
                         )
@@ -216,6 +223,7 @@ class Runtime:
                                 "shell",
                                 "write_file",
                                 "edit_file",
+                                "memory_save",
                             ) or call.name.startswith("mcp_")
                             if self.cfg.get("tool_policy") == "ask" and needs_approval:
                                 if self.approve is None:
@@ -226,13 +234,16 @@ class Runtime:
                                     raise ValueError("用户拒绝了本次操作，请停止该操作并说明结果")
                             if call.name == "update_plan":
                                 plan = _plan(args)
-                                self.store.add_event(run_id, "plan", plan)
-                                emit("plan", plan)
+                                record("plan", plan)
                                 result = "计划已更新。请继续执行，步骤切换时更新计划。"
                             elif call.name == "read_skill":
                                 result = skills.read_skill(args.get("name", ""), self.cfg)
                             elif call.name.startswith("mcp_"):
                                 result = await external.call(call.name, args)
+                            elif call.name in {"memory_search", "memory_save"}:
+                                result = await memory_tools.call(
+                                    call.name, args, self.cfg, project_id
+                                )
                             else:
                                 result = await builtin_tools.call_tool(
                                     call.name, args, self.tool_ctx
@@ -249,18 +260,7 @@ class Runtime:
                         ms = int((time.monotonic() - started) * 1000)
                         self.store.append_message(session_id, "tool", result, tool_call_id=call.id)
                         self.store.record_tool_call(run_id, call.name, args, result, ok, ms)
-                        self.store.add_event(
-                            run_id,
-                            "tool_result",
-                            {
-                                "id": call.id,
-                                "name": call.name,
-                                "result": result,
-                                "ok": ok,
-                                "ms": ms,
-                            },
-                        )
-                        emit(
+                        record(
                             "tool_result",
                             {
                                 "id": call.id,

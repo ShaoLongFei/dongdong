@@ -32,21 +32,54 @@ class WebState:
         self._last_run = ""
         self.task_session = ""
         self.voice_session = ""
+        self.current_project = None
+        self._project_tasks = {}
+        self._project_voices = {}
         self.reload()
+
+    def project_workspace(self, project_id: str | None = None) -> Path:
+        project = self.store.get_project(project_id) if project_id else None
+        if project_id and not project:
+            raise ValueError("项目不存在")
+        return Path(project["path"]).resolve() if project else self.workspace
+
+    def set_project(self, project_id: str | None) -> None:
+        if not self.project_workspace(project_id).is_dir():
+            raise ValueError("项目目录不存在")
+        self.current_project = project_id
+        self.task_session = self._project_tasks.get(project_id, "")
+        self.voice_session = self._project_voices.get(project_id, "")
+
+    def forget_session(self, sid: str) -> None:
+        for mapping in (self._project_tasks, self._project_voices):
+            for key in [key for key, value in mapping.items() if value == sid]:
+                mapping.pop(key)
+        if self.task_session == sid:
+            self.task_session = ""
+        if self.voice_session == sid:
+            self.voice_session = ""
+
+    def new_session(self, title: str, channel: str, project_id: str | None) -> str:
+        sid = self.store.create_session(title, channel, project_id)
+        self._project_tasks[project_id] = sid
+        if project_id == self.current_project:
+            self.task_session = sid
+            self.voice_session = ""
+            self._project_voices.pop(project_id, None)
+        return sid
 
     def voice_text(self, _connection: str, role: str, text: str) -> None:
         if not text.strip():
             return
         # 平台可能每轮结束就断链，连接 ID 不能作为用户会话的边界。
         if not self.voice_session:
-            self.voice_session = self.store.create_session("语音对话", "linx-voice")
+            self.voice_session = self.store.create_session(
+                "语音对话", "linx-voice", self.current_project
+            )
+            self._project_voices[self.current_project] = self.voice_session
         self.store.append_message(self.voice_session, role, text)
 
     def reload(self) -> None:
-        if not self.workspace.is_dir():
-            self.model = None
-            self.error = f"工作区不存在: {self.workspace}"
-            return
         try:
             self.model = model_from_config(self.cfg)
             self.error = ""
@@ -63,16 +96,24 @@ class WebState:
             raise RuntimeError("上一个任务还在跑")
         if self.model is None:
             raise ValueError(self.error or "模型未配置")
-        workspace = self.workspace
+        session = self.store.get_session(session_id)
+        if not session or session["archived_at"]:
+            raise RuntimeError("会话不存在或已归档，请先恢复")
+        root = self.project_workspace(session["project_id"])
+        workspace = root
         if cwd:
             path = Path(cwd).expanduser()
             workspace = (path if path.is_absolute() else workspace / path).resolve()
-            if not workspace.is_dir() or not workspace.is_relative_to(self.workspace):
-                raise ValueError(f"目录必须存在且在工作区内: {self.workspace}")
+            if not workspace.is_relative_to(root):
+                raise ValueError(f"目录必须存在且在工作区内: {root}")
+        if not workspace.is_dir():
+            raise ValueError(f"工作目录不存在: {workspace}")
         owner = f"web-{uuid.uuid4().hex[:8]}"
         if not work_gate.acquire(owner):
             raise RuntimeError("另一个任务还在跑")
-        self.task_session = session_id
+        self._project_tasks[session["project_id"]] = session_id
+        if session["project_id"] == self.current_project:
+            self.task_session = session_id
         loop = asyncio.get_running_loop()
         started: asyncio.Future[str] = loop.create_future()
 
@@ -163,7 +204,14 @@ class WebAgent:
                 return "另一个任务还在跑，先停止或等它结束。"
             if self.state.model is None:
                 raise ValueError(self.state.error or "模型未配置")
-            sid = self.state.task_session or self.state.store.create_session(text[:24], "linx")
+            sid = self.state.task_session
+            session = self.state.store.get_session(sid) if sid else None
+            if (
+                not session
+                or session["archived_at"]
+                or session["project_id"] != self.state.current_project
+            ):
+                sid = self.state.new_session(text[:24], "linx", self.state.current_project)
             rid = await self.state.start(sid, text, cwd)
             self.last = rid
             task = self.state._task
@@ -199,6 +247,12 @@ class WebAgent:
     def current(self):
         rid = self.state._run_id
         return SimpleNamespace(id=rid) if rid else None
+
+    def memory_project(self) -> str | None:
+        return self.state.current_project
+
+    def execution_workspace(self) -> str:
+        return str(self.state.project_workspace(self.state.current_project))
 
     def snapshot(self) -> dict | None:
         rid = self.state._run_id or self.state._last_run or self.last

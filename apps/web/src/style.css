@@ -111,3 +111,29 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; }
 .approvals h2 { font-size: 15px; margin-bottom: 10px; }.approval-card h3 { font-size: 13px; }
 .approval-card pre { max-height: 18vh; overflow: auto; color: #d3d4b5; }
 .approval-actions { display: flex; gap: 10px; align-items: center; margin-top: 12px; }.approval-actions button { margin-top: 0 !important; }
+.session-label button { color: #a9bc98; border: 0; background: transparent; padding: 0; }
+.project-groups { min-height: 60px; }
+.project-group { border-bottom: 1px solid #292f27; padding: 8px 0; }
+.project-group summary { display: flex; align-items: center; gap: 7px; cursor: pointer; color: #c1ccba; font-size: 12px; padding: 5px 8px; }
+.project-group summary > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-current { margin-left: auto; font-size: 10px; color: #c1dfa0; background: #2b3524; border-radius: 4px; padding: 2px 5px; }
+.project-actions { display: flex; flex-wrap: wrap; gap: 3px; margin: 4px; }
+.project-actions button { width: auto; font-size: 10px; color: #93a584; padding: 5px; }
+.group-empty { color: #7c8775; margin: 10px; font-size: 11px; }
+.sessions .load-more { justify-content: center; color: #bad49f; padding: 7px; }
+.archive-toggle { display: flex; gap: 8px; align-items: center; padding: 13px 8px; background: transparent; color: #a8b69b; border: 0; border-top: 1px solid #30382a; }
+.archive-toggle[aria-pressed="true"] { color: #d3e8ba; }
+.project-form { display: grid; gap: 7px; margin-bottom: 12px; }
+.project-form input, .session-toolbar select { min-width: 0; width: 100%; border: 1px solid #3b4533; background: #1d241a; color: #d1ddc5; border-radius: 5px; padding: 7px; font-size: 11px; }
+.project-form .primary { padding: 7px; justify-content: center; }
+.session-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 24px; border-bottom: 1px solid #2d3528; font-size: 11px; }
+.session-toolbar > span { flex: 1; min-width: 120px; overflow-wrap: anywhere; color: #9cab91; }
+.session-toolbar label { display: flex; gap: 7px; align-items: center; white-space: nowrap; color: #aebca4; }
+.session-toolbar select { width: auto; max-width: 150px; }
+.session-toolbar button { color: #c4d8b2; border: 1px solid #414d37; background: #252d20; padding: 7px 10px; border-radius: 5px; }
+.archive-notice { padding: 20px; color: #c3cbb8; text-align: center; background: #1c2219; border-top: 1px solid #343e2d; font-size: 12px; }
+.memory-card { display: flex; gap: 18px; align-items: start; padding: 16px; border: 1px solid #333e2d; border-radius: 8px; background: #191e18; margin-bottom: 12px; }
+.memory-card p { white-space: pre-wrap; overflow-wrap: anywhere; flex: 1; margin: 0; color: #c1cdb8; line-height: 1.7; }
+.memories form .primary { margin-top: 12px; }
+@media (max-width: 700px) { .sidebar { width: 195px; padding: 18px 9px 0; }.project-groups { display: block; }.session-label { display: flex; }.archive-toggle span, .project-form { font-size: 11px; }.session-toolbar { padding: 10px; gap: 8px; }.project-actions { gap: 0; } }
+@media (max-width: 440px) { .sidebar { width: 145px; }.navigation { margin-bottom: 12px; }.session-toolbar label { flex-wrap: wrap; }.topbar .voice-toggle { font-size: 0; padding: 7px; }.project-group summary { gap: 4px; }.project-current { font-size: 9px; } }

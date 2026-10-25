@@ -25,33 +25,95 @@ class Store:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(SCHEMA.read_text(encoding="utf-8"))
-        self._conn.commit()
+        with self._conn:
+            columns = {row[1] for row in self._conn.execute("PRAGMA table_info(sessions)")}
+            for name, definition in (
+                ("project_id", "TEXT REFERENCES projects(id)"),
+                ("archived_at", "TEXT"),
+            ):
+                if name not in columns:
+                    self._conn.execute(f"ALTER TABLE sessions ADD COLUMN {name} {definition}")
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS sessions_project_archive"
+                " ON sessions(project_id, archived_at, updated_at DESC)"
+            )
 
     def close(self) -> None:
         with self._lock:
             self._conn.close()
 
-    def create_session(self, title: str = "新会话", channel: str = "web") -> str:
+    def create_session(
+        self, title: str = "新会话", channel: str = "web", project_id: str | None = None
+    ) -> str:
         sid, ts = uuid.uuid4().hex[:12], now()
         with self._lock, self._conn:
             self._conn.execute(
-                "INSERT INTO sessions(id, title, channel, created_at, updated_at)"
-                " VALUES (?,?,?,?,?)",
-                (sid, title.strip() or "新会话", channel, ts, ts),
+                "INSERT INTO sessions(id, title, channel, project_id, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?)",
+                (sid, title.strip() or "新会话", channel, project_id, ts, ts),
             )
         return sid
 
-    def list_sessions(self) -> list[dict]:
+    def list_sessions(
+        self,
+        project_id: str | None = None,
+        archived: bool = False,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT * FROM sessions ORDER BY updated_at DESC, rowid DESC"
+                "SELECT * FROM sessions WHERE (archived_at IS NOT NULL)=?"
+                " AND (? IS NULL OR COALESCE(project_id,'')=?)"
+                " ORDER BY updated_at DESC, rowid DESC LIMIT ? OFFSET ?",
+                (archived, project_id, project_id, limit, offset),
             ).fetchall()
         return [dict(row) for row in rows]
 
     def get_session(self, sid: str) -> dict | None:
         with self._lock:
-            row = self._conn.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+            row = self._conn.execute(
+                "SELECT sessions.*, projects.name AS project_name, projects.path AS project_path"
+                " FROM sessions LEFT JOIN projects ON sessions.project_id=projects.id"
+                " WHERE sessions.id=?",
+                (sid,),
+            ).fetchone()
         return dict(row) if row else None
+
+    def list_projects(self) -> list[dict]:
+        with self._lock:
+            return [
+                dict(row)
+                for row in self._conn.execute("SELECT * FROM projects ORDER BY created_at, rowid")
+            ]
+
+    def get_project(self, project_id: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
+        return dict(row) if row else None
+
+    def create_project(self, name: str, path: str) -> str:
+        pid = uuid.uuid4().hex[:12]
+        with self._lock, self._conn:
+            self._conn.execute("INSERT INTO projects VALUES (?,?,?,?)", (pid, name, path, now()))
+        return pid
+
+    def rename_project(self, project_id: str, name: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE projects SET name=? WHERE id=?", (name, project_id))
+
+    def update_session(self, sid: str, values: dict) -> None:
+        fields = {k: v for k, v in values.items() if k in {"project_id", "archived_at"}}
+        if fields:
+            with self._lock, self._conn:
+                if self._conn.execute(
+                    "SELECT 1 FROM runs WHERE session_id=? AND status='running'", (sid,)
+                ).fetchone():
+                    raise ValueError("会话仍有任务在运行")
+                assignments = ",".join(f"{key}=?" for key in fields)
+                self._conn.execute(
+                    f"UPDATE sessions SET {assignments} WHERE id=?", (*fields.values(), sid)
+                )
 
     def append_message(
         self,
@@ -93,6 +155,11 @@ class Store:
     def create_run(self, session_id: str) -> str:
         rid = uuid.uuid4().hex[:12]
         with self._lock, self._conn:
+            session = self._conn.execute(
+                "SELECT archived_at FROM sessions WHERE id=?", (session_id,)
+            ).fetchone()
+            if session is None or session[0] is not None:
+                raise ValueError("会话不存在或已归档，请先恢复")
             self._conn.execute(
                 "INSERT INTO runs(id, session_id, status, started_at) VALUES (?,?,?,?)",
                 (rid, session_id, "running", now()),
