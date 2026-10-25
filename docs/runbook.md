@@ -4,8 +4,8 @@
 
 - macOS 13+（当前验证：macOS 26 Tahoe / Apple Silicon）
 - `brew install uv opus ffmpeg`（ffmpeg 只在调音频时用得上）
-- 已安装 `codex` 和/或 `claude` CLI
-- 灵矽账号：<https://xrobo.qiniu.com/>
+- 内置 agent 需要可用的模型 API key；使用 CLI 后端才需安装 `codex` 和/或 `claude`
+- 语音功能需要灵矽账号：<https://xrobo.qiniu.com/>；仅 Web 文字任务不需要绑定
 
 ### 两个系统权限
 
@@ -60,7 +60,7 @@ cd dongdong
 ./scripts/dev.sh run
 ```
 
-连上后对着 Mac 说话即可。日志里 `你: ...` 是识别结果，`咚咚: ...` 是回复。
+打开 <http://127.0.0.1:8766>，点击“开启语音”，连上后对着 Mac 说话。日志里 `你: ...` 是识别结果，`咚咚: ...` 是回复。前端尚未构建时，先执行下面“独立 Web 工作台”的构建步骤。
 
 ### 让它干活
 
@@ -72,13 +72,13 @@ cd dongdong
 - 「停止投屏」
 - 「刚才那个任务跑完没」
 
-agent 任务默认最多等 120 秒，超时会转后台，用「刚才那个任务怎么样了」查。
+内置 agent 的语音工具最多同步等待 8 秒，未结束则返回任务号，用「刚才那个任务怎么样了」查询，或在工作台查看进度。CLI 后端默认同步等待 120 秒，超时后在当前服务进程内继续执行。
 
 ### 看状态
 
 `./scripts/dev.sh run` 启动工作台，打开 <http://127.0.0.1:8766>。语音默认关闭，点击顶部“开启语音”才连接灵矽并打开麦克风；“关闭语音”停止采音、当前播报并断开连接，已派发的编程任务继续运行。刷新页面保留当前开关状态，重启服务回到关闭。顶部显示语音连接、最近识别和回复；builtin 语音任务在会话列表中可回看，进入该会话后能看流式输出和停止任务。语音启动失败时 Web 继续可用。当前 Web 仅支持本机访问，旧 `panel.host/token` 配置不再用于 `run`。
 
-普通语音的 STT 和 TTS 句子也保存到“语音对话”，顶部“查看语音对话”可直接进入；连接重建后新建语音会话，只存文字、不存音频。听不到回复时先确认 Mac 输出未静音；`osascript -e 'get volume settings'` 可检查 `output muted`。
+普通语音的 STT 和 TTS 句子也保存到“语音对话”，顶部“查看语音对话”可直接进入；重连和麦克风开关不会切分会话，只存文字、不存音频。Web 发消息和 builtin 语音后续任务共用当前任务会话；主动“开启新对话”才切换，进程重启后首次语音另建会话。听不到回复时先确认 Mac 输出未静音；`osascript -e 'get volume settings'` 可检查 `output muted`。
 
 ### 独立 Web 工作台
 
@@ -111,6 +111,16 @@ cd ../..
 重启 `run`。工具名仍是 `self.code.run`，平台提示词和配置见
 [`linx-voice-prompt.md`](linx-voice-prompt.md)。这条路径不需要公网穿透，也不加入站端口。
 
+### 技能、外部 MCP 与操作确认
+
+- **技能**：把已有 `SKILL.md` 放到 `~/.dongdong/skills/<名称>/`，在“技能”页刷新、查看和启停。模型先看描述，再按需读取正文；名称只用字母、数字、下划线或连字符，正文最多32KB。没有自动安装功能。
+- **MCP**：在“MCP”页手动保存 stdio、Streamable HTTP 或 SSE 服务，点击测试查看工具；启用项在下一任务开始时连接。env/headers 使用 JSON 字符串键值对象，支持 `${ENV}`；编辑时留空保留原值，填 `{}` 清空。列表只显示这些字段的 key；不要把密钥放入可见的命令参数或 URL。
+- **审批**：设置 → 工具执行方式 → “逐次确认”。shell、写/改文件和外部工具调用会出现全局“允许一次 / 拒绝”；换会话仍能处理，停止任务撤销等待。读取文件、技能和更新计划无需确认。默认自动执行；审批不限制 shell 的系统权限，也不审批 MCP 服务启动本身。
+
+以上能力用于内置 Runtime；Web 文字始终走内置 Runtime，语音的 `code_backend` 选择不改变文字入口。CLI 后端使用各 CLI 自身权限机制。独立 `chat/call/serve` 没有 Web 审批回调，ask 模式会拒绝需确认操作；长任务应使用持续运行的 `run/web`，不要依赖一次性 `call` 退出后的 builtin 后台线程。
+
+数据路径与两套工具的区别见 [项目架构](architecture.md)，接口定位见 [文档导航](README.md)。
+
 ## 5. 投屏
 
 ```bash
@@ -134,7 +144,7 @@ cd ../..
 `{target}` 会被替换成目标名，`self.screen.mirror` 语音调用会直接走它。
 
 发现设备这件事是好的：`airplay list` 能扫到 Apple TV（实测「卧室」AppleTV14,1）。
-所以后续把「投屏」换成 `ffmpeg` 抓屏 + `pyatv` 推 Apple TV 是可行的自动化路线，见 [decisions.md](decisions.md)。
+后续 `ffmpeg` 抓屏 + `pyatv` 推 Apple TV 是尚未验证的候选路线，当前未实现，见 [decisions.md](decisions.md)。
 
 ## 6. 换 / 加 agent
 
@@ -179,7 +189,7 @@ launchctl load ~/Library/LaunchAgents/com.dongdong.device.plist
 | 现象 | 原因 / 处理 |
 | --- | --- |
 | `拿不到 token` | 设备没绑定，或智控台里没给设备配智能体 |
-| 连上就断、反复重连 | token 过期：删 `~/.dongdong/config.json` 重新 bind |
+| 一轮语音结束后断链并重连 | 平台可能正常结束连接，自动重连成功即可；持续握手/鉴权失败再检查绑定与 token，不要仅因重连删除配置 |
 | 说的话没反应 | 终端没有麦克风权限；或 `echo_guard` 把它当成了回声 |
 | 它自己跟自己聊 | 外放声音被麦克风收进去了：戴耳机，或把 `~/.dongdong/config.json` 里 `echo_guard` 保持 `true` |
 | 投屏报 -1719 / 辅助访问 | 没开辅助功能权限，见上面 |

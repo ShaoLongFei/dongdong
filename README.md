@@ -1,6 +1,6 @@
 # 咚咚 (dongdong)
 
-对着空气说一句话，Mac 上的 AI 就开始写代码，屏幕自动投到电视上。
+通过语音或 Web，让 Mac 上的 AI 读写项目、执行命令，并查看完整任务过程。AirPlay 自动投屏仍受系统限制。
 
 1024 程序设计大赛参赛项目：**通过 AirPlay 连接屏幕，通过语音控制 code agent 做开发。**
 
@@ -10,9 +10,12 @@
 灵矽平台（ASR → 大模型 → TTS）  ←── WebSocket ──┐
    ↓ MCP tools/call                              │
 apps/device-mac（Python，跑在 Mac 上）──────────┘
-   ├── codex / claude / deepseek  写代码
-   └── AirPlay 屏幕镜像           投到电视 / 投影
+   ├── Web → 内置 Runtime → 编程模型 / 文件 / shell / Skills / 外部 MCP
+   ├── 语音工具 → 内置 Runtime 或 codex / claude / deepseek CLI
+   └── 设备工具 → 长期记忆 / AirPlay 发现与投屏脚本
 ```
+
+完整架构图、任务时序和数据关系见 [项目架构](docs/architecture.md)；全部文档见 [文档导航](docs/README.md)。
 
 ## 快速开始
 

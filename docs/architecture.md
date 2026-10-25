@@ -1,123 +1,267 @@
-# 架构
+# 项目架构
 
-## 一句话
+> 按 2026-10-25 的代码核对，基线 `caa03e7`。本文描述当前实现；未来方案单独标注。文档入口见 [文档导航](README.md)。
 
-Mac 上跑一个「灵矽设备」：它负责听声音、放声音、把大模型的工具调用转成两件事——让 agent 写代码、让 Mac 投屏。
+## 1. 系统定位
 
-## 数据流
+咚咚是在 Mac 上运行的单用户助手：用户从 Web 输入任务，或通过灵矽语音调用设备工具；内置 agent 调用模型、读写工作区和执行命令，并把过程保存为可回看的会话。旧 codex / claude / deepseek CLI 执行路径仍然保留。
 
+生产运行一个 Python 进程即可：FastAPI 同时提供前端静态文件和本地 API。Node 只负责开发与构建；语音按用户选择开启。投屏有设备发现和脚本入口，但默认自动镜像受 macOS 控件限制；ESP32 尚未实施。
+
+## 2. 总体架构图
+
+实线表示已有调用链；虚线表示尚未接入的 ESP32 路线。图中的两个模型角色独立：灵矽智能体负责语音对话与设备工具选择，编程模型负责内置 Runtime 的任务循环。
+
+```mermaid
+flowchart TB
+    User[用户] --> Browser[Web 工作台 / React]
+    User --> Mic[Mac 麦克风 / 扬声器]
+    Linx[灵矽云端 / ASR · 智能体 · TTS]
+    Model[编程模型 / OpenAI 兼容 API]
+    Ext[用户配置的外部 MCP 服务]
+    CLI[codex / claude / deepseek CLI 子进程]
+    TV[电视 / Apple TV]
+    OpenAI[OpenAI / 记忆提取与嵌入]
+
+    subgraph Mac[Mac / run 或 web / 同一 Python 进程]
+        API[FastAPI / web_server.py]
+        Web[WebState / WebAgent]
+        Voice[Voice / Device / 音频与设备协议]
+        DeviceTools[设备 MCP 分发 / mcp.py · tools.py]
+        Runtime[内置 Runtime / 模型与工具循环]
+        Gate[Approvals / 逐次操作确认]
+        Builtin[工作区文件工具 / shell / update_plan]
+        Skill[Skills / 按需读取 SKILL.md]
+        Client[官方 MCP SDK 客户端]
+        Screen[screen.py / mDNS 与投屏脚本]
+        Memory[memory.py / Mem0]
+        DB[(dongdong.db / SQLite)]
+        Files[(配置 / 技能 / 工作区)]
+    end
+
+    Browser <-->|本机 REST / SSE| API
+    API --> Web
+    API -->|语音开关| Voice
+    Voice -->|STT / TTS 文字回存| Web
+    Mic <--> Voice
+    Voice <-->|Mac 主动连接 WSS / Opus 与 JSON| Linx
+    Linx -->|同一 WSS 中的工具调用| Voice
+    Voice --> DeviceTools
+    DeviceTools -->|builtin| Web
+    DeviceTools -->|cli| CLI
+    DeviceTools --> Screen --> TV
+    DeviceTools --> Memory --> OpenAI
+    Web --> Runtime
+    Runtime <-->|流式 chat/completions| Model
+    Runtime -->|ask 模式的副作用调用| Gate
+    API -->|允许一次 / 拒绝| Gate
+    Runtime --> Builtin
+    Runtime --> Skill
+    Runtime --> Client <--> Ext
+    Web --> DB
+    Runtime --> DB
+    API --> Files
+    Builtin --> Files
+    Skill --> Files
+
+    ESP[ESP32 / 尚未实施] -.-> Bridge[独立 serve / HTTP 工具转发]
+    Bridge -.->|复用设备工具实现| DeviceTools
 ```
-        ┌──────────── 灵矽平台 (xrobo.qiniu.com) ────────────┐
-        │  ASR  →  智能体大模型（带 MCP 工具）  →  TTS        │
-        └───────▲────────────────────────────┬──────────────┘
-      WSS 音频/JSON │                        │ MCP tools/call
-                ┌───┴────────────────────────▼──────────────┐
-                │        apps/device-mac  (Python)           │
-                │  linx.py   设备协议 + 会话     audio.py    │
-                │  mcp.py    JSON-RPC 工具分发   tools.py    │
-                │             Mem0 SDK                       │
-                └───┬────────────────────────────┬───────────┘
-                    │                            │
-      ┌─────────────▼──────────┐      ┌──────────▼────────────┐
-      │ agent.py               │      │ screen.py             │
-      │ codex / claude /       │      │ zeroconf 发现 +       │
-      │ deepseek 子进程         │      │ AppleScript 点投屏     │
-      └────────────────────────┘      └───────────────────────┘
 
-       Mem0 提取/嵌入 → OpenAI API
-       本地持久化（仓库根目录 .memory/）：Qdrant 向量库 + SQLite 历史库
+图中的 `Gate` 是 Runtime 执行工具前的等待点，不是另一套调度器。内置 Runtime 不会自动拥有 `self.screen.*` 或 `self.memory.*`：这些属于设备工具表，当前由灵矽或本地 `call/serve` 使用。
+
+## 3. 入口、后端与进程边界
+
+| 入口 | 实际路径 | 会话与执行特点 |
+| --- | --- | --- |
+| `dongdong run` / `web` | `__main__` → `web_server.serve` | 同一入口，默认 `127.0.0.1:8766`；语音默认关闭，按钮开启 |
+| Web 文字消息 | REST → `WebState.start` → `Runtime` | 始终使用内置 agent，不受 `code_backend` 控制 |
+| 灵矽 `self.code.run` | Device → `mcp.handle` → `tools` | `code_backend=builtin` 复用 WebState；默认 `cli` 则启动外部 CLI |
+| `dongdong chat` | `chat_cli` → `Runtime` | 独立终端会话，不需要灵矽；没有 Web 审批回调 |
+| `dongdong call` | `tools.call` | 本地调用设备工具；builtin 按需建立 `AgentService` |
+| `dongdong serve` | `bridge` → `tools.call` | 独立 HTTP 转发进程，默认 `127.0.0.1:8765`，供未来固件接入 |
+| `bind` / `doctor` / `airplay` | 设备绑定 / 诊断 / 投屏操作 | 辅助命令，不经过 Web 任务循环 |
+
+`run/web` 的 FastAPI、Device、WebState 和 Runtime 共享一个 asyncio 事件循环。Device 用 `asyncio.to_thread` 调用同步设备工具；WebAgent 从该工作线程用 `run_coroutine_threadsafe` 把任务投回主事件循环，因此没有第二套内置 agent 服务。
+
+独立 `call/serve` 未绑定 WebAgent 时，`tools` 才懒建 `AgentService`，在专用线程的事件循环运行 Runtime。CLI 后端的 `agent.py` 管理子进程、输出、同步等待和手动停止，等待超时不自动终止进程；工具循环由相应 CLI 自己完成。builtin 会忽略设备工具参数中的 `agent` 字段。
+
+独立 `call` 是一次性进程，builtin 超过同步等待后不能保证继续：当前服务线程是 daemon，命令退出会结束进程。长任务使用持续运行的 `run/web`；`serve` 可以保持服务运行，但当前尚无统一的有序退出收尾。
+
+`work_gate` 让 Web、设备编程任务与设置/能力变更在**同一进程内**互斥，忙时拒绝，不排队；取消清理完成后释放。直接 `chat/Runtime` 不走这道闸门，也没有跨进程锁。不要用多个入口进程同时修改同一工作区。
+
+## 4. 任务执行与实时展示
+
+下图表示正常完成路径，包含工具被拒绝后继续循环的情况。取消和异常不产生 done：清理待审批与运行资源后，分别写 stopped / error，前端保留未完成步骤。
+
+```mermaid
+sequenceDiagram
+    actor U as 用户
+    participant UI as Web 工作台
+    participant W as FastAPI / WebState
+    participant R as Runtime
+    participant L as 编程模型
+    participant A as Approvals
+    participant T as 工具
+    participant S as SQLite
+    U->>UI: 在当前会话发送任务
+    UI->>W: POST /api/sessions/{sid}/messages
+    W->>R: 创建 run，启动任务
+    R->>S: user 消息与 run_start
+    W-->>UI: run_id
+    UI->>W: GET /api/runs/{rid}/events
+    Note over W,S: SSE 从数据库增量读取持久事件
+    R->>R: 列启用技能，连接启用的 MCP 服务
+    loop 模型返回工具调用时继续
+        R->>L: 历史消息与工具 schema
+        L-->>R: 流式文字 / tool_calls
+        R->>S: text / tool_call / plan 等事件
+        opt ask 模式且是 shell、写改文件或外部 MCP
+            R->>A: 请求一次性批准并等待
+            UI->>W: GET /api/approvals
+            W-->>UI: 全局待审批卡
+            U->>UI: 允许一次 / 拒绝
+            UI->>W: POST /api/approvals/{run_id}/{call_id}
+            W->>A: 决定当前调用
+            A-->>R: 批准 / 拒绝
+        end
+        alt 获准或无需审批
+            R->>T: 执行工具
+            T-->>R: 工具结果
+        else 被拒绝或入口无法审批
+            R->>R: 生成失败工具结果，不执行操作
+        end
+        R->>S: tool 消息与 tool_result
+    end
+    R->>S: assistant 结果 / done / run 状态
+    R->>R: 关闭本次 MCP 连接
+    W-->>UI: 事件与终止通知
+    UI-->>U: 最终结果，执行卡自动折叠
 ```
 
-## 为什么是 Python
+- `update_plan` 由同一个模型循环调用，支持 1–8 步、至多一个进行中；只做可见进度，不是独立 planner 或多 agent 调度器。
+- 每个 run 对应一次用户任务；`run_start.user_message_id` 把执行卡关联到正确消息。工具调用和结果按 call ID 配对。
+- SSE 读取持久化事件，不依赖内存消息总线；刷新可重放。会话详情提供消息和 runs，`include_events=true` 可取历史事件快照。
+- 默认最多 20 次模型循环、历史软窗口 30 条；当前任务起始消息和完整工具消息对会保留。最终无工具调用时结束；异常或取消留下 error/stopped 状态。
+- 前端显示当前步骤、下一步、工具和耗时；终态折叠后仍能展开。用户停止会取消任务、移除待审批、终止相关 shell，并清理本轮外部连接。
 
-- 和 agent CLI（codex / claude）交互就是子进程 + 文本，Python 最短
-- 音频、Opus、mDNS 都有现成库，不需要自己写
-- 比赛周期短，先跑通；ESP32 端只做「音频 + 协议转发」，本来也不需要 Python
+## 5. 语音链路与会话连续性
 
-C++ 参考实现（[linx-linux](https://github.com/sunqirui1987/linx-linux)）留着做协议对照，不引入。
+`Voice` 管理开关和 Device 生命周期。Device 通过 OTA 获取设备连接信息，主动建立 WSS；`audio.py` 用 sounddevice 录放 PCM，用 opuslib 编解码 Opus。ASR、普通对话、TTS 在灵矽完成，Mac 不另建 ASR/TTS 服务。
 
-## 关键设计
+灵矽选择 `self.code.run` 时，builtin 最多同步等 8 秒；未结束返回任务号，后续通过 `self.code.result` 查询或在 Web 查看。关闭语音会断链、停止采音和播报，已派发的编程任务继续；停止任务是独立操作。任务完成后主动再次语音播报尚未实现。
 
-**1. 工具只有一份实现。** `tools.py` 注册的工具同时供两条路用：
-- 灵矽 MCP（`tools/call`）→ 语音直接控制
-- 本地 HTTP bridge（`serve` 子命令）→ 以后 ESP32 用 HTTP 转发同一批工具
+| 身份 | 用途 | 生命周期 |
+| --- | --- | --- |
+| 灵矽 WS `session_id` | 平台当前连接上下文 | 可能每轮重连，不作为本地会话边界 |
+| `WebState.voice_session` | STT / TTS 文字，channel=`linx-voice` | 普通语音持续追加，不随重连/麦克风开关重建 |
+| `WebState.task_session` | Web 与 builtin 语音编程任务 | 后续任务复用会话和模型历史，每轮仍建新 run |
+| SQLite session / run ID | 可回看的消息、任务与事件 | 持久化保存；运行中的指针只在进程内 |
 
-所以移植 ESP32 时，Mac 这边一行不改。
+主动“开启新对话”会切换任务会话并清空语音会话指针；仅点击查看历史会话不等于切换下一次语音任务上下文。进程重启后历史仍在，但这些指针不恢复，首次语音会创建新会话。语音只保存识别/播报文字，不保存音频文件。
 
-**2. agent 是子进程，不是 API。** 旧路径（`agent.py`）里 `codex exec` / `claude -p` 本身就是
-完整 agent，自己做工具循环；我们只负责喂 prompt、收 stdout、管超时，不自己实现 agent loop。
-新的内置 agent 不走子进程：`Runtime` 自己实现工具循环，见下文「内置 agent（新）」。
+## 6. 两种工具体系与能力边界
 
-**3. 设备身份存本地。** `~/.dongdong/config.json` 存 Device-Id、Client-Id、token。
-删除文件 = 重新注册一台设备。
+| 工具体系 | 调用方与协议 | 能力 |
+| --- | --- | --- |
+| 设备工具 `tools.TOOLS` | 灵矽经 WSS 中 MCP JSON-RPC；`call`；bridge HTTP | `self.system.status`、`self.code.run/result/stop`、`self.screen.list/mirror/stop`、`self.memory.search/save/list/delete` |
+| 内置 agent 工具 | Runtime 提供模型 function schema | `shell`、`read_file`、`write_file`、`edit_file`、`list_dir`、`glob`、`grep`、`update_plan`、`read_skill`，以及启用的外部 MCP 工具 |
 
-## 内置 agent（新）
+设备路径中咚咚是 MCP 工具提供方；外部路径中咚咚是 MCP 客户端。两者共用“MCP”名称，但没有自动互相注册或桥接。
 
-`apps/device-mac/dongdong/` 里新加了一套自己跑的 agent，和旧的 CLI 子进程方案并存：
+**Skills。** `skills.py` 从本地目录发现名称/描述，Runtime 只注入启用项摘要；模型需要时调用 `read_skill`。读取限制在技能根目录内，拒绝禁用、穿越、外部符号链接和超过 32KB 的正文。启停供下一任务使用；不自动下载/安装，也不运行技能中的脚本。
 
-| 文件 | 作用 |
+**外部 MCP。** `mcp_client.py` 使用官方 SDK，支持 stdio、Streamable HTTP、SSE；工具名映射为 `mcp_<服务名>_<索引>`。每 run 建立连接并在同一 asyncio task 退出；连接/发现默认 15 秒、工具调用默认 60 秒。失败服务写 `mcp_error`，其它能力继续；普通清理异常不会覆盖任务结果或取消。
+
+**审批。** `tool_policy=auto` 默认自动执行；`ask` 对 shell、写/改文件、所有外部 MCP 工具调用确认一次，只读与计划不确认。全局组件独立轮询，换页面/会话后仍可批准；授权仅匹配 `(run_id, call_id)`，不持久化。CLI 和独立 AgentService 无回调时拒绝需审批操作。服务进程启动/连接本身不属于工具调用审批。
+
+## 7. 数据与存储关系
+
+```mermaid
+erDiagram
+    sessions ||--o{ messages : contains
+    sessions ||--o{ runs : contains
+    runs ||--o{ events : records
+    runs ||--o{ tool_calls : records
+    sessions {
+        string id PK
+        string channel
+        string title
+    }
+    messages {
+        int id PK
+        string session_id FK
+        string role
+        string tool_call_id
+    }
+    runs {
+        string id PK
+        string session_id FK
+        string status
+    }
+    events {
+        int id PK
+        string run_id FK
+        string type
+    }
+    tool_calls {
+        int id PK
+        string run_id FK
+        string name
+        boolean ok
+    }
+```
+
+`messages` 保存模型历史，`events` 保存展示/回放事实，`tool_calls` 保存工具执行记录，三者用途不同。Store 使用 SQLite WAL、外键与线程锁；启动时把遗留 running 任务标为 stopped，不自动续跑。schema 中保留 `settings` 表，但当前设置实际写 JSON，并未使用该表。
+
+| 数据 | 默认位置 | 说明 |
+| --- | --- | --- |
+| 配置与设备身份 | `~/.dongdong/config.json` | 模型、工作区、token、MCP、禁用技能、执行策略；保存权限 0600 |
+| 会话与运行 | `~/.dongdong/dongdong.db` | 文本、工具参数/结果、事件；与记忆库分离 |
+| 本地技能 | `~/.dongdong/skills/<name>/SKILL.md` | 已存在的技能文件，用户自行放置 |
+| 长期记忆 | 源码仓库根 `.memory/qdrant`、`.memory/history.db` | Mem0 懒初始化；路径由模块位置计算，不随 DONGDONG_HOME 变化 |
+| 操作产物 | 配置的 `workspace` | 内置文件工具限制在此根内；CLI 另用 projects 白名单 |
+| 前端构建 | `apps/device-mac/dongdong/static/` | 由 `apps/web` 的 Vite 构建，FastAPI 同源提供 |
+
+`DONGDONG_HOME` 可替换配置、会话库和技能的默认根目录。Mem0 以设备 `device_id` 隔离记录，使用 `OPENAI_API_KEY` 调 OpenAI 提取/嵌入；保存内容和查询文本会发送到 OpenAI。Runtime 的会话历史不等于 Mem0 长期记忆，当前不会自动互相检索或同步。
+
+## 8. 模块索引
+
+以下 Python 模块均位于 `apps/device-mac/dongdong/`。
+
+| 模块 | 职责 |
 | --- | --- |
-| `runtime.py` | agent loop：模型流式返回 → 执行工具 → 工具结果回灌 → 再问模型，直到没有工具调用 |
-| `llm.py` | OpenAI 兼容的流式模型客户端，用项目已有的 `httpx`，不抽 provider |
-| `builtin_tools.py` | 内置工具：shell、读、写、改、列目录、glob、grep |
-| `store.py` | SQLite 持久化：会话、消息、run、事件、工具调用；库在 `~/.dongdong/dongdong.db` |
-| `chat_cli.py` | 终端入口，`dongdong chat` 直接和内置 agent 对话 |
-| `agent_service.py` | 把 `Runtime` 包成后台 job，供灵矽 MCP 的同步 `tools/call` 使用 |
+| `__main__.py`、`config.py` | 命令分派、默认配置与设备身份 |
+| `web_server.py`、`web_runtime.py` | 本地 REST/SSE、生命周期、共享任务和语音入口适配 |
+| `voice.py`、`linx.py`、`audio.py` | 语音开关、OTA/WSS、Opus 录放 |
+| `mcp.py`、`tools.py` | 平台设备 MCP 协议与设备工具表 |
+| `runtime.py`、`llm.py`、`progress.py` | 内置循环、流式模型客户端、计划结构 |
+| `builtin_tools.py` | 文件工具、shell、命令取消和输出限制 |
+| `skills.py`、`mcp_client.py`、`mcp_routes.py`、`approvals.py` | 三项扩展能力和管理 API |
+| `store.py`、`schema.sql` | 会话/运行/事件持久化 |
+| `agent.py`、`agent_service.py`、`chat_cli.py` | CLI 子进程、独立 builtin 服务、终端入口 |
+| `memory.py`、`screen.py`、`bridge.py` | 设备记忆、投屏、独立 HTTP 转发 |
+| `state.py`、`doctor.py` | 设备瞬时状态与诊断 |
+| `panel.py`、`panel.html` | 旧面板遗留，当前 run/web 不启动 |
+| `apps/web/src/main.jsx`、`Conversation.jsx` | 页面/会话选择、SSE、执行卡与最终结果 |
+| `apps/web/src/Settings.jsx`、`Skills.jsx`、`MCP.jsx`、`Approvals.jsx` | 配置、能力管理与全局审批 |
 
-- 旧 `agent.py` 仍是「CLI 执行器」；`code_backend=cli`（默认）时灵矽语音链路完全不动。
-- 设置 `code_backend=builtin` 后，`self.code.run/result/stop` 改走本地 `Runtime`，工具名和提示词不变。
-- `dongdong chat` 不需要灵矽绑定，配好模型 key 就能用。
-- 默认关闭 DeepSeek thinking：带 `tools` 时它要求回传历史 `reasoning_content`，Phase 1 不存，开着会 400。
-- Web 面板和语音后续都复用 `Runtime`，不再各写一套循环。
+## 9. 本机与外部边界
 
-### Web 工作台
+Web 仅监听 loopback，并校验 Host/Origin；没有远程账号鉴权，因此不支持公网/局域网直接访问。Mac 主动连接灵矽，不需要为语音开放入站端口。独立 bridge 是另一服务，若为未来 ESP32 开放局域网，需配置 `bridge.token`；它不是 Web 远程访问方案。
 
-`dongdong web` 使用 FastAPI/uvicorn，服务 `apps/web` 的 React/Vite/Tailwind 构建产物和 `/api/*`。`run/web` 通过 `voice.py` 在同一事件循环按用户选择启停灵矽 Device，启动默认关闭。关闭接口等待 Device 取消与音频清理后才返回，锁避免重复连接。`web_runtime.py` 的 WebAgent 将 MCP 工作线程的同步调用投递到该事件循环，复用 WebState、Runtime 和 SQLite；builtin 语音与 Web 用同一 run ID 查询、停止。文本、工具调用和结果以持久化 SSE 事件回放。关闭时取消 Device 并等待接收/录音协程退出，再清理 agent，最后关数据库。
+文件工具 resolve 后检查工作区边界；CLI cwd 检查 projects 白名单。shell 和外部 MCP 服务仍持有用户进程权限，字符串危险命令拦截与逐次确认都不等于操作系统沙箱。设置 API 不回显模型 key，MCP 列表不回显 env/header 值；用户写入命令参数或 URL 的内容仍会显示，事件库也会保存工具参数与结果。
 
-`WebState.task_session` 保存当前任务会话：Web 发消息后和语音后续任务共用该会话与模型历史，每个任务仍有独立 run。普通语音 STT/TTS 保存在独立 `voice_session` 中，不随平台 WS 重连或麦克风启停重建；用户主动创建新会话时重置两者。进程重启后首次语音会开始新会话，不自动选取旧会话。
+## 10. 当前状态与演进位置
 
-`Runtime` 向模型提供 `update_plan`（1–8 步、至多一个进行中），计划通过既有 events 表持久化并经 SSE 推送，不另起规划请求或调度器。`run_start.user_message_id` 关联会话中的执行卡，旧记录按用户轮次兼容；`model_start` 标识响应等待，工具结果携带调用 ID 与成功状态。React 对每次运行显示可折叠执行卡，终态自动收起、交付结果单独呈现；停止/失败保留尚未完成的计划。`/api/runs/{id}?include_events=true` 提供历史回放快照，`/api/state.task_session` 提供语音任务跳转入口。
-
-`work_gate.py` 只做进程内跨入口互斥，取消完成后才释放；设置保存也持有互斥，新配置在下一任务生效。不承担跨进程调度。显式 CLI 后端仍由 `agent.py` 执行。Web 仅监听 loopback，校验 Host 和 Origin；尚未实现远程鉴权，因此拒绝 `0.0.0.0`。灵矽自定义模型端点仍是备选后续路线。
-- 边界测试在 `tests/agent_smoke.py`、`tests/agent_transport.py` 和 `tests/agent_mcp.py`，由 `scripts/check.sh` 统一跑。
-
-### Skills、外部 MCP 与审批
-
-`skills.py` 发现本地技能目录，PyYAML 读取 frontmatter 描述；Runtime 只注入启用技能的目录摘要，通过 `read_skill` 按需读完整正文。路径 resolve 后限制在 skills 根内，拒绝穿越、根外符号链接和超长文件。启停保存在 `disabled_skills`，下一任务生效。
-
-`mcp_client.py` 使用官方 MCP SDK，支持 stdio、Streamable HTTP 和 SSE，每个 run 在自身 asyncio task 中进入和关闭连接上下文，发现工具转为 `mcp_<server>_<index>`，原名保留在描述与映射中。连接/发现默认 15 秒、调用默认 60 秒；单服务连接错误存入 `mcp_error` 事件，不阻断内置工具。`mcp_routes.py` 提供配置与显式测试；env/headers 只写不读，支持环境变量引用。
-
-`tool_policy=auto|ask` 默认 auto；ask 对 shell、写/改文件、所有外部工具调用等待 `Approvals` 的一次性 Future，批准只适用于 `(run_id, call_id)`。pending 不持久化，事件写入 SQLite；取消移除 pending，拒绝形成失败工具结果供模型说明。全局审批卡独立轮询，不依赖当前会话或 SSE 是否连通；CLI/独立服务未提供审批回调时拒绝操作。配置、技能和 MCP 修改共用 work_gate，运行中返回409。审批不能替代 shell 沙箱或 MCP 服务进程权限管理；服务启动本身由用户配置授权，ask 只审批工具调用。
-
-### 灵矽语音接本地 agent
-
-不开放入站端口，也不做公网穿透。灵矽平台仍是 MCP client，通过 Mac 主动建立的 WebSocket 下发
-`tools/call`；`code_backend=builtin` 时，`self.code.run` 把任务交给 `Runtime`，最多等 8 秒，
-没跑完返回 job id，之后用 `self.code.result` 查。
-
-系统提示词、配置和验证步骤见 [`docs/linx-voice-prompt.md`](linx-voice-prompt.md)。
-
-## 工具清单
-
-| 工具名 | 作用 |
+| 能力 | 状态 |
 | --- | --- |
-| `self.system.status` | 当前 agent、工作目录、投屏目标、运行中的任务 |
-| `self.code.run` | 把一句话交给 agent，同步等最多 N 秒；CLI 或内置 Runtime 由 `code_backend` 决定 |
-| `self.code.result` | 查看上一条/指定任务的输出（跑太久时用） |
-| `self.code.stop` | 杀掉正在跑的任务 |
-| `self.screen.list` | 局域网里的 AirPlay 目标 |
-| `self.screen.mirror` | 把 Mac 屏幕投到目标 |
-| `self.screen.stop` | 停止投屏 |
-| `self.memory.search` | 搜索当前设备的长期记忆 |
-| `self.memory.save` | 保存稳定事实或偏好 |
-| `self.memory.list` | 列出记忆及 ID |
-| `self.memory.delete` | 按指定 ID 删除记忆 |
+| Web / builtin 编程 / 进度回放 / 连续会话 / 麦克风开关 | 已实现，用户已体验基础语音任务；异常与边界有 smoke 验证 |
+| Skills / 外部 MCP / 一次性审批 | 已实现，本地 SDK 三传输及完整链路验证；用户自有服务与页面体验待验收 |
+| 设备长期记忆 | 已接 Mem0；按灵矽模型工具选择触发，未并入 Runtime |
+| AirPlay | 设备发现可用；默认脚本在已记录的 MenuBarAgent 环境受阻，支持用户自定义命令 |
+| 文件浏览 / 产物预览、长任务主动语音回报 | 尚未实现 |
+| ESP32 固件转发 | 仅有规划与 Mac bridge，未烧录/联调 |
+| 灵矽自定义模型 `/v1/chat/completions` 入站接口 | 早期备选方案，当前未实现；实际语音走设备 MCP |
 
-## ESP32 迁移路径
-
-1. 烧官方 [xiaozhi-esp32](https://github.com/78/xiaozhi-esp32) 固件到板子，先跑通音频对话
-2. 在固件 `mcp_server.cc` 加 7 个转发工具，POST `http://<mac-ip>:8765/call`
-3. Mac 上 `dongdong serve --host 0.0.0.0`，配 `bridge.token`
-4. 同一套工具名、同一套参数，平台侧不用改智能体
-
-细节见 [`firmware/README.md`](../firmware/README.md)。
+当前执行模型仍是单活动任务、单 Runtime 循环；开发时使用 subagent 并行实施，不代表产品运行时已有多 agent 编排。后续实现依据先查本页和 [决策记录](decisions.md)，历史设计/计划的差异见 [文档导航](README.md)。
