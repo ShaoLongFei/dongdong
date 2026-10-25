@@ -115,6 +115,17 @@ def test_opus_roundtrip_and_airplay_escape():
     import opuslib
     from dongdong import airplay_stream
 
+    ffmpeg = Path(airplay_stream._ffmpeg_path())
+    assert ffmpeg == (
+        Path(airplay_stream.__file__).resolve().parents[3]
+        / "tools"
+        / "ffmpeg"
+        / f"darwin-{('arm64' if os.uname().machine == 'arm64' else 'x86_64')}"
+        / "ffmpeg"
+    )
+    with patch.object(airplay_stream.os, "access", return_value=False):
+        reject(airplay_stream._ffmpeg_path, error=RuntimeError)
+
     enc = opuslib.Encoder(16000, 1, opuslib.APPLICATION_VOIP)
     dec = opuslib.Decoder(16000, 1)
     packet = enc.encode(b"\x00\x01" * 960, 960)
@@ -161,6 +172,13 @@ def test_opus_roundtrip_and_airplay_escape():
     session.stop()
     assert process.actions == ["terminate", ("wait", 3)]
     assert not root.exists()
+
+    http_session = airplay_stream._Session({}, {"address": "127.0.0.1"})
+    with patch.object(airplay_stream, "_local_ip", return_value="127.0.0.1"):
+        http_session._start_http()
+    assert http_session.httpd.server_address[0] == "127.0.0.1"
+    http_session.stop()
+    assert http_session.http_thread and not http_session.http_thread.is_alive()
 
     # Missing optional pyatv dependency is converted into a session error, not a thread crash.
     missing = airplay_stream._Session({}, {"address": "127.0.0.1"})
