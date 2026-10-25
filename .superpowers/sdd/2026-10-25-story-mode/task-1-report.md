@@ -17,3 +17,10 @@
 ## Concerns
 
 - Bundled FFmpeg path validation is owned by Task 3; this task does not add a placeholder binary or helper before that contract exists.
+
+## Fix Report (2026-10-25)
+
+- Hardened `scene_to_svg` with its own numeric geometry/timing coercion, fixed kind/color allowlists, bounded element count, and escaped labels so direct hostile dictionaries cannot inject SVG attributes or external URLs.
+- Changed manifest and recovery scene ordering to numeric `scene-N` order, while retaining insertion order for other valid IDs; symlinked manifest and scene files are rejected or skipped.
+- Expanded smoke coverage for direct renderer hostility, coordinate/color/timing limits, file permissions, manifest and scene symlink traversal, and `scene-2` versus `scene-10` ordering.
+- Commit: `921012b0180c58bb76a11a94e7c0cafa00db6ec4` (`fix: harden story svg and persistence boundaries`).
