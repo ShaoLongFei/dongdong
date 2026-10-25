@@ -111,10 +111,13 @@ def create_app(cfg: dict) -> FastAPI:
         session = state.store.get_session(sid)
         if not session:
             raise HTTPException(404, "会话不存在")
+        runs = []
+        for run in state.store.list_runs(sid, limit=-1):
+            runs.append({**run, **state.manager.status(run["id"])})
         return {
             **session,
             "messages": state.store.messages(sid),
-            "runs": state.store.list_runs(sid, limit=-1),
+            "runs": runs,
         }
 
     @app.post("/api/sessions/{sid}/messages")
@@ -137,7 +140,8 @@ def create_app(cfg: dict) -> FastAPI:
         run = state.store.get_run(rid)
         if not run:
             raise HTTPException(404, "run 不存在")
-        return {**run, "events": state.store.events(rid)} if include_events else run
+        view = state.manager.status(rid)
+        return {**view, "events": state.store.events(rid)} if include_events else {**run, **view}
 
     @app.get("/api/runs/{rid}/events")
     async def api_events(rid: str, request: Request, since: int = 0):

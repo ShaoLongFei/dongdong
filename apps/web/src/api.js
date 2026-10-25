@@ -9,4 +9,4 @@ export async function api(path, options = {}) {
   return data;
 }
 
-export const statusText = { running: '进行中', done: '已完成', stopped: '已停止', error: '失败' };
+export const statusText = { running: '进行中', done: '已完成', stopped: '已停止', canceled: '已取消', failed: '失败', timeout: '已超时', paused: '已暂停', error: '失败' };

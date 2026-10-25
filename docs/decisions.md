@@ -25,6 +25,8 @@
 
 - 2026-10-25：Skills 只发现本地 SKILL.md，按需读取；外部 MCP 用官方 Python SDK，连接限定一次 run，避免另建插件框架或常驻服务管理器。审批默认 auto 保留体验，ask 只批准一次准确调用，CLI 没有 UI 时拒绝；不把审批当作沙箱。三条能力并行实现，共享 Runtime/配置/页面入口由主 agent 集中接入。
 - 2026-10-25：MCP SDK 在初始化超时后关闭流可能抛出含 BrokenResourceError 的 ExceptionGroup；清理阶段隔离普通异常，保留原始取消/任务异常，避免一个服务失败阻断其它工具，或把已完成任务改判失败。
+- 2026-10-25：任务调度采用 SQLite WAL + 条件更新 claim/lease，不引入 Redis/RabbitMQ；本地单机已有持久化数据库，足以支持线程池和跨进程恢复，代价是暂不支持多机共享工作区。
+- 2026-10-25：Web、灵矽和运行记录共用 Run/Goal/Item/Attempt 投影；工作台 MCP 页面继续管理外部 MCP，内置调度显示在任务记录中，避免混淆两个 MCP 角色。
 
 ## 已知的技术债（`shortcut:`）
 

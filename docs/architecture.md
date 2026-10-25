@@ -1,6 +1,6 @@
 # 项目架构
 
-> 按 2026-10-25 的代码核对，基线 `caa03e7`。本文描述当前实现；未来方案单独标注。文档入口见 [文档导航](README.md)。
+> 按 2026-10-25 的代码核对，当前实现包含 SQLite 任务 DAG 调度。文档入口见 [文档导航](README.md)。
 
 ## 1. 系统定位
 
@@ -29,6 +29,7 @@ flowchart TB
         Voice[Voice / Device / 音频与设备协议]
         DeviceTools[设备 MCP 分发 / mcp.py · tools.py]
         Runtime[内置 Runtime / 模型与工具循环]
+        Scheduler[TaskManager / SQLite DAG、claim、lease、worker]
         Gate[Approvals / 逐次操作确认]
         Builtin[工作区文件工具 / shell / update_plan]
         Skill[Skills / 按需读取 SKILL.md]
@@ -52,6 +53,9 @@ flowchart TB
     DeviceTools --> Screen --> TV
     DeviceTools --> Memory --> OpenAI
     Web --> Runtime
+    Web --> Scheduler
+    Scheduler --> Runtime
+    Scheduler --> DB
     Runtime <-->|流式 chat/completions| Model
     Runtime -->|ask 模式的副作用调用| Gate
     API -->|允许一次 / 拒绝| Gate
@@ -88,7 +92,7 @@ flowchart TB
 
 独立 `call` 是一次性进程，builtin 超过同步等待后不能保证继续：当前服务线程是 daemon，命令退出会结束进程。长任务使用持续运行的 `run/web`；`serve` 可以保持服务运行，但当前尚无统一的有序退出收尾。
 
-`work_gate` 让 Web、设备编程任务与设置/能力变更在**同一进程内**互斥，忙时拒绝，不排队；取消清理完成后释放。直接 `chat/Runtime` 不走这道闸门，也没有跨进程锁。不要用多个入口进程同时修改同一工作区。
+`TaskManager` 把每次请求写成 Run/Goal/Item/Attempt，使用 SQLite WAL 和条件更新 claim；lease 过期后 Item 回到 open，worker 崩溃不会永久卡住。默认一个 worker，配置允许时可由线程池并行执行独立 Item。`work_gate` 仍保护 Web 设置与同进程入口的交互边界。
 
 ## 4. 任务执行与实时展示
 
@@ -199,6 +203,10 @@ erDiagram
         string session_id FK
         string status
     }
+    runs ||--o{ goals : contains
+    runs ||--o{ items : contains
+    items ||--o{ attempts : has
+    items ||--o{ item_deps : depends
     events {
         int id PK
         string run_id FK
@@ -236,6 +244,7 @@ erDiagram
 | `voice.py`、`linx.py`、`audio.py` | 语音开关、OTA/WSS、Opus 录放 |
 | `mcp.py`、`tools.py` | 平台设备 MCP 协议与设备工具表 |
 | `runtime.py`、`llm.py`、`progress.py` | 内置循环、流式模型客户端、计划结构 |
+| `task_model.py`、`task_scheduler.py`、`task_runtime.py` | Run/Goal/Item 持久化调度、lease、worker 和执行器适配 |
 | `builtin_tools.py` | 文件工具、shell、命令取消和输出限制 |
 | `skills.py`、`mcp_client.py`、`mcp_routes.py`、`approvals.py` | 三项扩展能力和管理 API |
 | `store.py`、`schema.sql` | 会话/运行/事件持久化 |
@@ -264,4 +273,4 @@ Web 仅监听 loopback，并校验 Host/Origin；没有远程账号鉴权，因�
 | ESP32 固件转发 | 仅有规划与 Mac bridge，未烧录/联调 |
 | 灵矽自定义模型 `/v1/chat/completions` 入站接口 | 早期备选方案，当前未实现；实际语音走设备 MCP |
 
-当前执行模型仍是单活动任务、单 Runtime 循环；开发时使用 subagent 并行实施，不代表产品运行时已有多 agent 编排。后续实现依据先查本页和 [决策记录](decisions.md)，历史设计/计划的差异见 [文档导航](README.md)。
+默认执行模型是单 worker；一个 Run 可包含多个 DAG Item，配置 worker 数后由 TaskManager 并行调度。历史设计/计划的差异见 [文档导航](README.md)。

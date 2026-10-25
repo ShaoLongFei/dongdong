@@ -49,6 +49,7 @@ function RunMessage({ run, liveEvents, fallback }) {
     return () => clearInterval(timer);
   }, [running]);
   const plan = [...events].reverse().find(e => e.type === 'plan')?.data.steps || [];
+  const taskItems = run.items || [];
   const items = activity(events);
   const pendingTool = [...items].reverse().find(item => item.type === 'tool' && !item.result);
   const pendingApproval = [...events].reverse().find(e => e.type === 'approval' && !events.some(result => result.type === 'approval_result' && result.data.id === e.data.id));
@@ -65,6 +66,7 @@ function RunMessage({ run, liveEvents, fallback }) {
     <details className="execution" open={open} onToggle={e => setOpen(e.currentTarget.open)}>
       <summary><ChevronRight size={14} className="execution-chevron" /><span className={`dot ${running ? 'working' : status === 'done' ? 'online' : ''}`} /><span role="status">{label}{plan.length ? ` · ${done}/${plan.length} 步` : ''}</span><span className="muted ml-auto">{elapsed} 秒</span></summary>
       <div className="execution-body">
+        {taskItems.length > 0 && <div className="task-items" aria-label="任务拆解">{taskItems.map(item => <div className="task-item" key={item.id}><span className={`dot ${item.status === 'running' ? 'working' : item.status === 'done' ? 'online' : ''}`} /><span>{item.instruction}</span><small>{statusText[item.status] || item.status} · {item.attempts} 次尝试{item.error ? ` · ${item.error}` : ''}</small></div>)}</div>}
         {plan.length > 0 && <ol className="plan">{plan.map((step, index) => <li key={index} className={step.status}>{step.status === 'completed' ? <Check size={14} /> : step.status === 'in_progress' && running ? <span className="dot working" /> : <Circle size={12} />}<span>{step.step}</span><small>{step.status === 'completed' ? '已完成' : step.status === 'in_progress' ? (running ? '进行中' : '未完成') : '待执行'}</small></li>)}</ol>}
         {running && <p className="execution-hint">{current ? `当前：${current.step}` : '正在处理任务，请稍候。'}{next && <><br />接下来：{next.step}</>}</p>}
         {warnings.map(event => <p className="execution-failure" key={event.id}>外部工具不可用：{event.data.message}</p>)}

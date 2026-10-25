@@ -94,6 +94,9 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; }
 .execution > summary::-webkit-details-marker { display: none; }
 .execution[open] .execution-chevron { transform: rotate(90deg); }
 .execution-body { padding: 0 14px 14px; border-top: 1px solid #293126; }
+.task-items { display: grid; gap: 6px; margin-bottom: 10px; }
+.task-item { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; font-size: 12px; }
+.task-item small { color: var(--muted); }
 .plan { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 10px; }
 .plan li { display: flex; gap: 9px; align-items: center; font-size: 12px; color: #9ba593; }
 .plan li > svg, .plan li > .dot { flex-shrink: 0; }

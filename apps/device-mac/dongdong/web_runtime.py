@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
 from . import config, work_gate
 from .approvals import Approvals
 from .llm import model_from_config
-from .runtime import Runtime
 from .store import Store
+from .task_scheduler import TaskManager
 
 log = logging.getLogger("dongdong.web")
 
@@ -33,6 +33,8 @@ class WebState:
         self.task_session = ""
         self.voice_session = ""
         self.reload()
+        self.manager = TaskManager(self.store, cfg=cfg, model=self.model, max_workers=1)
+        self.manager.recover_runs()
 
     def voice_text(self, _connection: str, role: str, text: str) -> None:
         if not text.strip():
@@ -50,13 +52,20 @@ class WebState:
         try:
             self.model = model_from_config(self.cfg)
             self.error = ""
+            if hasattr(self, "manager"):
+                self.manager.model = self.model
+                self.manager.task_executor.model = self.model
         except ValueError as exc:
             self.model = None
             self.error = str(exc)
 
     @property
     def busy(self) -> bool:
-        return bool(self._task and not self._task.done())
+        return bool(
+            self._run_id
+            and self.manager.status(self._run_id)["run"]
+            and self.manager.status(self._run_id)["run"]["status"] == "running"
+        )
 
     async def start(self, session_id: str, text: str, cwd: str | None = None) -> str:
         if self.busy:
@@ -69,56 +78,18 @@ class WebState:
             workspace = (path if path.is_absolute() else workspace / path).resolve()
             if not workspace.is_dir() or not workspace.is_relative_to(self.workspace):
                 raise ValueError(f"目录必须存在且在工作区内: {self.workspace}")
-        owner = f"web-{uuid.uuid4().hex[:8]}"
-        if not work_gate.acquire(owner):
+        if work_gate.current():
             raise RuntimeError("另一个任务还在跑")
         self.task_session = session_id
-        loop = asyncio.get_running_loop()
-        started: asyncio.Future[str] = loop.create_future()
-
-        def on_event(kind: str, data: dict) -> None:
-            if kind == "run_start" and not started.done():
-                started.set_result(data["run_id"])
-
-        async def work() -> None:
-            try:
-                runtime = Runtime(
-                    self.store,
-                    self.model,
-                    workspace,
-                    max_steps=int(self.cfg["runtime"]["max_steps"]),
-                    history_messages=int(self.cfg["runtime"]["history_messages"]),
-                    cfg=self.cfg,
-                    approve=self.approvals.request,
-                )
-                await runtime.run(session_id, text, on_event=on_event)
-            finally:
-                work_gate.release(owner)
-                if self._task is asyncio.current_task():
-                    self._task = None
-                    self._run_id = ""
-
-        task = asyncio.create_task(work())
-        self._task = task
-        task.add_done_callback(self._consume)
-        try:
-            done, _ = await asyncio.wait(
-                {started, task}, timeout=2, return_when=asyncio.FIRST_COMPLETED
-            )
-            if started in done:
-                run_id = started.result()
-                self._last_run = run_id
-                if not task.done():
-                    self._run_id = run_id
-                return run_id
-            if task in done:
-                await task
-            raise RuntimeError("任务启动超时")
-        finally:
-            if not started.done():
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-                started.cancel()
+        if (
+            self._run_id
+            and self.manager.status(self._run_id)["run"]
+            and self.manager.status(self._run_id)["run"]["status"] == "running"
+        ):
+            raise RuntimeError("上一个任务还在跑")
+        run_id = self.manager.submit(session_id, text, str(workspace), channel="web")
+        self._run_id = self._last_run = run_id
+        return run_id
 
     def _consume(self, task: asyncio.Task) -> None:
         if task.cancelled():
@@ -128,19 +99,18 @@ class WebState:
             log.warning("Web 任务失败: %s", exc)
 
     def cancel(self, run_id: str) -> bool:
-        if self._run_id != run_id or not self._task or self._task.done():
+        if self._run_id != run_id:
             return False
-        self._task.cancel()
+        self.manager.stop(run_id)
         return True
 
     async def stop_active(self) -> None:
-        if self._task and not self._task.done():
-            task = self._task
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+        if self._run_id:
+            self.manager.stop(self._run_id)
 
     async def close(self) -> None:
         await self.stop_active()
+        self.manager.close()
         self.store.close()
 
 
@@ -166,9 +136,7 @@ class WebAgent:
             sid = self.state.task_session or self.state.store.create_session(text[:24], "linx")
             rid = await self.state.start(sid, text, cwd)
             self.last = rid
-            task = self.state._task
-            if task:
-                await asyncio.wait({task}, timeout=wait)
+            await asyncio.to_thread(self.state.manager.wait, rid, wait)
             return self.result(rid)
 
         return asyncio.run_coroutine_threadsafe(submit(), self.loop).result(timeout=wait + 3)
@@ -178,7 +146,14 @@ class WebAgent:
         run = self.state.store.get_run(rid) if rid else None
         if not run:
             return f"找不到任务 {rid}。" if rid else "还没有跑过任务。"
-        status = {"running": "还在跑", "done": "完成", "stopped": "已停止", "error": "失败"}
+        status = {
+            "running": "还在跑",
+            "done": "完成",
+            "stopped": "已停止",
+            "canceled": "已取消",
+            "failed": "失败",
+            "error": "失败",
+        }
         events = self.state.store.events(rid)
         text = "".join(
             event["data"].get("delta", "") for event in events if event["type"] == "text"
@@ -212,6 +187,24 @@ class WebAgent:
             "running": run["status"] == "running",
             "output": self.result(rid),
         }
+
+    def task_status(self, run_id: str = "") -> str:
+        rid = run_id or self.state._run_id or self.state._last_run
+        return (
+            json.dumps(self.state.manager.status(rid), ensure_ascii=False)
+            if rid
+            else "还没有任务。"
+        )
+
+    def task_stop(self, run_id: str = "") -> str:
+        rid = run_id or self.state._run_id or self.state._last_run
+        if not rid:
+            return "还没有任务。"
+        return json.dumps(self.state.manager.stop(rid), ensure_ascii=False)
+
+    def task_resume(self, run_id: str = "") -> str:
+        rid = run_id or self.state._last_run
+        return json.dumps(self.state.manager.resume(rid), ensure_ascii=False)
 
     def close(self) -> None:
         asyncio.run_coroutine_threadsafe(self.state.stop_active(), self.loop).result(timeout=3)
