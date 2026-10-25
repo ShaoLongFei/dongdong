@@ -56,6 +56,8 @@ class TaskManager:
         auto_recover = scheduler_cfg.get("auto_recover", False)
         # 只接受 bool；字符串 "true" 不得意外打开跨进程自动续跑。
         self.auto_recover = auto_recover if isinstance(auto_recover, bool) else False
+        final_verifier = scheduler_cfg.get("model_final_verifier", False)
+        self.model_final_verifier = final_verifier if isinstance(final_verifier, bool) else False
         self.executor = ThreadPoolExecutor(
             max_workers=self.max_workers, thread_name_prefix="dongdong-task"
         )
@@ -250,7 +252,10 @@ class TaskManager:
         if status == "done":
             self.store.add_event(run_id, "final_verification_started", {})
             view = self.store.task_view(run_id)
-            verification = self.store.verify_goal(run_id, self.verifier)
+            verifier = self.verifier
+            if verifier is None and self.model_final_verifier and self.model is not None:
+                verifier = self.planner.verify_goal
+            verification = self.store.verify_goal(run_id, verifier)
             self.store.add_event(
                 run_id,
                 "final_verification_done",

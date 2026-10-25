@@ -727,6 +727,34 @@ def test_model_repair_instruction_falls_back_safely():
         store.close()
 
 
+def test_optional_model_final_verifier_keeps_uncertain_results_reviewable():
+    from dongdong.task_model import AttemptResult
+    from dongdong.task_scheduler import TaskManager
+
+    with tempfile.TemporaryDirectory(prefix="dongdong-final-verifier-") as tmp:
+        store = Store(Path(tmp) / "verify.db")
+        sid = store.create_session("verify")
+        rid = store.create_task_run(
+            sid, RunSpec(goal_text="verify", workspace=tmp, acceptance="必须完成")
+        )
+        manager = TaskManager(
+            store,
+            cfg={"workspace": tmp, "task_scheduler": {"model_final_verifier": True}},
+            model="model",
+            runner=lambda item, *_: AttemptResult("done", output="完成"),
+        )
+        manager.planner.stream_fn = lambda *_args, **_kwargs: (
+            '{"status":"needs_review","summary":"证据不足"}'
+        )
+        store.add_items(rid, [ItemSpec(id="item", instruction="完成", cwd=tmp)])
+        manager._launch(rid)
+        finished = manager.wait(rid, 3)
+        assert finished["run"]["status"] == "needs_review"
+        assert any(event["type"] == "goal_verified" for event in finished["events"])
+        manager.close()
+        store.close()
+
+
 if __name__ == "__main__":
     for name, test in sorted(globals().copy().items()):
         if name.startswith("test_"):

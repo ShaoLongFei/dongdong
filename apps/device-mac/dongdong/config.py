@@ -44,6 +44,7 @@ DEFAULTS: dict = {
         "stall_limit": 3,
         "drain_seconds": 2,
         "auto_recover": False,
+        "model_final_verifier": False,
     },
     "disabled_skills": [],
     "mcp_servers": {},

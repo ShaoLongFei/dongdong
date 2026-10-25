@@ -79,6 +79,45 @@ class TaskPlanner:
             raise ValueError("修复 instruction 无效")
         return instruction.strip(), "model"
 
+    def verify_goal(self, goal: dict, items: list[dict], evidence: dict) -> dict:
+        """可选的只读最终验收；模型无法给出严格结论时保持人工复核。"""
+        payload = {
+            "goal": {
+                "text": str(goal.get("text") or "")[:4000],
+                "acceptance": goal.get("acceptance"),
+            },
+            "items": [
+                {
+                    "id": item.get("id"),
+                    "status": item.get("status"),
+                    "result": str(item.get("result") or "")[-2000:],
+                }
+                for item in items
+            ],
+            "evidence": {"summary": str(evidence.get("summary") or "")[:4000]},
+        }
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是只读任务验收器。只返回 JSON，格式为 "
+                    '{"status":"met|failed|needs_review","summary":"简短理由"}。'
+                    "只能依据给定验收标准和结果判断；证据不足必须 needs_review。"
+                ),
+            },
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+        ]
+        try:
+            value = self._decode(self._collect(self.stream_fn(self.model, messages, tools=[])))
+        except Exception as exc:  # noqa: BLE001 验收失败保持人工复核
+            return {"status": "needs_review", "summary": f"模型验收异常: {exc}"}
+        if not isinstance(value, dict) or set(value) != {"status", "summary"}:
+            return {"status": "needs_review", "summary": "模型验收返回格式无效"}
+        status, summary = value.get("status"), value.get("summary")
+        if status not in {"met", "failed", "needs_review"} or not isinstance(summary, str):
+            return {"status": "needs_review", "summary": "模型验收结论不可靠"}
+        return {"status": status, "summary": summary[:4000]}
+
     def _generate(self, text: str, cwd: str) -> str:
         messages = [
             {
