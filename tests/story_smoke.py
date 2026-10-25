@@ -43,9 +43,7 @@ def main() -> None:
         "scene-003",
     )
     svg = scene_to_svg(hostile)
-    assert (
-        "<script" not in svg and "&lt;&amp;&quot;" in svg and "javascript:" not in svg
-    )
+    assert "<script" not in svg and "&lt;&amp;&quot;" in svg and "javascript:" not in svg
     direct = scene_to_svg(
         {
             "elements": [
@@ -75,11 +73,7 @@ def main() -> None:
             "<g onclick",
         )
     )
-    assert (
-        'x="0"' in direct
-        and 'width="1280"' in direct
-        and 'data-duration-ms="30000"' in direct
-    )
+    assert 'x="0"' in direct and 'width="1280"' in direct and 'data-duration-ms="30000"' in direct
     assert direct.count("<g ") == 1
     hostile_types = scene_to_svg({"elements": [{"kind": [], "color": []}]})
     assert "<script" not in hostile_types and "url(" not in hostile_types
@@ -97,17 +91,11 @@ def main() -> None:
             "scene-2",
             "scene-10",
         ]
-        assert (
-            Path(tmp) / "stories" / story_id / "scene-1.json"
-        ).stat().st_mode & 0o777 == 0o600
-        (Path(tmp) / "stories" / story_id / "manifest.json").write_text(
-            "broken", encoding="utf-8"
-        )
+        assert (Path(tmp) / "stories" / story_id / "scene-1.json").stat().st_mode & 0o777 == 0o600
+        (Path(tmp) / "stories" / story_id / "manifest.json").write_text("broken", encoding="utf-8")
         assert store.load(story_id)["manifest"]["status"] == "error"
         (Path(tmp) / "stories" / story_id / "manifest.json").unlink()
-        (Path(tmp) / "stories" / story_id / "manifest.json").symlink_to(
-            Path(tmp) / "outside.json"
-        )
+        (Path(tmp) / "stories" / story_id / "manifest.json").symlink_to(Path(tmp) / "outside.json")
         try:
             store.load(story_id)
         except ValueError:
@@ -146,8 +134,7 @@ def main() -> None:
             time.sleep(0.01)
         assert job["status"] == "error"
         assert (
-            job.get("error")
-            and not (Path(tmp) / "stories" / story_id / "scene-1.svg").is_symlink()
+            job.get("error") and not (Path(tmp) / "stories" / story_id / "scene-1.svg").is_symlink()
         )
 
         class BrokenModel:
