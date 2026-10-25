@@ -159,31 +159,21 @@ class StorySession:
         return "".join(chunks)
 
     async def stop(self) -> dict:
-        if self.status == "idle":
+        if self.status in {"idle", "done", "error"}:
             return self.state()
-        self.status = "stopping"
         if self._timer and not self._timer.done():
             self._timer.cancel()
             await asyncio.gather(self._timer, return_exceptions=True)
+        # 停止前仍保持 recording，保证最后一段缓冲文本进入任务队列。
         self._flush()
+        self.status = "stopping"
         if self._tasks:
             _, waiting = await asyncio.wait(set(self._tasks), timeout=5)
             for task in waiting:
                 task.cancel()
             if waiting:
                 await asyncio.gather(*waiting, return_exceptions=True)
-                for scene_id, text in list(self._pending.items()):
-                    scene = normalize_scene({}, text, scene_id)
-                    try:
-                        self.store.save_scene(self.story_id, scene)
-                        self._publish(
-                            "scene", {"storyId": self.story_id, "scene": scene, "fallback": True}
-                        )
-                    except Exception as exc:
-                        self._error = str(exc)
-                        self.status = "error"
-                        self._publish("error", {"message": str(exc), "sceneId": scene_id})
-                    self._pending.pop(scene_id, None)
+        self._save_pending()
         if self.status != "error":
             self.status = "done"
         if self.story_id:
@@ -196,6 +186,20 @@ class StorySession:
         if self.status != "error":
             self._publish("export", {"storyId": self.story_id})
         return self.state()
+
+    def _save_pending(self) -> None:
+        for scene_id, text in list(self._pending.items()):
+            scene = normalize_scene({}, text, scene_id)
+            try:
+                self.store.save_scene(self.story_id, scene)
+                scene["svg"] = scene_to_svg(scene)
+                self._publish("scene", {"storyId": self.story_id, "scene": scene, "fallback": True})
+            except Exception as exc:
+                self._error = str(exc)
+                self.status = "error"
+                self._publish("error", {"message": str(exc), "sceneId": scene_id})
+            finally:
+                self._pending.pop(scene_id, None)
 
     def state(self) -> dict:
         return {
@@ -216,9 +220,39 @@ class StorySession:
     def replay(self, story_id: str) -> list[dict]:
         """重新发布已保存场景，供断线后的画布恢复。"""
         data = self.store.load(story_id)
+        replayed = {
+            event["data"].get("scene", {}).get("sceneId")
+            for event in self._events
+            if event["type"] == "scene" and event["data"].get("replay")
+        }
         for scene in data["scenes"]:
-            self._publish("scene", {"storyId": story_id, "scene": scene, "replay": True})
+            if scene.get("sceneId") in replayed:
+                continue
+            payload = {**scene, "svg": scene_to_svg(scene)}
+            self._publish("scene", {"storyId": story_id, "scene": payload, "replay": True})
         return data["scenes"]
+
+    def restore(self, story_id: str) -> None:
+        """从磁盘恢复故事状态，并把历史场景放入同一事件流。"""
+        data = self.store.load(story_id)
+        manifest = data["manifest"]
+        self.story_id = story_id
+        self.session_id = str(manifest.get("sessionId") or "")
+        self.status = str(manifest.get("status") or "done")
+        # 只有当前内存会话可以继续 recording；磁盘恢复的故事必须让 SSE 收尾。
+        if self.status == "recording":
+            self.status = "done"
+        self._scene_number = max(
+            (
+                int(match.group(1))
+                for scene in data["scenes"]
+                if (match := re.fullmatch(r"scene-(\d+)", str(scene.get("sceneId", ""))))
+            ),
+            default=0,
+        )
+        if data["scenes"]:
+            self._characters = data["scenes"][-1].get("characters", [])
+        self.replay(story_id)
 
     def _publish(self, kind: str, data: dict) -> None:
         self._cursor += 1
@@ -264,10 +298,8 @@ def story_for(host, story_id: str) -> StorySession:
     for story in host.stories.values():
         if story.story_id == story_id:
             return story
-    data = host.story.store.load(story_id)
     story = StorySession(model=host.model, store=host.story.store)
-    story.story_id = story_id
-    story.session_id = data["manifest"].get("sessionId", "")
-    story.status = data["manifest"].get("status", "done")
-    host.stories[story.session_id or story_id] = story
+    story.restore(story_id)
+    # 历史故事不再占用当前会话的 story 槽位，避免串入普通聊天或新故事。
+    host.stories[story_id] = story
     return story
