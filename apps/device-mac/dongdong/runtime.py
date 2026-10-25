@@ -25,7 +25,7 @@ class Runtime:
         model: ModelConfig,
         workspace,
         *,
-        max_steps: int = 20,
+        max_steps: int = 1000,
         history_messages: int = 30,
         stream_fn=stream_chat,
         cfg: dict | None = None,

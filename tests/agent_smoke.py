@@ -270,7 +270,7 @@ def test_runtime_config_defaults():
     assert cfg["model"]["base_url"] == "https://api.deepseek.com"
     assert cfg["model"]["model"] == "deepseek-flash"
     assert cfg["model"]["extra_body"] == {"thinking": {"type": "disabled"}}
-    assert cfg["runtime"]["max_steps"] == 20
+    assert cfg["runtime"]["max_steps"] == 1000
     assert cfg["workspace"]
     assert cfg["model"]["api_key"] == "${DEEPSEEK_API_KEY}"
     os.environ["SMOKE_MODEL_KEY"] = "k123"

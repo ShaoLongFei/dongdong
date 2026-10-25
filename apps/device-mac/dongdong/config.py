@@ -36,7 +36,7 @@ DEFAULTS: dict = {
         "max_tokens": 4096,
         "extra_body": {"thinking": {"type": "disabled"}},
     },
-    "runtime": {"max_steps": 20, "history_messages": 30},
+    "runtime": {"max_steps": 1000, "history_messages": 30},
     "disabled_skills": [],
     "mcp_servers": {},
     "tool_policy": "auto",
