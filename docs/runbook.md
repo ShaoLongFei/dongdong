@@ -166,12 +166,9 @@ open dist/Dongdong.app
 ./scripts/dev.sh airplay debug             # 点不动时看 UI 结构
 ```
 
-**当前状态：自动投屏在 macOS 27 上走不通。** 系统把菜单栏项目交给了 `MenuBarAgent`，
-控制中心里没有能被 AppleScript 点到的「屏幕镜像」项（`airplay debug` 可复现）。
-在换方案之前，用下面任意一种：
-
-- 手动点一次：控制中心 → 屏幕镜像 → 选电视
-- 自己录一个能用的脚本（Automator / 快捷指令 / 一段 AppleScript），配到 `~/.dongdong/config.json`（推荐，语音能触发它）：
+`airplay mirror` 现在使用项目自带 FFmpeg 的实时屏幕流，不写视频文件；目标设备通过 `pyatv` 建立 AirPlay 播放会话。
+第一次使用需要在“系统设置 → 隐私与安全性 → 屏幕录制”允许运行咚咚的终端访问屏幕。
+如果系统权限或目标设备不支持实时 HLS，命令会返回可读错误。仍可用自定义脚本覆盖：
 
 ```json
 { "airplay": { "mirror_command": "osascript /path/to/your.scpt {target}" } }
@@ -179,8 +176,7 @@ open dist/Dongdong.app
 
 `{target}` 会被替换成目标名，`self.screen.mirror` 语音调用会直接走它。
 
-发现设备这件事是好的：`airplay list` 能扫到 Apple TV（实测「卧室」AppleTV14,1）。
-后续 `ffmpeg` 抓屏 + `pyatv` 推 Apple TV 是尚未验证的候选路线，当前未实现，见 [decisions.md](decisions.md)。
+发现设备：`airplay list` 能扫到 Apple TV/电视；`mirror` 会按名称或 IP 选择目标。
 
 ## 6. 换 / 加 agent
 

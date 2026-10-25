@@ -68,7 +68,7 @@ flowchart LR
 | `capabilities` / 工具、扩展与审批 | 文件工具守工作区，shell 管进程组；本地 Skills 按需读，外部 MCP 按轮连接，ask 审批单次调用。 | [builtin_tools.py](../apps/device-mac/dongdong/builtin_tools.py#L124) | shell 与外部 MCP 持有进程权限，不能承诺系统隔离。 |
 | `external-mcp` / 用户外部 MCP 服务 | Runtime 通过官方 MCP SDK 连接启用的 stdio / Streamable HTTP / SSE 服务。 | [mcp_client.py](../apps/device-mac/dongdong/mcp_client.py#L20) | 本轮静态源码证据支持；未作真实服务联调 |
 | `linx-cloud` / 灵矽语音平台 | 云端 ASR、对话智能体和 TTS；作为设备 MCP client 选择调用 Mac 工具。 | [linx.py](../apps/device-mac/dongdong/linx.py#L22) | 本轮静态源码证据支持；未作真实服务联调 |
-| `device-tools` / 设备工具与系统集成 | 设备 MCP / HTTP bridge 共用工具表；builtin 回 WebState，cli 启子进程，screen 做 mDNS 与投屏脚本。 | [tools.py](../apps/device-mac/dongdong/tools.py#L89) | AirPlay 自动镜像在已记录的 MenuBarAgent 环境受阻；ESP32 只有规划。 |
+| `device-tools` / 设备工具与系统集成 | 设备 MCP / HTTP bridge 共用工具表；builtin 回 WebState，cli 启子进程，screen 做 mDNS 与 FFmpeg/pyatv 投屏。 | [tools.py](../apps/device-mac/dongdong/tools.py#L89) | AirPlay 需要屏幕录制权限和支持视频播放的接收端；ESP32 只有规划。 |
 | `story` / 故事场景与导出 | 会话级 StorySession：STT → 受控 JSON → SVG；独立场景流，按故事 ID 保存并导出 PNG/PDF/MP4。 | [story.py](../apps/device-mac/dongdong/story.py#L20) | PNG/PDF 当前只导出首幕；MP4 为全场景加静音 AAC。 |
 | `memory` / 分层长期记忆 | Mem0 使用全局/项目命名空间；本地 Qdrant 与 SQLite 历史，提取/嵌入调用 OpenAI。 | [memory.py](../apps/device-mac/dongdong/memory.py#L14) | .memory 位于源码仓库根，不随 DONGDONG_HOME 迁移。 |
 | `memory-cloud` / OpenAI 记忆服务 | 接收待保存文本及查询；提供 Mem0 的记忆提取模型和文本嵌入。 | [memory.py](../apps/device-mac/dongdong/memory.py#L14) | 本轮静态源码证据支持；未作真实服务联调 |

@@ -4,6 +4,8 @@
 
 - 2026-10-25：项目与会议目录使用 macOS `osascript` 的固定 `choose folder` 系统面板，浏览器目录上传接口不能提供宿主机绝对路径；不上传文件、不引入新依赖。选择器限单窗口并在超时/取消请求时结束子进程，后端仍校验目录与会议工作区边界。
 
+- 2026-10-26：AirPlay 屏幕镜像改用项目自带 FFmpeg 实时抓屏 + H.264 硬件编码 + 本地 HLS + pyatv AirPlay 播放；不落盘，先保证当前 AppleTV 兼容设备可用。原生 `MenuBarAgent`/私有 `AirPlaySender` 没有稳定可调用入口，后续若需要更低延迟再替换采集/编码层。
+
 只记「为什么这么选」，不记过程。新决策往下加。
 
 - 2026-10-25：故事导出器只解析 `tools/ffmpeg/<platform>/ffmpeg`，不回退到系统 PATH；随项目分发已核验的 macOS arm64 FFmpeg 6.0 构建（来源、SHA-256、许可证说明见 `tools/ffmpeg/`）。该构建启用了 GPL/version3/nonfree 组件，后续公开再分发前必须复核对应许可义务。PNG/PDF 优先使用 CairoSVG，缺失时尝试 Playwright，再回退到 macOS Quick Look，避免新增大型运行时依赖。
@@ -65,9 +67,8 @@
 受影响：`self.screen.mirror` / `self.screen.stop`（已加前置判断，直接返回可读的原因，不让用户看 AX 报错）。
 待选方案：
 
-1. `ffmpeg -f avfoundation` 抓屏 → HLS → `pyatv play_url` 推给 Apple TV（可自动化，延迟 3–8s，需装 pyatv）
-2. 用户手动投屏，语音只负责查设备/提示
-3. 等系统恢复可访问性（不可控）
+1. 当前实现：FFmpeg 实时抓屏 → 硬件 H.264 → 临时滚动 HLS → `pyatv play_url`
+2. 需要更低延迟时替换采集/编码层，AirPlay 会话保持不变
 
 **平台会在对话结束时直接断链。** 首轮实测：TTS 播完后收到 `no close frame received or sent`（没有正常 close 帧），
 我们 3 秒后自动重连并重新握手，平台接受。所以**不要**把断链当错误处理，重连逻辑必须保留。

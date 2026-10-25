@@ -72,13 +72,20 @@ def _dispatch(cfg: dict, target: str, action: str) -> str:
             "投屏指令已执行" if r.returncode == 0 else "投屏指令失败"
         )
 
+    if action == "mirror":
+        from . import airplay_stream
+
+        found = _find_target(target)
+        if not found:
+            return f"没找到 AirPlay 设备：{target}。先运行 self.screen.list。"
+        return airplay_stream.start(cfg, found)
+    if action == "stop":
+        from . import airplay_stream
+
+        return airplay_stream.stop()
+
     if _no_menu_bar():
-        return (
-            "当前 macOS 把菜单栏项目交给了 MenuBarAgent，控制中心没有可脚本点击的菜单栏项，"
-            "AppleScript 投屏走不通。两个办法：① 手动点一次屏幕镜像；"
-            "② 在 config 里配 airplay.mirror_command 指向你自己录的脚本。"
-            "（待办：改用 ffmpeg 抓屏 + pyatv 推流，见 docs/decisions.md）"
-        )
+        return "当前系统控制中心没有可脚本点击的屏幕镜像入口。"
 
     script = _stop_script() if action == "stop" else _mirror_script(target)
     r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=30)
@@ -91,6 +98,15 @@ def _dispatch(cfg: dict, target: str, action: str) -> str:
             "把运行咚咚的终端勾上，然后重新运行。"
         )
     return f"投屏失败：{err or '未知错误'}。可以用 dongdong airplay debug 看菜单结构。"
+
+
+def _find_target(target: str) -> dict | None:
+    """按名称或地址选择目标，避免要求用户重复输入 mDNS 细节。"""
+    wanted = target.casefold()
+    for item in targets(3.0):
+        if wanted in {item["name"].casefold(), item["address"].casefold()}:
+            return item
+    return None
 
 
 def _no_menu_bar() -> bool:
