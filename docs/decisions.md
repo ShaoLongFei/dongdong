@@ -5,6 +5,7 @@
 - 2026-10-25：项目与会议目录使用 macOS `osascript` 的固定 `choose folder` 系统面板，浏览器目录上传接口不能提供宿主机绝对路径；不上传文件、不引入新依赖。选择器限单窗口并在超时/取消请求时结束子进程，后端仍校验目录与会议工作区边界。
 
 - 2026-10-26：AirPlay 屏幕镜像改用项目自带 FFmpeg 实时抓屏 + H.264 硬件编码 + 本地 HLS + pyatv AirPlay 播放；不落盘，先保证当前 AppleTV 兼容设备可用。原生 `MenuBarAgent`/私有 `AirPlaySender` 没有稳定可调用入口，后续若需要更低延迟再替换采集/编码层。
+- 2026-10-26：macOS AVFoundation 屏幕输入会报告异常的 `1000k tbr`；HLS 需要在滤镜中显式固定 `fps=30`、`settb=1/30`、`setpts=N/30/TB` 并使用 CFR，否则 FFmpeg 能抓到 PNG 却不会生成可播放的 `screen.m3u8`。
 
 只记「为什么这么选」，不记过程。新决策往下加。
 

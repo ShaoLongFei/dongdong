@@ -78,7 +78,7 @@ class _Session:
             "-pix_fmt",
             "yuv420p",
             "-vf",
-            "scale=1280:-2:flags=fast_bilinear",
+            "fps=30,scale=1280:-2:flags=fast_bilinear,settb=1/30,setpts=N/30/TB",
             "-an",
             "-c:v",
             "h264_videotoolbox",
@@ -92,6 +92,8 @@ class _Session:
             "30",
             "-keyint_min",
             "30",
+            "-fps_mode",
+            "cfr",
             "-f",
             "hls",
             "-hls_time",
@@ -213,10 +215,16 @@ def start(cfg: dict, target: dict) -> str:
             if "session" in locals():
                 session.stop()
             return f"投屏启动失败：{exc}"
-    time.sleep(0.8)
+    # AVFoundation 首次打开屏幕设备需要几秒；固定睡眠 0.8 秒会把尚未生成清单的正常会话误判为失败。
+    deadline = time.monotonic() + 8
+    playlist = session.root / "screen.m3u8"
+    while not playlist.exists() and not session.error and time.monotonic() < deadline:
+        if session.ffmpeg and session.ffmpeg.poll() is not None:
+            break
+        time.sleep(0.2)
     if session.error:
         failure = session.error
-    elif not (session.root / "screen.m3u8").exists():
+    elif not playlist.exists():
         failure = session._capture_error()
     if failure:
         stop()
