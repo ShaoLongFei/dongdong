@@ -135,38 +135,95 @@ def _scene_paths(story_dir: Path) -> list[Path]:
     return paths
 
 
+def _scene_duration_ms(story_dir: Path, scene: Path) -> int:
+    """读取场景时长；优先使用 scene.durationMs，否则取元素结束时间。"""
+    try:
+        data = json.loads((story_dir / f"{scene.stem}.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        data = {}
+    if isinstance(data, dict):
+        try:
+            duration = int(data.get("durationMs", 0))
+        except (TypeError, ValueError):
+            duration = 0
+        if duration > 0:
+            return duration
+        elements = data.get("elements", [])
+        if isinstance(elements, list):
+            end_ms = 0
+            for element in elements:
+                if not isinstance(element, dict):
+                    continue
+                try:
+                    start_ms = max(0, int(element.get("startMs", 0)))
+                    element_duration = max(0, int(element.get("durationMs", 0)))
+                except (TypeError, ValueError):
+                    continue
+                end_ms = max(end_ms, start_ms + element_duration)
+            if end_ms > 0:
+                return end_ms
+    raise RuntimeError(f"场景缺少有效时长: {scene.name}")
+
+
 def _export_mp4(story_dir: Path, output: Path, scenes: list[Path]) -> None:
     ffmpeg = bundled_ffmpeg()
     with tempfile.TemporaryDirectory(prefix="dongdong-export-") as temp:
         temp_dir = Path(temp)
         frames = []
+        durations_ms = []
         for index, scene in enumerate(scenes):
             frame = temp_dir / f"scene-{index:04d}.png"
             _render(scene, frame, "png")
             frames.append(frame)
-        concat = temp_dir / "frames.txt"
-        concat.write_text(
-            "".join(f"file '{frame}'\nduration 2\n" for frame in frames) + f"file '{frames[-1]}'\n",
-            encoding="utf-8",
-        )
+            durations_ms.append(_scene_duration_ms(story_dir, scene))
+        total_duration = sum(durations_ms) / 1000
         command = [
             str(ffmpeg),
             "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            str(concat),
-            "-r",
-            "30",
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            "-an",
-            str(output),
         ]
+        for frame, duration_ms in zip(frames, durations_ms):
+            command.extend(
+                [
+                    "-loop",
+                    "1",
+                    "-framerate",
+                    "30",
+                    "-t",
+                    f"{duration_ms / 1000:.6f}",
+                    "-i",
+                    str(frame),
+                ]
+            )
+        video_inputs = "".join(f"[{index}:v]" for index in range(len(frames)))
+        command.extend(
+            [
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=channel_layout=stereo:sample_rate=48000",
+                "-filter_complex",
+                f"{video_inputs}concat=n={len(frames)}:v=1:a=0[v0];"
+                "[v0]scale=1280:720:force_original_aspect_ratio=disable[v]",
+                "-map",
+                "[v]",
+                "-map",
+                f"{len(frames)}:a:0",
+                "-t",
+                f"{total_duration:.6f}",
+                "-r",
+                "30",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-shortest",
+                str(output),
+            ]
+        )
         result = subprocess.run(command, capture_output=True, text=True, timeout=300)
         if result.returncode:
             detail = (result.stderr or result.stdout).strip().splitlines()[-1:]
