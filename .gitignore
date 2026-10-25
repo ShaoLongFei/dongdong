@@ -10,3 +10,4 @@ deploy/env.local
 .vscode/
 node_modules/
 apps/device-mac/dongdong/static/
+dist/

@@ -1,5 +1,7 @@
 # 决策记录
 
+- 2026-10-26：macOS 独立包采用 Swift AppKit/WKWebView + App 内 arm64 CPython，而不是 Tauri；当前项目已经是 FastAPI 静态 Web，原生壳无需引入 Rust。App 选择空闲 loopback 端口并把运行时数据放到 `~/.dongdong`；当前只交付 Apple Silicon，Intel/通用包需单独构建原生依赖。
+
 - 2026-10-25：项目与会议目录使用 macOS `osascript` 的固定 `choose folder` 系统面板，浏览器目录上传接口不能提供宿主机绝对路径；不上传文件、不引入新依赖。选择器限单窗口并在超时/取消请求时结束子进程，后端仍校验目录与会议工作区边界。
 
 只记「为什么这么选」，不记过程。新决策往下加。

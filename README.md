@@ -73,6 +73,18 @@ export DEEPSEEK_API_KEY=...
 
 `web` 和 `run` 二选一启动，语音默认关闭，顶部按钮可随时开启/关闭麦克风和播报。设置页把语音后端设为 `builtin` 后，语音任务和 Web 共享模型、工作区、运行记录和停止入口；配置保存后下一任务生效。
 
+### 构建独立 macOS App（Apple Silicon）
+
+项目提供原生 Swift + WKWebView 壳，内置 arm64 Python 运行时、后端依赖、静态前端、PortAudio 和项目内 FFmpeg。构建机需要 Xcode Command Line Tools、Node/npm（只在构建阶段使用）、网络和项目 `.venv`；生成的 App 运行时不需要 Node、uv 或系统 Python：
+
+```bash
+./scripts/setup.sh
+./scripts/build-macos-app.sh
+open dist/Dongdong.app
+```
+
+如果前端已经构建好，可使用 `./scripts/build-macos-app.sh --skip-frontend`。配置、SQLite、记忆和故事数据仍保存到用户目录 `~/.dongdong` 及项目工作区，不写入 App 包。当前独立包面向 Apple Silicon；模型 API key、Git 以及可选的 `codex`/`claude` CLI 仍需在用户环境中配置。
+
 关闭语音会停止采音、播报并断开连接，已派发的编程任务继续执行；停止任务使用对话内的停止按钮。刷新页面保留语音开关状态，重启服务后回到关闭。
 
 对话内会展开执行卡：多步骤任务显示步骤清单、当前与接下来要做的事，工具调用和耗时实时更新。交付后自动折叠，可展开回看；刷新后保留历史。语音发起任务时，点击“查看当前步骤”进入对应任务。连续语音任务会追加到当前任务会话；普通调度 Item 使用隔离模型上下文，历史记录仍可回看，重连和麦克风开关不会创建新会话；需要独立上下文时点击“开启新对话”。步骤由内置 agent 更新，模型未提供清单时显示实际工具或等待状态；此进度卡适用于 `builtin` 后端。

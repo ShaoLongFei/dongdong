@@ -96,6 +96,20 @@ cd ../..
 
 会话和运行存于 `~/.dongdong/dongdong.db`；未配置模型时可以先进入设置。前端开发运行 `cd apps/web && npm run dev`，Vite 将 `/api` 代理到 Python。生产只需 Python，无需 Node 常驻。
 
+### 独立 macOS App
+
+Apple Silicon 机器可以构建一个不依赖系统 Python、uv 或 Node 的 `.app`。首次构建需要安装 Xcode Command Line Tools、Node/npm，并先创建项目虚拟环境：
+
+```bash
+./scripts/setup.sh
+./scripts/build-macos-app.sh
+open dist/Dongdong.app
+```
+
+构建脚本会把 arm64 CPython、Python 依赖、静态前端、PortAudio、Opus 和项目内 FFmpeg 放进 App；运行时数据仍写入 `~/.dongdong`，日志写入 `~/Library/Logs/dongdong-app.log`。App 会自动选择 8766–8866 中的空闲本机端口，因此不会误连已经运行的 Web 服务。若静态资源已经存在，可用 `./scripts/build-macos-app.sh --skip-frontend` 跳过 npm 构建。
+
+独立包仍需要用户提供模型 API key；使用 CLI 后端时，`codex` 或 `claude` 命令也必须在 PATH 中。未签名构建仅适合本机测试，公开分发还需要 Developer ID 签名和 Apple 公证。
+
 `web` 和 `run` 都通过界面按钮启停语音，启动时均不采音，二选一启动。设置中将“语音编程后端”选为“内置 agent”，语音与 Web 就共享 Runtime、模型、工作区、会话和停止入口；CLI 选项保留原来的 codex/claude 路径。模型、工作区、后端设置保存后从下一任务起生效。忙时拒绝改设置和重复派活。
 
 **独立进程之间不共享互斥**，不要另开 `chat/call/serve` 对同一工作区同时派活。语音设备绑定仍用 `./scripts/dev.sh bind`，本轮未增加灵矽自定义模型 `/v1` 端点。
