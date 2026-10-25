@@ -20,6 +20,7 @@ _CHARACTER_COLORS = {
     "圆圆": "#8B6F47",
     "啄木鸟": "#8B4513",
 }
+_CHARACTER_KINDS = {"fox", "rabbit", "hedgehog", "bird", "person"}
 _BOUNDARY = re.compile(r"[。！？!?；;\n]")
 _MIN_CHUNK = 36
 _MAX_CHUNK = 180
@@ -150,21 +151,17 @@ class StorySession:
                 for scene in scenes:
                     for element in scene["elements"]:
                         label = str(element.get("label") or "")
+                        if element["kind"] not in _CHARACTER_KINDS:
+                            continue
                         key = next(
                             (
-                                token
-                                for token in ("阿栗", "米米", "团团", "圆圆", "啄木鸟")
-                                if token in label
+                                known
+                                for known in self._character_styles
+                                if known in label or label in known
                             ),
-                            "",
+                            label,
                         )
-                        if not key or element["kind"] not in {
-                            "fox",
-                            "rabbit",
-                            "hedgehog",
-                            "bird",
-                            "person",
-                        }:
+                        if not key:
                             continue
                         style = self._character_styles.setdefault(
                             key, (element["kind"], _CHARACTER_COLORS.get(key, element["color"]))

@@ -51,6 +51,10 @@ def _color(value: object, default: str = "#5B5550") -> str:
 def _visual_color(item: dict) -> str:
     label = str(item.get("label") or "")
     for words, color in (
+        (("萤火虫", "点点"), "#FFD34E"),
+        (("兔子", "小兔"), "#E8D7C5"),
+        (("种子", "月亮种子"), "#D9B7FF"),
+        (("发光的花", "小花"), "#F6D84A"),
         (("溪", "水"), "#78BFE0"),
         (("桥", "木板"), "#8B5A2B"),
         (("藤", "树枝"), "#4F8B45"),
@@ -163,7 +167,7 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
         if gift
         else (280, 700)
         if promise
-        else (420, 420)
+        else (220, 760)
     )
     bird_x, bird_y = (510, 245) if rescue else (520, 270)
     slots = {
@@ -181,9 +185,33 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
         item.update(x=x, y=y)
         used.add(item["kind"])
 
+    # 不同种类的角色默认可能拿到同一个左侧槽位；按画面中的角色数量重新排开，
+    # 避免“遇见”类镜头把两个角色画成一个重叠的人形。
+    characters = [
+        item for item in elements if item["kind"] in {"fox", "rabbit", "hedgehog", "person"}
+    ]
+    if len(characters) > 1:
+        y = 390 if promise else 350
+        if len(characters) == 2:
+            positions = [(left, y), (right, y)]
+        else:
+            step = max(180, (right - left) // (len(characters) - 1))
+            positions = [(min(right, left + index * step), y) for index in range(len(characters))]
+        for item, (x, item_y) in zip(characters, positions):
+            item.update(x=x, y=item_y)
+
     for item in elements:
         label = item["label"]
-        if any(word in label for word in ("溪", "水")):
+        if item["kind"] in {"object", "simple_shape"} and "种子" in label:
+            item.update(
+                x=560 if "对岸" not in label else 1030,
+                y=390,
+                width=max(64, min(item["width"], 120)),
+                height=max(64, min(item["height"], 100)),
+            )
+        elif item["kind"] in {"object", "simple_shape"} and any(
+            word in label for word in ("溪", "水")
+        ):
             item.update(
                 x=820,
                 y=500,
@@ -199,7 +227,9 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
             )
         elif item["kind"] == "object" and "果" in label:
             item.update(x=535, y=390, width=max(item["width"], 64), height=max(item["height"], 64))
-        elif any(word in label for word in ("山谷", "草坡", "草地")):
+        elif item["kind"] in {"object", "simple_shape"} and any(
+            word in label for word in ("山谷", "草坡", "草地", "山坡")
+        ):
             item.update(x=0, y=455, width=1280, height=max(item["height"], 180))
         elif "蒲公英" in label:
             item.update(x=item["x"], y=455)

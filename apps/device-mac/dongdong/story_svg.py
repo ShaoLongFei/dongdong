@@ -41,16 +41,43 @@ def _shape(element: dict) -> str:
     c = escape(element["color"], quote=True)
     kind = element["kind"]
     label = element["label"]
-    if "溪" in label or "水" in label:
+    if kind in {"fox", "rabbit", "hedgehog", "bird", "person"} and any(
+        word in label for word in ("萤火虫", "点点")
+    ):
+        cx, cy = x + w // 2, y + h // 2
+        return (
+            f'<circle cx="{cx}" cy="{cy}" r="{min(w, h) // 4}" fill="#FFD34E" stroke="#5B5550" stroke-width="4"/>'
+            f'<circle cx="{cx - 18}" cy="{cy - 8}" r="5" fill="#3D382F"/><circle cx="{cx + 18}" cy="{cy - 8}" r="5" fill="#3D382F"/>'
+            f'<path d="M{cx - 34},{cy - 42} q-28,-34 -44,0 M{cx + 34},{cy - 42} q28,-34 44,0" fill="none" stroke="#5B5550" stroke-width="5" stroke-linecap="round"/>'
+            f'<path d="M{cx - 45},{cy + 38} l-30,42 M{cx + 45},{cy + 38} l30,42 M{cx - 30},{cy + 60} h60" fill="none" stroke="#5B5550" stroke-width="9" stroke-linecap="round"/>'
+            f'<circle cx="{cx + 82}" cy="{cy + 4}" r="24" fill="#FFF4A8" opacity=".8"/>'
+        )
+    if kind in {"object", "simple_shape"} and any(word in label for word in ("种子", "月亮种子")):
+        cx, cy = x + w // 2, y + h // 2
+        return (
+            f'<ellipse cx="{cx}" cy="{cy + 8}" rx="{max(18, w // 3)}" ry="{max(14, h // 3)}" fill="{c}" stroke="#5B5550" stroke-width="3"/>'
+            f'<path d="M{cx - 8},{cy - 4} q8,-26 28,-22" fill="none" stroke="#F6D84A" stroke-width="5" stroke-linecap="round"/>'
+            f'<circle cx="{cx + 20}" cy="{cy - 22}" r="6" fill="#FFF4A8"/>'
+        )
+    if any(word in label for word in ("发光的花", "会发光的小花")):
+        cx, base = x + w // 2, y + h
+        return (
+            f'<path d="M{cx} {base} Q{cx - 12} {y + h // 2} {cx} {y + h // 3}" fill="none" stroke="#4F8B45" stroke-width="7"/>'
+            f'<circle cx="{cx}" cy="{y + h // 4}" r="{max(18, min(w, h) // 7)}" fill="{c}" stroke="#FFF4A8" stroke-width="7"/>'
+            f'<circle cx="{cx - 24}" cy="{y + h // 4 + 8}" r="14" fill="#FFF4A8"/><circle cx="{cx + 24}" cy="{y + h // 4 + 8}" r="14" fill="#FFF4A8"/>'
+        )
+    if kind in {"object", "simple_shape"} and any(word in label for word in ("溪", "水")):
         return (
             f'<path d="M{x},{y + h // 2} q{w // 8},-{h // 2} {w // 4},0 t{w // 4},0 t{w // 4},0 t{w // 4},0 V{y + h} H{x} Z" fill="{c}" opacity=".9"/>'
             f'<path d="M{x + 20},{y + h * 2 // 3} q{w // 8},-{h // 3} {w // 4},0 t{w // 4},0 t{w // 4},0" fill="none" stroke="#E9F3F5" stroke-width="5" opacity=".8"/>'
         )
-    if "草坡" in label or "草地" in label:
+    if kind in {"object", "simple_shape"} and any(
+        word in label for word in ("草坡", "草地", "山坡")
+    ):
         return f'<path d="M{x},{y + h} Q{x + w // 4},{y + h // 2} {x + w // 2},{y + h * 3 // 4} T{x + w},{y + h // 2} V720 H{x} Z" fill="{c}"/>'
-    if "蒲公英" in label:
+    if kind in {"object", "simple_shape"} and "蒲公英" in label:
         return f'<path d="M{x + w // 2},{y + h} V{y + h // 2}" stroke="#4F8B45" stroke-width="5"/><circle cx="{x + w // 2}" cy="{y + h // 3}" r="{max(8, min(w, h) // 4)}" fill="{c}"/>'
-    if "山谷" in label or label == "山":
+    if kind in {"object", "simple_shape"} and ("山谷" in label or label == "山"):
         return f'<path d="M{x},{y + h} L{x + w // 3},{y + h // 3} L{x + w // 2},{y + h * 2 // 3} L{x + w * 3 // 4},{y + h // 5} L{x + w},{y + h} Z" fill="{c}"/>'
     if kind == "tree":
         return f'<rect x="{x + w // 2 - 16}" y="{y + h // 2}" width="32" height="{h // 2}" fill="{c}"/><circle cx="{x + w // 2}" cy="{y + h // 3}" r="{min(w, h) // 3}" fill="{c}"/>'
@@ -119,6 +146,16 @@ def _shape(element: dict) -> str:
     if kind == "action_lines":
         if any(word in label for word in ("哭声", "缠住脚", "剪断", "果子", "约定")):
             return ""
+        if any(
+            word in label
+            for word in ("寻找", "风", "吹", "顺流", "划行", "捞回", "挖土", "种下", "庆祝")
+        ):
+            return (
+                f'<path d="M{x + 10},{y + h // 2} q{w // 5},-{h // 3} {w * 2 // 5},0 '
+                f'M{x + w // 4},{y + h * 4 // 5} q{w // 5},-{h // 3} {w * 2 // 5},0" fill="none" '
+                f'stroke="{c}" stroke-width="7" stroke-linecap="round"/>'
+                f'<path d="M{x + w * 3 // 5},{y + h // 3} l22,12 l-20,12" fill="none" stroke="{c}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>'
+            )
         return (
             f'<path d="M{x + 10},{y + h * 3 // 5} q{w // 5},-{h // 3} {w * 2 // 5},0 '
             f'M{x + w // 4},{y + h * 4 // 5} q{w // 5},-{h // 3} {w * 2 // 5},0" fill="none" '
@@ -126,12 +163,21 @@ def _shape(element: dict) -> str:
             f'<path d="M{x + w * 3 // 5},{y + h // 3} l22,12 l-20,12" fill="none" stroke="{c}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>'
         )
     if kind == "object":
+        if "种子" in label:
+            cx, cy = x + w // 2, y + h // 2
+            return (
+                f'<ellipse cx="{cx}" cy="{cy + 8}" rx="{max(18, w // 3)}" ry="{max(14, h // 3)}" fill="{c}" stroke="#5B5550" stroke-width="3"/>'
+                f'<path d="M{cx - 8},{cy - 4} q8,-26 28,-22" fill="none" stroke="#F6D84A" stroke-width="5" stroke-linecap="round"/>'
+                f'<circle cx="{cx + 20}" cy="{cy - 22}" r="6" fill="#FFF4A8"/>'
+            )
         if "溪" in label or "水" in label:
             return f'<path d="M{x},{y + h // 2} q{w // 8},-{h // 2} {w // 4},0 t{w // 4},0 t{w // 4},0 t{w // 4},0 V{y + h} H{x} Z" fill="{c}" opacity=".9"/><path d="M{x + 20},{y + h * 2 // 3} q{w // 8},-{h // 3} {w // 4},0 t{w // 4},0 t{w // 4},0" fill="none" stroke="#E9F3F5" stroke-width="5" opacity=".8"/>'
         if "桥" in label:
             return f'<rect x="{x}" y="{y + h // 3}" width="{w}" height="{h // 3}" rx="8" fill="{c}"/><path d="M{x + 15},{y + h // 3} V{y + h} M{x + w - 15},{y + h // 3} V{y + h}" stroke="#5B5550" stroke-width="8"/>'
         if "果" in label:
             return f'<circle cx="{x + w // 2}" cy="{y + h // 2 + 8}" r="{min(w, h) // 3}" fill="{c}"/><path d="M{x + w // 2},{y + h // 3} q12,-22 30,-8" fill="none" stroke="#4F8B45" stroke-width="8"/>'
+        if "叶" in label or "小船" in label:
+            return f'<path d="M{x},{y + h // 3} Q{x + w // 2},{y + h} {x + w},{y + h // 3} Q{x + w * 3 // 4},{y + h // 2} {x + w // 4},{y + h // 2} Z" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
         if "藤" in label or "树枝" in label:
             return (
                 f'<path d="M{x},{y + h // 2} q{w // 4},-{h} {w // 2},0 t{w // 2},0" fill="none" stroke="{c}" stroke-width="{max(8, h // 2)}" stroke-linecap="round"/>'
@@ -211,7 +257,7 @@ def _display_label(element: dict) -> str:
         for name in ("阿栗", "团团", "啄木鸟", "米米", "圆圆"):
             if name in label:
                 return name
-        return "角色"
+        return label[:8] or "角色"
     if element["kind"] == "action_lines":
         for words, short in (
             ("哭声", "哭声"),
@@ -222,10 +268,10 @@ def _display_label(element: dict) -> str:
         ):
             if words in label:
                 return short
-        return "动作"
+        return label[:12] or "动作"
     if element["kind"] == "object" and any(word in label for word in ("溪", "桥", "藤", "果")):
         return label[:6]
-    if "草坡" in label or "草地" in label:
+    if any(word in label for word in ("草坡", "草地", "山坡")):
         return ""
     if "蒲公英" in label:
         return "蒲公英"
