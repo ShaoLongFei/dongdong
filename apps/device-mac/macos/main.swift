@@ -1,4 +1,5 @@
 import Cocoa
+import CoreGraphics
 import Darwin
 import WebKit
 
@@ -24,6 +25,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView = webView
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        // FFmpeg 作为 App 内子进程抓屏；先由宿主 App 主动触发系统授权提示。
+        let screenAccessBefore = CGPreflightScreenCaptureAccess()
+        NSLog("屏幕录制权限状态（启动前）: \(screenAccessBefore)")
+        if !screenAccessBefore {
+            _ = CGRequestScreenCaptureAccess()
+            NSLog("已请求屏幕录制权限；如果系统设置未出现新条目，请删除旧 Dongdong 后重新添加当前 App")
+        }
 
         guard let selectedPort = availablePort() else {
             showError("没有可用的本机端口")

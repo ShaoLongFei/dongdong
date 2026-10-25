@@ -62,6 +62,12 @@ cp -R "$ROOT/apps/device-mac/dongdong" "$APP/Contents/Resources/app/apps/device-
 cp "$ROOT/apps/device-mac/pyproject.toml" "$APP/Contents/Resources/app/apps/device-mac/"
 mkdir -p "$APP/Contents/Resources/app/tools"
 cp -R "$ROOT/tools/ffmpeg" "$APP/Contents/Resources/app/tools/"
+# FFmpeg 会直接调用 AVFoundation 抓屏；让它沿用 App 的签名标识，避免
+# macOS 把内置子进程当成另一个屏幕录制权限主体。
+codesign --force --sign - --identifier com.dongdong.app \
+  "$APP/Contents/Resources/app/tools/ffmpeg/darwin-arm64/ffmpeg" >/dev/null
+codesign --force --sign - --identifier com.dongdong.app \
+  "$APP/Contents/Resources/app/tools/ffmpeg/darwin-x86_64/ffmpeg" >/dev/null
 
 # 虚拟环境已在当前机器验证过依赖和 arm64 扩展，直接复用 site-packages。
 cp -R "$ROOT/.venv/lib/python3.12/site-packages" "$APP/Contents/Resources/python/lib/python3.12/"
