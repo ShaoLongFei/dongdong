@@ -142,7 +142,8 @@ sequenceDiagram
     UI-->>U: 最终结果，执行卡自动折叠
 ```
 
-- `update_plan` 由同一个模型循环调用，支持 1–8 步、至多一个进行中；只做可见进度，不是独立 planner 或多 agent 调度器。
+- 自动任务先由无工具结构化 Planner 生成并校验最多 8 个 Item；规划期间运行状态为 `planning`，前端执行卡显示规划进度和 Item 数量。非 JSON、依赖错误、工作区越界或未知 agent 会记录 `planning_error` 并回退单 Item。规划完成后沿用同一 SQLite frontier/claim/lease/worker 循环。
+- `update_plan` 由同一个模型循环调用，支持 1–8 步、至多一个进行中；只做可见进度，不替代任务 Planner。
 - 每个 run 对应一次用户任务；`run_start.user_message_id` 把执行卡关联到正确消息。工具调用和结果按 call ID 配对。
 - SSE 读取持久化事件，不依赖内存消息总线；刷新可重放。会话详情提供消息和 runs，`include_events=true` 可取历史事件快照。
 - 默认最多 20 次模型循环、历史软窗口 30 条；当前任务起始消息和完整工具消息对会保留。最终无工具调用时结束；异常或取消留下 error/stopped 状态。
@@ -272,6 +273,7 @@ Web 仅监听 loopback，并校验 Host/Origin；没有远程账号鉴权，因�
 | 能力 | 状态 |
 | --- | --- |
 | Web / builtin 编程 / 进度回放 / 连续会话 / 麦克风开关 | 已实现，用户已体验基础语音任务；异常与边界有 smoke 验证 |
+| SQLite 调度与自动任务规划 | 已实现规划状态、结构化 Item DAG、失败回退、重试/租约和历史事件展示；Goal 验收证据、修复规划、文件范围冲突、多机调度待后续 |
 | Skills / 外部 MCP / 一次性审批 | 已实现，本地 SDK 三传输及完整链路验证；用户自有服务与页面体验待验收 |
 | 项目 / 归档 / 分层记忆 | 已实施固定目录、增量迁移、恢复与Runtime自动检索；本地隔离验证，真实页面/云端记忆待用户验收 |
 | AirPlay | 设备发现可用；默认脚本在已记录的 MenuBarAgent 环境受阻，支持用户自定义命令 |
@@ -279,7 +281,7 @@ Web 仅监听 loopback，并校验 Host/Origin；没有远程账号鉴权，因�
 | ESP32 固件转发 | 仅有规划与 Mac bridge，未烧录/联调 |
 | 灵矽自定义模型 `/v1/chat/completions` 入站接口 | 早期备选方案，当前未实现；实际语音走设备 MCP |
 
-当前Web共享4个worker，不同对话的普通任务可并行（超过线程数等待空闲worker），由TaskManager管理Run/Goal/Item/Attempt；普通请求一个Item，会议生成/实施保持受约束Runtime入口。重启暂停遗留调度任务，显式恢复；工作线程续租且取消后等真实执行退出再释放闸门。后续实现依据先查本页和 [决策记录](decisions.md)，历史设计/计划的差异见 [文档导航](README.md)。
+当前Web共享4个worker，不同对话的普通任务可并行（超过线程数等待空闲worker），由TaskManager管理Run/Goal/Item/Attempt；自动任务先规划再落 Item，规划失败回退单 Item。过期 lease 会重新开放 Item，重启暂停遗留调度任务并要求显式恢复，前端以 SQLite run 投影为准，避免过期 worker 事件继续显示为运行中。Goal 验收证据、修复规划、文件范围冲突、多机调度尚未实现。后续实现依据先查本页和 [决策记录](decisions.md)，历史设计/计划的差异见 [文档导航](README.md)。
 
 ## 会议代码修改模式（2026-10-25）
 

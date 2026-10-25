@@ -108,6 +108,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; }
 .plan .completed { color: #adc995; }.plan .in_progress { color: #d8cdab; }
 .plan small { margin-left: auto; white-space: nowrap; color: #858f7f; font-size: 10px; }
 .execution-hint { color: #bcb69d; font-size: 12px; line-height: 1.8; }
+.planning-status { color: #c9d8ae; font-size: 12px; line-height: 1.8; margin: 12px 0; }
 .execution-text { margin: 12px 0; color: #abb8a0; }
 .final-answer { margin-top: 16px; }.execution-failure { color: #dcc49b; font-size: 12px; line-height: 1.8; }
 .settings > article { padding: 16px; border: 1px solid #333e2d; border-radius: 9px; background: #191e18; }

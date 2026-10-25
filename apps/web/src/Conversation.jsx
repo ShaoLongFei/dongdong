@@ -32,8 +32,13 @@ function RunMessage({ run, liveEvents, fallback }) {
   const [now, setNow] = useState(Date.now());
   const events = liveEvents ?? saved;
   const terminal = [...events].reverse().find(e => ['done', 'error', 'stopped'].includes(e.type));
-  const status = terminal ? ({ done: 'done', error: 'error', stopped: 'stopped' })[terminal.type] : run.status;
-  const running = status === 'running';
+  // 运行投影是权威状态；旧事件只用于兼容没有 status 的历史记录，避免过期 worker 事件把任务显示成运行中。
+  const status = run.status || (terminal ? ({ done: 'done', error: 'error', stopped: 'stopped' })[terminal.type] : 'running');
+  const planningDone = [...events].reverse().find(e => e.type === 'planning_done');
+  const planningError = [...events].reverse().find(e => e.type === 'planning_error');
+  const planningStarted = [...events].reverse().find(e => e.type === 'planning_started');
+  const planning = status === 'planning' || (planningStarted && !planningDone && !planningError && status === 'running');
+  const running = status === 'running' || planning;
   const [open, setOpen] = useState(running);
   useEffect(() => { setOpen(running); }, [running]);
   useEffect(() => {
@@ -50,6 +55,8 @@ function RunMessage({ run, liveEvents, fallback }) {
   }, [running]);
   const plan = [...events].reverse().find(e => e.type === 'plan')?.data.steps || [];
   const taskItems = run.items || [];
+  const plannedItems = planningDone?.data?.items || planningDone?.data?.planned_items || [];
+  const plannedCount = plannedItems.length || planningDone?.data?.count || taskItems.length;
   const items = activity(events);
   const pendingTool = [...items].reverse().find(item => item.type === 'tool' && !item.result);
   const pendingApproval = [...events].reverse().find(e => e.type === 'approval' && !events.some(result => result.type === 'approval_result' && result.data.id === e.data.id));
@@ -58,14 +65,16 @@ function RunMessage({ run, liveEvents, fallback }) {
   const next = plan.find(step => step.status === 'pending');
   const done = plan.filter(step => step.status === 'completed').length;
   const elapsed = Math.max(0, Math.floor(((running ? now : Date.parse(run.ended_at) || now) - Date.parse(run.started_at)) / 1000));
-  const label = running ? (pendingApproval ? '等待你的批准' : pendingTool ? toolNames[pendingTool.name] || pendingTool.name : events.at(-1)?.type === 'text' ? '正在生成回复' : '正在等待模型响应') : statusText[status];
+  const label = planning ? '正在规划任务' : running ? (pendingApproval ? '等待你的批准' : pendingTool ? toolNames[pendingTool.name] || pendingTool.name : events.at(-1)?.type === 'text' ? '正在生成回复' : '正在等待模型响应') : statusText[status];
   const answer = events.find(e => e.type === 'done')?.data.text || (!running ? fallback : '');
   const failure = terminal?.data.message || run.error;
   return <article className="message assistant">
     <div className="message-label"><Terminal size={14} />咚咚<span className="badge">任务执行</span></div>
     <details className="execution" open={open} onToggle={e => setOpen(e.currentTarget.open)}>
-      <summary><ChevronRight size={14} className="execution-chevron" /><span className={`dot ${running ? 'working' : status === 'done' ? 'online' : ''}`} /><span role="status">{label}{plan.length ? ` · ${done}/${plan.length} 步` : ''}</span><span className="muted ml-auto">{elapsed} 秒</span></summary>
+      <summary><ChevronRight size={14} className="execution-chevron" /><span className={`dot ${running ? 'working' : status === 'done' ? 'online' : ''}`} /><span role="status">{label}{planningDone && plannedCount ? ` · 已规划 ${plannedCount} 项` : plan.length ? ` · ${done}/${plan.length} 步` : ''}</span><span className="muted ml-auto">{elapsed} 秒</span></summary>
       <div className="execution-body">
+        {planning && <p className="planning-status" role="status">正在分析任务并安排执行步骤，完成后会自动开始调度。</p>}
+        {planningError && <p className="execution-failure">自动规划失败，已回退为单项任务：{planningError.data?.error || planningError.data?.message || '未知错误'}</p>}
         {taskItems.length > 0 && <div className="task-items" aria-label="任务拆解">{taskItems.map(item => <div className="task-item" key={item.id}><span className={`dot ${item.status === 'running' ? 'working' : item.status === 'done' ? 'online' : ''}`} /><span>{item.instruction}</span><small>{statusText[item.status] || item.status} · {item.attempts} 次尝试{item.error ? ` · ${item.error}` : ''}</small></div>)}</div>}
         {plan.length > 0 && <ol className="plan">{plan.map((step, index) => <li key={index} className={step.status}>{step.status === 'completed' ? <Check size={14} /> : step.status === 'in_progress' && running ? <span className="dot working" /> : <Circle size={12} />}<span>{step.step}</span><small>{step.status === 'completed' ? '已完成' : step.status === 'in_progress' ? (running ? '进行中' : '未完成') : '待执行'}</small></li>)}</ol>}
         {running && <p className="execution-hint">{current ? `当前：${current.step}` : '正在处理任务，请稍候。'}{next && <><br />接下来：{next.step}</>}</p>}

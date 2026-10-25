@@ -61,7 +61,7 @@ export DEEPSEEK_API_KEY=...
 
 ## 任务状态与功能进度
 
-Web 和内置语音任务已接入 SQLite 任务调度，运行记录展示任务项、状态、尝试次数和错误摘要。灵矽可通过 `self.task.status`、`self.task.stop`、`self.task.resume` 查询、停止或恢复任务。进程重启后遗留调度任务暂停，需明确恢复，避免自动重放写命令。当前 Web 调度配置为一个 worker，普通请求默认生成一个任务项；自动拆解和并行执行不能视为已完整交付。设计与实施范围见 [任务调度计划](docs/superpowers/plans/2026-10-25-task-scheduler.md)。
+Web 和内置语音任务已接入 SQLite 任务调度，运行记录展示任务项、状态、尝试次数和错误摘要。自动任务会先显示“正在规划任务”，规划完成后展示 Item 数量；规划失败会记录原因并安全回退为单项执行。灵矽可通过 `self.task.status`、`self.task.stop`、`self.task.resume` 查询、停止或恢复任务。进程重启后遗留调度任务暂停，需明确恢复，避免自动重放写命令。Goal 验收证据、修复规划、文件范围冲突和多机调度仍是后续工作。设计与实施范围见 [任务调度计划](docs/superpowers/plans/2026-10-25-task-scheduler.md)。
 
 项目、分层记忆、归档、任务调度与会议代码修改已整合到 `main`。故事模式当前仅包含场景协议、SVG渲染和存储基础，完整语音/动画界面仍在开发。
 

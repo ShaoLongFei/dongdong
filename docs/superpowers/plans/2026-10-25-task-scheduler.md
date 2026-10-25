@@ -119,9 +119,9 @@
 
 - [ ] Step 1: 写 API smoke：GET /api/runs/{rid}?include_events=true 含 item/attempt 字段且旧 event 可读。
 - [ ] Step 2: 运行 smoke 确认投影缺字段。
-- [ ] Step 3: 复用会话运行记录显示 DAG Item、状态、尝试次数、错误摘要；MCP 管理页继续只显示外部服务。
-- [ ] Step 4: 更新架构、决策、设计索引，说明 SQLite WAL/CAS、workspace 串行规则及不采用外部队列原因。
-- [ ] Step 5: 运行 ./scripts/check.sh 和 cd apps/web && npm run build。
+- [x] Step 3: 复用会话运行记录显示 DAG Item、状态、尝试次数、错误摘要；MCP 管理页继续只显示外部服务。
+- [x] Step 4: 更新架构、设计索引和任务状态说明，记录 SQLite WAL/CAS、workspace 串行规则及不采用外部队列原因。
+- [x] Step 5: 运行 ./scripts/check.sh 和 cd apps/web && npm run build。
 - [ ] Step 6: git add 相关文件并提交 feat: show task DAG in run history。
 
 ## Final Verification
