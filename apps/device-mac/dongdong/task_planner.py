@@ -211,7 +211,7 @@ class TaskPlanner:
         if not path.is_absolute():
             path = Path(fallback_cwd).expanduser() / path
         path = path.resolve()
-        roots = [self.cfg.get("workspace"), *(self.cfg.get("projects") or [])]
+        roots = [fallback_cwd, self.cfg.get("workspace"), *(self.cfg.get("projects") or [])]
         roots = [Path(root).expanduser().resolve() for root in roots if root]
         if not roots:
             roots = [Path(fallback_cwd).expanduser().resolve()]
