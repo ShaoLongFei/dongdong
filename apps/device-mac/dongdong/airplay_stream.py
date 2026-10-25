@@ -34,14 +34,17 @@ class _Session:
         self.http_thread: threading.Thread | None = None
         self.http_host = ""
         self.ffmpeg: subprocess.Popen | None = None
+        self.ffmpeg_log = self.root / "ffmpeg.log"
+        self._ffmpeg_log_file = None
         self.atv_thread: threading.Thread | None = None
         self.stop_event = threading.Event()
         self.error = ""
 
     def start(self) -> None:
         self._start_http()
+        self._ffmpeg_log_file = self.ffmpeg_log.open("wb")
         self.ffmpeg = subprocess.Popen(
-            self._ffmpeg_cmd(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+            self._ffmpeg_cmd(), stdout=subprocess.DEVNULL, stderr=self._ffmpeg_log_file
         )
         self.atv_thread = threading.Thread(target=self._connect, name="airplay", daemon=True)
         self.atv_thread.start()
@@ -66,6 +69,8 @@ class _Session:
             "avfoundation",
             "-framerate",
             "30",
+            "-pixel_format",
+            "bgr0",
             "-capture_cursor",
             "1",
             "-i",
@@ -108,12 +113,48 @@ class _Session:
                 if self.stop_event.wait(0.2):
                     return
             if not playlist.exists():
-                raise RuntimeError("FFmpeg 没有生成屏幕流，请检查屏幕录制权限")
+                self.error = self._capture_error()
+                return
             url = f"http://{self.http_host}:{self.httpd.server_port}/screen.m3u8"
             asyncio.run(self._play(url))
         except Exception:
-            self.error = "AirPlay 播放会话失败，请确认接收端支持视频播放且允许当前 Mac 连接"
+            self.error = self._error_message()
             log.exception("AirPlay 流会话失败")
+
+    def _capture_error(self) -> str:
+        detail = ""
+        try:
+            lines = self.ffmpeg_log.read_text(errors="replace").strip().splitlines()
+            for line in reversed(lines):
+                lowered = line.lower()
+                if "objc[" in lowered:
+                    continue
+                if any(
+                    marker in lowered
+                    for marker in (
+                        "permission",
+                        "not authorized",
+                        "input/output error",
+                        "failed",
+                        "error",
+                    )
+                ):
+                    detail = line
+                    break
+        except (OSError, IndexError):
+            pass
+        if detail:
+            return (
+                f"FFmpeg 屏幕采集失败：{detail}。请在系统设置 → 隐私与安全性 → 屏幕录制中允许咚咚"
+            )
+        return "FFmpeg 没有生成屏幕流，请在系统设置 → 隐私与安全性 → 屏幕录制中允许咚咚"
+
+    def _error_message(self) -> str:
+        if self.ffmpeg is None:
+            return "AirPlay 播放会话失败，请确认接收端支持视频播放且允许当前 Mac 连接"
+        if self.ffmpeg.poll() is not None:
+            return self._capture_error()
+        return "AirPlay 播放会话失败，请确认接收端支持视频播放且允许当前 Mac 连接"
 
     async def _play(self, url: str) -> None:
         import pyatv
@@ -139,6 +180,9 @@ class _Session:
                 self.ffmpeg.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 self.ffmpeg.kill()
+        if self._ffmpeg_log_file:
+            self._ffmpeg_log_file.close()
+            self._ffmpeg_log_file = None
         if self.httpd:
             shutdown = getattr(self.httpd, "shutdown", None)
             if shutdown:
@@ -171,7 +215,7 @@ def start(cfg: dict, target: dict) -> str:
     if session.error:
         failure = session.error
     elif not (session.root / "screen.m3u8").exists():
-        failure = "FFmpeg 没有生成屏幕流，请检查屏幕录制权限"
+        failure = session._capture_error()
     if failure:
         stop()
         return f"投屏启动失败：{failure}"
