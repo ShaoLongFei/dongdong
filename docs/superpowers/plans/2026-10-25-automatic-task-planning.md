@@ -39,10 +39,10 @@
 - PlanResult.items: list[ItemSpec], error: str, used_fallback: bool
 - Planner calls stream_fn(model, messages, tools=[]) and never exposes Runtime tools.
 
-- [ ] Add smoke cases for valid two-item JSON, fenced JSON, invalid JSON fallback, missing dependency/cycle, out-of-workspace cwd, unknown agent, and empty tools.
-- [ ] Implement bounded JSON extraction, schema/type checks, ID and DAG validation, workspace/agent validation, and single Item fallback.
-- [ ] Run focused task smoke and ./scripts/check.sh.
-- [ ] Commit feat: add structured task planner.
+- [x] Add smoke cases for valid two-item JSON, fenced JSON, invalid JSON fallback, missing dependency/cycle, out-of-workspace cwd, unknown agent, and empty tools.
+- [x] Implement bounded JSON extraction, schema/type checks, ID and DAG validation, workspace/agent validation, and single Item fallback.
+- [x] Run focused task smoke and ./scripts/check.sh.
+- [x] Commit feat: add structured task planner.
 
 ### Task 2: Planning State and Scheduler Integration
 
@@ -57,11 +57,10 @@
 - TaskManager._plan_run(run_id, text, cwd) records planning_started, calls TaskPlanner, inserts one complete Item batch, records planning_done or planning_error, then sets running.
 - TaskStore.set_task_status(run_id, status, error='') updates status and writes an event atomically.
 
-- [ ] Add smoke cases for planning lifecycle, multiple Items, fallback, and parallel frontier with dependent Item waiting.
-- [ ] Run task smoke to observe missing planning state.
-- [ ] Integrate one planner call per automatic Run in the existing background thread; check stop before and after planning.
-- [ ] Preserve explicit item submissions, retries, lease renewal, cancellation drain, and self.task projections.
-- [ ] Run ./scripts/check.sh and commit feat: plan task runs before scheduling.
+- [x] Add smoke cases for planning lifecycle, multiple Items, fallback, and parallel frontier with dependent Item waiting.
+- [x] Integrate one planner call per automatic Run in the existing background thread; check stop before and after planning.
+- [x] Preserve explicit item submissions, retries, lease renewal, cancellation drain, and self.task projections.
+- [x] Run ./scripts/check.sh.
 
 ### Task 3: Frontend Progress and Documentation
 
@@ -76,21 +75,21 @@
 - Existing collapsed execution card remains compatible with all current terminal states.
 - Documentation distinguishes delivered SQLite scheduling from pending Goal evidence, repair planning, file-range conflicts, and multi-machine scheduling.
 
-- [ ] Add serialized planning event and Item projection assertion.
-- [ ] Update UI status map/card without a new state store or polling loop.
-- [ ] Update README, architecture navigation/status, and task plan checkboxes.
-- [ ] Run ./scripts/check.sh, npm run build --prefix apps/web, git diff --check.
-- [ ] Commit docs: show automatic task planning status.
+- [x] Add serialized planning event and Item projection assertion.
+- [x] Update UI status map/card without a new state store or polling loop.
+- [x] Update README, architecture navigation/status, and task plan checkboxes.
+- [x] Run ./scripts/check.sh, npm run build --prefix apps/web, git diff --check.
+- [x] Commit docs: show automatic task planning status.
 
 ### Task 4: Whole-Branch Verification
 
 **Files:** Review Tasks 1–3; do not touch story-mode files or design/.
 
-- [ ] Inspect changed files, 300-line limit, and accidental unrelated changes.
-- [ ] Run ./scripts/check.sh and npm run build --prefix apps/web.
-- [ ] Run an isolated local model fixture for two-item planning, concurrency, dependency order, malformed JSON fallback, and SSE history.
-- [ ] Update .claude/cc10x/v10/activeContext.md and progress.md with decisions and evidence.
-- [ ] Commit integration fixes. Push only after explicit user request.
+- [x] Inspect changed files, 300-line limit, and accidental unrelated changes.
+- [x] Run ./scripts/check.sh and npm run build --prefix apps/web.
+- [x] Run an isolated local model fixture for two-item planning, concurrency, dependency order, and malformed JSON fallback.
+- [x] Record decisions and verification evidence in the local session memory.
+- [x] Commit integration fixes. Remote push remains separate because origin/main contains a newer story-mode commit and the workspace retains uncommitted story files.
 
 ## Execution Order
 
