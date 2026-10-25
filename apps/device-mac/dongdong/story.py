@@ -45,6 +45,8 @@ class StorySession:
         self._cursor = 0
         self._characters: list[dict] = []
         self._lock = asyncio.Lock()
+        self._pending: dict[str, str] = {}
+        self._error = ""
 
     def start(self) -> str:
         if self.status in {"recording", "stopping"}:
@@ -56,6 +58,8 @@ class StorySession:
         self._cursor = 0
         self._scene_number = 0
         self._characters = []
+        self._pending = {}
+        self._error = ""
         self._publish("state", {"status": self.status, "storyId": self.story_id})
         return self.story_id
 
@@ -101,6 +105,7 @@ class StorySession:
             return
         self._scene_number += 1
         scene_id = f"scene-{self._scene_number:03d}"
+        self._pending[scene_id] = text
         task = asyncio.create_task(self._generate(scene_id, text))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -118,10 +123,16 @@ class StorySession:
                 scene = normalize_scene({}, text, scene_id)
                 try:
                     self.store.save_scene(self.story_id, scene)
-                    self._publish("scene", {"storyId": self.story_id, "scene": scene, "fallback": True})
+                    self._publish(
+                        "scene", {"storyId": self.story_id, "scene": scene, "fallback": True}
+                    )
                 except Exception as save_exc:
+                    self._error = str(save_exc)
+                    self.status = "error"
                     self._publish("error", {"message": str(save_exc)})
                 self._publish("error", {"message": str(exc), "sceneId": scene_id})
+            finally:
+                self._pending.pop(scene_id, None)
 
     async def _request_scene(self, text: str) -> dict | str:
         prompt = (
@@ -134,7 +145,10 @@ class StorySession:
         if hasattr(self.model, "generate_scene"):
             result = self.model.generate_scene(prompt)
             return await result if isinstance(result, Awaitable) else result
-        messages = [{"role": "system", "content": "你是儿童故事分镜生成器，只返回 JSON。"}, {"role": "user", "content": prompt}]
+        messages = [
+            {"role": "system", "content": "你是儿童故事分镜生成器，只返回 JSON。"},
+            {"role": "user", "content": prompt},
+        ]
         chunks = []
         async for event in stream_chat(self.model, messages, []):
             chunks.append(event.text)
@@ -149,8 +163,23 @@ class StorySession:
             await asyncio.gather(self._timer, return_exceptions=True)
         self._flush()
         if self._tasks:
-            await asyncio.gather(*list(self._tasks), return_exceptions=True)
-        self.status = "done"
+            _, waiting = await asyncio.wait(set(self._tasks), timeout=5)
+            for task in waiting:
+                task.cancel()
+            if waiting:
+                await asyncio.gather(*waiting, return_exceptions=True)
+                for scene_id, text in list(self._pending.items()):
+                    scene = normalize_scene({}, text, scene_id)
+                    try:
+                        self.store.save_scene(self.story_id, scene)
+                        self._publish("scene", {"storyId": self.story_id, "scene": scene, "fallback": True})
+                    except Exception as exc:
+                        self._error = str(exc)
+                        self.status = "error"
+                        self._publish("error", {"message": str(exc), "sceneId": scene_id})
+                    self._pending.pop(scene_id, None)
+        if self.status != "error":
+            self.status = "done"
         if self.story_id:
             data = self.store.load(self.story_id)
             manifest = data["manifest"]
@@ -158,7 +187,8 @@ class StorySession:
             manifest["updatedAt"] = datetime.now(UTC).isoformat(timespec="seconds")
             self.store.save_manifest(self.story_id, manifest)
         self._publish("state", {"status": self.status, "storyId": self.story_id})
-        self._publish("export", {"storyId": self.story_id})
+        if self.status != "error":
+            self._publish("export", {"storyId": self.story_id})
         return self.state()
 
     def state(self) -> dict:
