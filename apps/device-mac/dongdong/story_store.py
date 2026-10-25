@@ -11,6 +11,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from .story_export import ExportManager
 from .story_svg import scene_to_svg
 
 
@@ -40,6 +41,7 @@ class StoryStore:
         self.root = Path(root).expanduser()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.root.chmod(0o700)
+        self.exports = ExportManager(self)
 
     def _validate(self, story_id: str) -> Path:
         if not isinstance(story_id, str) or not _ID.fullmatch(story_id):
@@ -190,5 +192,20 @@ def router(state):
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from None
         return {"storyId": story_id, "scenes": scenes, "cursor": story.state()["cursor"]}
+
+    @routes.post("/stories/{story_id}/exports")
+    async def export_story(story_id: str, body: dict):
+        try:
+            job_id = state.story.store.exports.submit(story_id, body.get("format", ""))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        return {"job_id": job_id}
+
+    @routes.get("/stories/{story_id}/exports/{job_id}")
+    async def export_status(story_id: str, job_id: str):
+        result = state.story.store.exports.status(job_id)
+        if result.get("storyId") not in {None, story_id}:
+            raise HTTPException(404, "导出任务不存在")
+        return result
 
     return routes
