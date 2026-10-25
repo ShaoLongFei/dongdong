@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import tempfile
 from pathlib import Path
@@ -7,9 +8,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
 
-from dongdong.story_schema import normalize_scene  # noqa: E402
-from dongdong.story_store import StoryStore  # noqa: E402
-from dongdong.story_svg import scene_to_svg  # noqa: E402
+from dongdong.story import StorySession
+from dongdong.story_schema import normalize_scene
+from dongdong.story_store import StoryStore
+from dongdong.story_svg import scene_to_svg
 
 
 def main() -> None:
@@ -110,6 +112,25 @@ def main() -> None:
             pass
         else:
             raise AssertionError("path traversal accepted")
+
+        class BrokenModel:
+            async def generate_scene(self, _prompt):
+                raise RuntimeError("model unavailable")
+
+        async def session_smoke() -> None:
+            session = StorySession(BrokenModel(), store=store, flush_seconds=60)
+            story_id = session.start()
+            session.accept_text("小兔子看见太阳于是跑向森林" * 4)
+            assert session.state()["bufferedText"]
+            result = await session.stop()
+            assert result["status"] == "done"
+            assert store.load(story_id)["scenes"]
+            events = session.events(0)
+            assert events and session.events(events[-1]["id"]) == []
+            assert any(event["type"] == "export" for event in events)
+            await session.close()
+
+        asyncio.run(session_smoke())
 
 
 if __name__ == "__main__":

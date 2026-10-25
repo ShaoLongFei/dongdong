@@ -12,6 +12,8 @@ from .approvals import Approvals
 from .llm import model_from_config
 from .runtime import Runtime
 from .store import Store
+from .story import StorySession
+from .story_store import StoryStore
 from .task_scheduler import TaskManager
 from .web_agent import WebAgent  # noqa: F401
 
@@ -44,6 +46,8 @@ class WebState:
         self.manager = TaskManager(
             self.store, cfg=cfg, model=self.model, approve=self.approvals.request
         )
+        self.story = StorySession(model=self.model, store=StoryStore(config.HOME / "stories"))
+        self.story_enabled = False
 
     def activate(self) -> None:
         if self.loop is None:
@@ -91,6 +95,14 @@ class WebState:
     def voice_text(self, _connection: str, role: str, text: str) -> None:
         if not text.strip():
             return
+        command = self._story_command(text) if role == "user" else None
+        if command:
+            if self.loop and self.loop.is_running():
+                self.loop.create_task(self._handle_story_command(command))
+            return
+        if role == "user" and self.story_enabled:
+            self.story.accept_text(text)
+            return
         if role == "user" and self.meeting.voice(text):
             return
         # 平台可能每轮结束就断链，连接 ID 不能作为用户会话的边界。
@@ -101,12 +113,40 @@ class WebState:
             self._project_voices[self.current_project] = self.voice_session
         self.store.append_message(self.voice_session, role, text)
 
+    @staticmethod
+    def _story_command(text: str) -> str | None:
+        normalized = "".join(str(text).split())
+        if any(phrase in normalized for phrase in ("结束讲故事", "停止讲故事", "退出故事模式", "结束故事")):
+            return "stop"
+        if any(phrase in normalized for phrase in ("开始讲故事", "进入故事模式", "开启故事模式")):
+            return "start"
+        return None
+
+    def story_text(self, _connection: str, role: str, text: str) -> None:
+        if role == "user":
+            self.voice_text(_connection, role, text)
+
+    async def story_mode(self, enabled: bool) -> dict:
+        if enabled:
+            self.story.model = self.model
+            self.story.start()
+            self.story_enabled = True
+        else:
+            self.story_enabled = False
+            await self.story.stop()
+        return self.story.state()
+
+    async def _handle_story_command(self, command: str) -> None:
+        await self.story_mode(command == "start")
+
     def reload(self) -> None:
         try:
             self.model = model_from_config(self.cfg)
             self.error = ""
             if hasattr(self, "manager"):
                 self.manager.model = self.manager.task_executor.model = self.model
+            if hasattr(self, "story"):
+                self.story.model = self.model
         except ValueError as exc:
             self.model = None
             self.error = str(exc)
@@ -126,6 +166,8 @@ class WebState:
         finished=None,
         observer=None,
     ) -> str:
+        if self.story_enabled or self.story.status == "recording":
+            raise RuntimeError("故事模式录音中，请先结束讲故事")
         if self.meeting.db.active() and meeting_options is None:
             raise ValueError("代码修改模式中请通过会议入口讨论、整理和确认")
         if self.busy:
@@ -255,5 +297,6 @@ class WebState:
             task.cancel()
         await asyncio.gather(*self.meeting.pending, return_exceptions=True)
         await self.stop_active()
+        await self.story.close()
         await asyncio.to_thread(self.manager.close)
         self.store.close()

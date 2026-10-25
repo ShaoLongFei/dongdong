@@ -40,6 +40,10 @@ class VoiceIn(BaseModel):
     enabled: bool = Field(strict=True)
 
 
+class StoryModeIn(BaseModel):
+    enabled: bool = Field(strict=True)
+
+
 class SettingsIn(BaseModel):
     code_backend: str | None = Field(default=None, pattern="^(builtin|cli)$")
     workspace: str | None = None
@@ -108,6 +112,37 @@ def create_app(cfg: dict) -> FastAPI:
     async def api_voice(body: VoiceIn):
         await voice.set_enabled(body.enabled)
         return {"enabled": voice.enabled}
+
+    @app.put("/api/story/mode")
+    async def api_story_mode(body: StoryModeIn):
+        return await state.story_mode(body.enabled)
+
+    @app.get("/api/story/state")
+    async def api_story_state():
+        return state.story.state()
+
+    @app.get("/api/story/events")
+    async def api_story_events(since: int = 0):
+        return {"events": state.story.events(since), "cursor": state.story.state()["cursor"]}
+
+    @app.get("/api/stories")
+    async def api_stories():
+        return {"stories": state.story.store.list_stories()}
+
+    @app.get("/api/stories/{story_id}")
+    async def api_story(story_id: str):
+        try:
+            return state.story.store.load(story_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @app.post("/api/stories/{story_id}/replay")
+    async def api_story_replay(story_id: str):
+        try:
+            scenes = state.story.replay(story_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from None
+        return {"storyId": story_id, "scenes": scenes, "cursor": state.story.state()["cursor"]}
 
     @app.get("/api/sessions/{sid}")
     async def api_session(sid: str):
