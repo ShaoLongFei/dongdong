@@ -190,7 +190,7 @@ export function App() {
       </Tabs.List>
     </Sidebar>
     <main className="main">
-      <header className="topbar"><span className="muted">工作台</span><ChevronRight size={12} /><strong>{tab === 'chat' ? detail?.title || '新对话' : ({ runs: '运行记录', skills: '技能', mcp: 'MCP', memories: '记忆', files: '文件', settings: '设置' })[tab]}</strong><button className="voice-toggle ml-auto" aria-pressed={Boolean(state?.voice_enabled)} disabled={!state || voicePending} onClick={toggleVoice} title="关闭会停止麦克风、播报和语音连接">{state?.voice_enabled ? <Mic size={14} /> : <MicOff size={14} />}{voicePending ? '切换中…' : state?.voice_enabled ? '关闭语音' : '开启语音'}</button><span className="badge"><span className={`dot ${busy ? 'working' : 'online'}`} />{busy ? '任务执行中' : '就绪'}</span></header>
+      <header className="topbar"><span className="muted">工作台</span><ChevronRight size={12} /><strong>{tab === 'chat' ? detail?.title || '新对话' : ({ runs: '运行记录', skills: '技能', mcp: 'MCP', memories: '记忆', files: '文件', story: '讲故事', settings: '设置' })[tab]}</strong><button className="voice-toggle ml-auto" aria-pressed={Boolean(state?.voice_enabled)} disabled={!state || voicePending} onClick={toggleVoice} title="关闭会停止麦克风、播报和语音连接">{state?.voice_enabled ? <Mic size={14} /> : <MicOff size={14} />}{voicePending ? '切换中…' : state?.voice_enabled ? '关闭语音' : '开启语音'}</button><span className="badge"><span className={`dot ${busy ? 'working' : 'online'}`} />{busy ? '任务执行中' : '就绪'}</span></header>
       <Approvals report={report} onResolved={refresh} runIds={detail?.runs.map(run => run.id) || []} />
       {state?.voice_error && <div className="notice" role="alert">语音启动失败：{state.voice_error}</div>}
       {notice && <div role="status" className="notice">{notice}<button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
@@ -214,7 +214,7 @@ export function App() {
       <Tabs.Content value="mcp" className="page-scroll"><MCP report={report} /></Tabs.Content>
       <Tabs.Content value="memories" className="page-scroll"><Memories report={report} /></Tabs.Content>
       <Tabs.Content value="files" className="page-scroll"><Files projectId={detail?.project_id || ''} projects={projects} currentProject={state?.current_project || ''} report={report} /></Tabs.Content>
-      <Tabs.Content value="story" className="page-scroll"><StoryCanvas key={selected} state={storyState} onModeChange={toggleStory} /></Tabs.Content>
+      <Tabs.Content value="story" className="page-scroll"><StoryCanvas key={selected} state={storyState} onModeChange={toggleStory} voiceEnabled={Boolean(state?.voice_enabled)} voiceConnection={state?.voice?.connection || ''} /></Tabs.Content>
       <Tabs.Content value="settings" className="page-scroll"><Settings onSaved={refresh} report={report} /></Tabs.Content>
     </main>
   </Tabs.Root>;

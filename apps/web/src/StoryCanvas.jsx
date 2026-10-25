@@ -30,7 +30,7 @@ function Scene({ scene }) {
   </article>;
 }
 
-export default function StoryCanvas({ state, onModeChange }) {
+export default function StoryCanvas({ state, onModeChange, voiceEnabled = false, voiceConnection = '' }) {
   const [scenes, setScenes] = useState([]);
   const [stories, setStories] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -98,6 +98,11 @@ export default function StoryCanvas({ state, onModeChange }) {
     }
   }
   const recording = state?.status === 'recording';
+  const voiceHint = recording && !voiceEnabled
+    ? '故事模式已开始，请先点击顶部开启语音。'
+    : recording && voiceConnection && voiceConnection !== 'connected'
+      ? '正在连接语音，连接后即可开始讲述。'
+      : '';
   // 当前故事的状态以轮询到的 state 为准；否则停止录音后旧的 selectedStoryStatus
   // 仍是 recording，会让导出按钮一直保持禁用。
   const activeStoryStatus = activeStoryId === state?.storyId ? state?.status : selectedStoryStatus;
@@ -153,6 +158,7 @@ export default function StoryCanvas({ state, onModeChange }) {
       {stories.length ? <div className="story-history-list">{stories.slice(0, 8).map(story => <button key={story.storyId} className={story.storyId === selectedStoryId ? 'is-selected' : ''} onClick={() => loadStory(story.storyId)} disabled={recording} title={recording ? '结束当前故事后再查看历史' : '查看故事'}><span>{story.title || '未命名故事'}</span><small>{story.scenes?.length || story.sceneCount || 0} 幕</small></button>)}</div> : <p className="story-history-empty">还没有保存的故事</p>}
       {currentStory && <p className="story-history-current">当前：{currentStory.title || currentStory.storyId}</p>}
     </div>
+    {voiceHint && <div className="notice" role="status">{voiceHint}</div>}
     {error && <div className="notice">{error}</div>}
     <div className="story-actions" aria-label="故事操作">
       <span className="story-count">{scenes.length} 幕{recording ? ' · 生成中' : ''}</span>
