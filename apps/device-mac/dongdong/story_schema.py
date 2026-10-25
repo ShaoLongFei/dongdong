@@ -123,7 +123,7 @@ def _element(raw: object, index: int, start_ms: int) -> dict:
         y = max(130, min(450, y))
     elif width < 700:
         y = max(120, min(500, y))
-    margin = 72 if kind in {"fox", "rabbit", "hedgehog", "bird", "person"} else 36
+    margin = 120 if kind in {"fox", "rabbit", "hedgehog", "bird", "person"} else 36
     x = max(margin, min(WIDTH - width - margin, x))
     return {
         "id": str(item.get("id") or f"element-{index + 1}")[:64],
@@ -139,6 +139,51 @@ def _element(raw: object, index: int, start_ms: int) -> dict:
         "startMs": start_ms,
         "durationMs": duration,
     }
+
+
+def _compose(elements: list[dict], story_text: str) -> list[dict]:
+    """把模型提供的元素放入稳定镜头，避免角色贴边或动作漂移。"""
+    characters = [
+        item for item in elements if item["kind"] in {"fox", "rabbit", "hedgehog", "bird", "person"}
+    ]
+    slots = {1: (500,), 2: (250, 700), 3: (190, 510, 830), 4: (130, 420, 710, 1000)}
+    for item, x in zip(characters, slots.get(len(characters), slots[4])):
+        item["x"] = max(72, min(WIDTH - item["width"] - 72, x))
+        item["y"] = 270 if item["kind"] == "bird" else 350
+
+    for item in elements:
+        label = item["label"]
+        if item["kind"] == "object" and any(word in label for word in ("溪", "水")):
+            item.update(x=820, y=460, width=max(item["width"], 260), height=max(item["height"], 45))
+        elif item["kind"] == "object" and any(word in label for word in ("藤", "树枝")):
+            item.update(x=650, y=465, width=max(item["width"], 260), height=max(item["height"], 42))
+        elif item["kind"] == "object" and "果" in label:
+            item.update(x=535, y=330, width=max(item["width"], 60), height=max(item["height"], 60))
+        elif "蒲公英" in label:
+            item.update(y=350)
+        elif "山谷" in label or "草坡" in label or "草地" in label:
+            item.update(
+                x=120, y=420, width=max(item["width"], 980), height=max(item["height"], 150)
+            )
+        elif item["kind"] == "action_lines":
+            if "剪断" in label:
+                item.update(
+                    x=700, y=330, width=max(item["width"], 180), height=max(item["height"], 110)
+                )
+            elif "果子" in label:
+                item.update(
+                    x=470, y=320, width=max(item["width"], 220), height=max(item["height"], 90)
+                )
+            elif "约定" in label:
+                item.update(
+                    x=520, y=280, width=max(item["width"], 220), height=max(item["height"], 100)
+                )
+            else:
+                item.update(
+                    x=520, y=280, width=max(item["width"], 150), height=max(item["height"], 90)
+                )
+        item["x"] = max(36, min(WIDTH - item["width"] - 36, item["x"]))
+    return elements
 
 
 def default_scene(story_text: str, scene_id: str) -> dict:
@@ -180,7 +225,10 @@ def normalize_scene(
             for index, item in enumerate(raw_elements[:8], 1):
                 if not isinstance(item, dict) or _kind(item) not in ALLOWED_KINDS:
                     raise ValueError(f"模型场景第 {index} 个元素缺少合法 kind")
-        elements = [_element(item, index, 0) for index, item in enumerate(raw_elements[:8])]
+        elements = _compose(
+            [_element(item, index, 0) for index, item in enumerate(raw_elements[:8])],
+            story_text,
+        )
         if len(elements) < 3:
             raise ValueError("scene requires at least three elements")
         cursor = 0
@@ -200,7 +248,25 @@ def normalize_scene(
         duration = max(cursor, _safe_int(data.get("durationMs"), cursor, 100, 30_000))
         return {
             "sceneId": scene_id if _SAFE_ID.fullmatch(scene_id or "") else "scene-001",
-            "title": str(data.get("title") or _scene_title(story_text)).strip()[:80],
+            "title": (
+                _scene_title(story_text)
+                if any(
+                    word in story_text
+                    for word in (
+                        "哭声",
+                        "缠住",
+                        "被困",
+                        "啄木鸟",
+                        "剪断",
+                        "果子",
+                        "获救",
+                        "草坡",
+                        "蒲公英",
+                        "约定",
+                    )
+                )
+                else str(data.get("title") or _scene_title(story_text)).strip()[:80]
+            ),
             "storyText": str(story_text or "").strip()[:500],
             "storyBasis": str(data.get("storyBasis") or story_text or "").strip()[:500],
             "durationMs": duration,

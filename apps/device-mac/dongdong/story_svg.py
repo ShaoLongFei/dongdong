@@ -120,7 +120,12 @@ def _shape(element: dict) -> str:
 
 def _label_position(element: dict, index: int) -> tuple[int, int]:
     x = min(WIDTH - 180, max(12, element["x"]))
-    y = min(HEIGHT - 24, max(112, element["y"] + element["height"] + 22 + (index % 2) * 18))
+    if element["kind"] in {"fox", "rabbit", "hedgehog", "bird", "person"}:
+        y = min(HEIGHT - 24, max(112, element["y"] + element["height"] + 28))
+    elif element["kind"] == "action_lines":
+        y = min(HEIGHT - 24, max(112, element["y"] - 14))
+    else:
+        y = min(HEIGHT - 24, max(112, element["y"] + element["height"] + 22 + (index % 2) * 18))
     return x, y
 
 
