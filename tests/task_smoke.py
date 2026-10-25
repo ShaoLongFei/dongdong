@@ -727,7 +727,6 @@ def test_model_repair_instruction_falls_back_safely():
         store.close()
 
 
-
 if __name__ == "__main__":
     for name, test in sorted(globals().copy().items()):
         if name.startswith("test_"):

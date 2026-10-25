@@ -268,8 +268,8 @@ class TaskStore(GoalVerification, TaskProjection):
                 raise ValueError("修复 Item 数量已达上限")
             item_id = f"{run_id}-repair-{uuid.uuid4().hex[:8]}"
             ts = now()
-            failure_summary = "\n失败结果摘要：" + (
-                (failed["error"] or failed["result"] or "无")[-2000:]
+            failure_summary = (
+                "\n失败结果摘要：" + ((failed["error"] or failed["result"] or "无")[-2000:])
             )
             repair_instruction = (
                 text + failure_summary
