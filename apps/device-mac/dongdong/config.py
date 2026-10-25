@@ -37,6 +37,9 @@ DEFAULTS: dict = {
         "extra_body": {"thinking": {"type": "disabled"}},
     },
     "runtime": {"max_steps": 20, "history_messages": 30},
+    "disabled_skills": [],
+    "mcp_servers": {},
+    "tool_policy": "auto",
     # 想加 agent 就往 agents 里加一项：cmd 是参数模板，env 支持 ${环境变量}。
     # 平台侧工具名不变，语音说「用 xxx 做」即可，不用改代码。
     "agents": {

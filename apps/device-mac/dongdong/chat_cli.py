@@ -51,6 +51,7 @@ async def main(cfg: dict, message: str | None = None) -> None:
             workspace,
             max_steps=int(cfg["runtime"]["max_steps"]),
             history_messages=int(cfg["runtime"]["history_messages"]),
+            cfg=cfg,
         )
         sid = store.create_session("终端会话", "cli")
         # asyncio.run 把 SIGINT 换成了「取消主任务」，可主任务卡在 input() 时取消送不进来，

@@ -67,6 +67,7 @@ class AgentService:
     """一个进程内单任务队列；Runtime 跑在专用事件循环线程里。"""
 
     def __init__(self, cfg: dict, *, stream_fn: Callable = stream_chat):
+        self.cfg = cfg
         self.model: ModelConfig = model_from_config(cfg)
         self.workspace = Path(cfg["workspace"]).expanduser().resolve()
         if not self.workspace.is_dir():
@@ -115,6 +116,7 @@ class AgentService:
                 max_steps=self.max_steps,
                 history_messages=self.history_messages,
                 stream_fn=self.stream_fn,
+                cfg=self.cfg,
             )
             job.answer = await runtime.run(job.session_id, instruction, on_event=job.event)
             job.status = "done"

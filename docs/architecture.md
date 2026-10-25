@@ -78,8 +78,16 @@ C++ 参考实现（[linx-linux](https://github.com/sunqirui1987/linx-linux)）�
 
 `Runtime` 向模型提供 `update_plan`（1–8 步、至多一个进行中），计划通过既有 events 表持久化并经 SSE 推送，不另起规划请求或调度器。`run_start.user_message_id` 关联会话中的执行卡，旧记录按用户轮次兼容；`model_start` 标识响应等待，工具结果携带调用 ID 与成功状态。React 对每次运行显示可折叠执行卡，终态自动收起、交付结果单独呈现；停止/失败保留尚未完成的计划。`/api/runs/{id}?include_events=true` 提供历史回放快照，`/api/state.task_session` 提供语音任务跳转入口。
 
-`work_gate.py` 只做进程内跨入口互斥，取消完成后才释放；设置保存也持有互斥，新配置在下一任务生效。不承担跨进程调度。显式 CLI 后端仍由 `agent.py` 执行。Web 仅监听 loopback，校验 Host 和 Origin；尚未实现远程鉴权，因此拒绝 `0.0.0.0`。灵矽自定义模型端点、Skills/MCP 页面仍是后续阶段。
+`work_gate.py` 只做进程内跨入口互斥，取消完成后才释放；设置保存也持有互斥，新配置在下一任务生效。不承担跨进程调度。显式 CLI 后端仍由 `agent.py` 执行。Web 仅监听 loopback，校验 Host 和 Origin；尚未实现远程鉴权，因此拒绝 `0.0.0.0`。灵矽自定义模型端点仍是备选后续路线。
 - 边界测试在 `tests/agent_smoke.py`、`tests/agent_transport.py` 和 `tests/agent_mcp.py`，由 `scripts/check.sh` 统一跑。
+
+### Skills、外部 MCP 与审批
+
+`skills.py` 发现本地技能目录，PyYAML 读取 frontmatter 描述；Runtime 只注入启用技能的目录摘要，通过 `read_skill` 按需读完整正文。路径 resolve 后限制在 skills 根内，拒绝穿越、根外符号链接和超长文件。启停保存在 `disabled_skills`，下一任务生效。
+
+`mcp_client.py` 使用官方 MCP SDK，支持 stdio、Streamable HTTP 和 SSE，每个 run 在自身 asyncio task 中进入和关闭连接上下文，发现工具转为 `mcp_<server>_<index>`，原名保留在描述与映射中。连接/发现默认 15 秒、调用默认 60 秒；单服务连接错误存入 `mcp_error` 事件，不阻断内置工具。`mcp_routes.py` 提供配置与显式测试；env/headers 只写不读，支持环境变量引用。
+
+`tool_policy=auto|ask` 默认 auto；ask 对 shell、写/改文件、所有外部工具调用等待 `Approvals` 的一次性 Future，批准只适用于 `(run_id, call_id)`。pending 不持久化，事件写入 SQLite；取消移除 pending，拒绝形成失败工具结果供模型说明。全局审批卡独立轮询，不依赖当前会话或 SSE 是否连通；CLI/独立服务未提供审批回调时拒绝操作。配置、技能和 MCP 修改共用 work_gate，运行中返回409。审批不能替代 shell 沙箱或 MCP 服务进程权限管理；服务启动本身由用户配置授权，ask 只审批工具调用。
 
 ### 灵矽语音接本地 agent
 

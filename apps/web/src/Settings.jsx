@@ -27,6 +27,7 @@ export default function Settings({ onSaved, report }) {
     <div><p className="eyebrow">PREFERENCES</p><h2>让咚咚适应你的工作方式</h2><p className="muted">模型与工作区配置保存在这台 Mac 上。</p></div>
     {field('workspace', '工作区 · 文件工具的访问范围', 'text', { required: true })}
     <label>语音编程后端<select className="backend-select" value={form.code_backend || 'cli'} onChange={e => setForm({ ...form, code_backend: e.target.value })}><option value="builtin">内置 agent · 与 Web 共享任务和模型</option><option value="cli">CLI · 使用配置中的 codex / claude</option></select></label>
+    <label>工具执行方式<select className="backend-select" value={form.tool_policy || 'auto'} onChange={e => setForm({ ...form, tool_policy: e.target.value })}><option value="auto">自动执行 · 保留当前体验</option><option value="ask">逐次确认 · 写文件、命令和外部工具先审批</option></select></label>
     <div className="field-grid">{field('base_url', '模型 API 地址', 'url', { required: true })}{field('model', '模型名称', 'text', { required: true })}</div>
     {field('api_key', 'API Key', 'password', { autoComplete: 'new-password', placeholder: form.has_key ? '已配置 · 留空保留现有密钥' : '输入密钥，或在环境变量中配置' })}
     <div className="field-grid">{field('temperature', 'Temperature', 'number', { min: 0, max: 2, step: 0.1 })}{field('max_tokens', '最大输出 tokens', 'number', { min: 1, max: 65536 })}</div>

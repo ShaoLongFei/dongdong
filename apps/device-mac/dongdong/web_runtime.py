@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from . import config, work_gate
+from .approvals import Approvals
 from .llm import model_from_config
 from .runtime import Runtime
 from .store import Store
@@ -19,6 +20,7 @@ log = logging.getLogger("dongdong.web")
 class WebState:
     def __init__(self, cfg: dict):
         self.cfg = cfg
+        self.approvals = Approvals()
         self.store = Store(config.HOME / "dongdong.db")
         if not work_gate.current():
             self.store.stop_orphan_runs()
@@ -86,6 +88,8 @@ class WebState:
                     workspace,
                     max_steps=int(self.cfg["runtime"]["max_steps"]),
                     history_messages=int(self.cfg["runtime"]["history_messages"]),
+                    cfg=self.cfg,
+                    approve=self.approvals.request,
                 )
                 await runtime.run(session_id, text, on_event=on_event)
             finally:

@@ -102,3 +102,12 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; }
 .execution-hint { color: #bcb69d; font-size: 12px; line-height: 1.8; }
 .execution-text { margin: 12px 0; color: #abb8a0; }
 .final-answer { margin-top: 16px; }.execution-failure { color: #dcc49b; font-size: 12px; line-height: 1.8; }
+.settings > article { padding: 16px; border: 1px solid #333e2d; border-radius: 9px; background: #191e18; }
+.settings input[type="checkbox"] { width: auto; accent-color: #c1dfa0; }
+.settings label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: 8px; }
+.settings button:not(.primary), .approval-actions button:not(.primary) { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #414d37; border-radius: 6px; background: #252d20; color: #bfd6aa; padding: 7px 12px; margin-top: 8px; }
+.settings select, .settings textarea { border: 1px solid #343f2d; border-radius: 7px; background: #1a2017; color: #e2eadb; padding: 10px; }
+.approvals { padding: 14px 24px; border-bottom: 1px solid #6c6544; background: #29291b; overflow: auto; max-height: 45vh; flex-shrink: 0; }
+.approvals h2 { font-size: 15px; margin-bottom: 10px; }.approval-card h3 { font-size: 13px; }
+.approval-card pre { max-height: 18vh; overflow: auto; color: #d3d4b5; }
+.approval-actions { display: flex; gap: 10px; align-items: center; margin-top: 12px; }.approval-actions button { margin-top: 0 !important; }

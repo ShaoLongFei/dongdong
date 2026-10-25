@@ -53,49 +53,23 @@ def test_mcp_dispatch():
     assert init["result"]["protocolVersion"] == "2024-11-05"
     listed = mcp.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     assert {t["name"] for t in listed["result"]["tools"]} == set(tools.TOOLS)
-    assert {
-        "self.memory.search",
-        "self.memory.save",
-        "self.memory.list",
-        "self.memory.delete",
-    } <= {t["name"] for t in listed["result"]["tools"]}
-    missing = {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "self.nope"}}
-    assert mcp.handle(missing)["error"]["code"] == -32601
-    bad = mcp.handle(
-        {
-            **missing,
-            "id": 4,
-            "params": {"name": "self.code.run", "arguments": {"instruction": "  "}},
-        }
-    )
-    assert bad["result"]["isError"] is True, bad
+    assert {"self.memory." + op for op in ("search", "save", "list", "delete")} <= set(tools.TOOLS)
+    request = {"jsonrpc": "2.0", "id": 3, "method": "tools/call"}
+    assert mcp.handle({**request, "params": {"name": "self.nope"}})["error"]["code"] == -32601
+    bad = {"name": "self.code.run", "arguments": {"instruction": "  "}}
+    assert mcp.handle({**request, "params": bad})["result"]["isError"] is True
 
 
 def test_resolve_dir_blocks_escape():
     work = Path(tempfile.mkdtemp(prefix="dongdong-work-")).resolve()  # macOS 上 /var → /private/var
     cfg = {"projects": [str(work)], "cwd": ""}
     assert agent.resolve_dir(cfg, None) == work
-    for outside in ("/tmp", "/etc", str(work / "..")):
-        try:
+    (work / "proj").mkdir()
+    assert agent.resolve_dir(cfg, "proj") == work / "proj"
+    for outside in ("/tmp", "/etc", str(work / ".."), "nope", "../etc"):
+        with contextlib.suppress(ValueError):
             agent.resolve_dir(cfg, outside)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"越界目录被放行了: {outside}")
-
-
-def test_resolve_dir_relative_name():
-    root = Path(tempfile.mkdtemp(prefix="dongdong-rel-")).resolve()
-    (root / "proj").mkdir()
-    cfg = {"projects": [str(root)], "cwd": ""}
-    assert agent.resolve_dir(cfg, "proj") == root / "proj", "相对目录要能在项目根下找到"
-    for bad in ("nope", "../etc", "/etc"):
-        try:
-            agent.resolve_dir(cfg, bad)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"不该放行: {bad}")
+            raise AssertionError(f"越界或不存在的目录被放行: {outside}")
 
 
 def test_agent_argv_and_env():
@@ -118,8 +92,7 @@ def test_agent_argv_and_env():
 
 def test_memory_delete_validates_all_owners_before_deleting():
     class MemoryStub:
-        records = {"owned": {"user_id": "u1"}, "other": {"user_id": "u2"}}
-        deleted = []
+        records, deleted = {"owned": {"user_id": "u1"}, "other": {"user_id": "u2"}}, []
 
         def get(self, memory_id):
             return self.records.get(memory_id)
@@ -127,15 +100,11 @@ def test_memory_delete_validates_all_owners_before_deleting():
         def delete(self, memory_id):
             self.deleted.append(memory_id)
 
-    original = memory._memory
-    stub = MemoryStub()
+    original, stub = memory._memory, MemoryStub()
     memory._memory = stub
     try:
-        try:
+        with contextlib.suppress(ValueError):
             memory.delete(["owned", "other"], "u1")
-        except ValueError:
-            pass
-        else:
             raise AssertionError("另一用户的 memory ID 必须拒绝")
         assert stub.deleted == [], "必须先验证完整列表再删除"
         assert memory.delete(["owned"], "u1") == ["owned"]
@@ -145,24 +114,16 @@ def test_memory_delete_validates_all_owners_before_deleting():
 
 
 def test_memory_tools_reject_empty_inputs_before_sdk_init():
-    original = memory._get_memory
-    initialized = False
-
-    def track_init():
-        nonlocal initialized
-        initialized = True
-        return original()
-
-    memory._get_memory = track_init
+    original, initialized = memory._get_memory, []
+    memory._get_memory = lambda: initialized.append(True)
     try:
-        for name, arguments in (
-            ("self.memory.delete", {"memory_ids": []}),
-            ("self.memory.search", {"query": ""}),
-            ("self.memory.save", {"text": "   "}),
+        for name, args in (
+            ("delete", {"memory_ids": []}),
+            ("search", {"query": ""}),
+            ("save", {"text": "   "}),
         ):
-            result = tools.call(name, arguments)
-            assert result["isError"] is True, result
-        assert initialized is False, "空输入不应初始化 Mem0 SDK"
+            assert tools.call("self.memory." + name, args)["isError"] is True
+        assert not initialized, "空输入不应初始化 Mem0 SDK"
     finally:
         memory._get_memory = original
 
@@ -183,16 +144,13 @@ def test_memory_tightens_existing_data_dir_permissions():
         def from_config(config):
             return config
 
-    original_dir = memory.DATA_DIR
-    original_memory = memory._memory
-    original_key = os.environ.get("OPENAI_API_KEY")
-    original_module = sys.modules.get("mem0")
+    original_dir, original_memory = memory.DATA_DIR, memory._memory
+    original_key, original_module = os.environ.get("OPENAI_API_KEY"), sys.modules.get("mem0")
     with tempfile.TemporaryDirectory(prefix="dongdong-memory-") as temp_dir:
         data_dir = Path(temp_dir) / ".memory"
-        data_dir.mkdir(mode=0o755)
+        data_dir.mkdir()
         data_dir.chmod(0o755)
-        memory.DATA_DIR = data_dir
-        memory._memory = None
+        memory.DATA_DIR, memory._memory = data_dir, None
         os.environ["OPENAI_API_KEY"] = "test-only"
         sys.modules["mem0"] = ModuleType("mem0")
         sys.modules["mem0"].Memory = MemoryFactory
@@ -200,8 +158,7 @@ def test_memory_tightens_existing_data_dir_permissions():
             memory._get_memory()
             assert data_dir.stat().st_mode & 0o777 == 0o700
         finally:
-            memory.DATA_DIR = original_dir
-            memory._memory = original_memory
+            memory.DATA_DIR, memory._memory = original_dir, original_memory
             if original_key is None:
                 os.environ.pop("OPENAI_API_KEY", None)
             else:
@@ -282,6 +239,46 @@ def test_shared_runtime_rejects_reentry_and_cwd_escape():
         recorder.close()
         player.close()
         assert recorder.read() is None and not player.playing()
+
+    asyncio.run(check())
+
+
+def test_skill_and_approval_boundaries():
+    from dongdong import skills
+    from dongdong.approvals import Approvals
+
+    root = config.HOME / "skills"
+    (root / "sample").mkdir(parents=True)
+    (root / "sample" / "SKILL.md").write_text("技能正文")
+    (root / "escape").symlink_to(root.parent, target_is_directory=True)
+    assert skills.read_skill("sample", {}) == "技能正文"
+    for name, cfg in [
+        ("../sample", {}),
+        ("escape", {}),
+        ("sample", {"disabled_skills": ["sample"]}),
+    ]:
+        with contextlib.suppress(ValueError):
+            skills.read_skill(name, cfg)
+            raise AssertionError("禁用/越界技能不能读取")
+
+    async def check():
+        manager, events = Approvals(), []
+        for approved in (False, True):
+            task = asyncio.create_task(
+                manager.request("run", "call", "shell", {}, lambda k, d: events.append(k))
+            )
+            await asyncio.sleep(0)
+            assert not manager.resolve("other", "call", True)
+            assert manager.resolve("run", "call", approved)
+            assert not manager.resolve("run", "call", approved)
+            assert await task is approved and not manager.pending()
+        task = asyncio.create_task(
+            manager.request("run", "cancel", "shell", {}, lambda k, d: events.append(k))
+        )
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        assert not manager.pending() and events.count("approval_result") == 3
 
     asyncio.run(check())
 

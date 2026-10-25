@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as Tabs from '@radix-ui/react-tabs';
-import { ArrowUp, AudioLines, ChevronRight, Circle, MessageSquare, Mic, MicOff, Plus, Settings2, Square, Workflow } from 'lucide-react';
+import { ArrowUp, AudioLines, ChevronRight, Circle, MessageSquare, Mic, MicOff, Plus, Settings2, Square, Workflow, BookOpen, Plug } from 'lucide-react';
 import { api, statusText } from './api';
 import Settings from './Settings';
 import Conversation from './Conversation';
+import Skills from './Skills';
+import MCP from './MCP';
+import Approvals from './Approvals';
 import './style.css';
 
 function App() {
@@ -134,6 +137,8 @@ function App() {
       <Tabs.List className="navigation" aria-label="工作台页面">
         <Tabs.Trigger value="chat"><MessageSquare size={16} />对话</Tabs.Trigger>
         <Tabs.Trigger value="runs"><Workflow size={16} />运行记录</Tabs.Trigger>
+        <Tabs.Trigger value="skills"><BookOpen size={16} />技能</Tabs.Trigger>
+        <Tabs.Trigger value="mcp"><Plug size={16} />MCP</Tabs.Trigger>
         <Tabs.Trigger value="settings"><Settings2 size={16} />设置</Tabs.Trigger>
       </Tabs.List>
       <div className="session-label">最近对话<span>{sessions.length}</span></div>
@@ -141,7 +146,8 @@ function App() {
       <div className="sidebar-footer"><span className={`dot ${state ? 'online' : ''}`} /><span>本机工作区</span><span className="ml-auto text-xs muted">v{state?.version || '0.1.0'}</span></div>
     </aside>
     <main className="main">
-      <header className="topbar"><span className="muted">工作台</span><ChevronRight size={12} /><strong>{tab === 'chat' ? detail?.title || '新对话' : tab === 'runs' ? '运行记录' : '设置'}</strong><button className="voice-toggle ml-auto" aria-pressed={Boolean(state?.voice_enabled)} disabled={!state || voicePending} onClick={toggleVoice} title="关闭会停止麦克风、播报和语音连接">{state?.voice_enabled ? <Mic size={14} /> : <MicOff size={14} />}{voicePending ? '切换中…' : state?.voice_enabled ? '关闭语音' : '开启语音'}</button><span className="badge"><span className={`dot ${busy ? 'working' : 'online'}`} />{busy ? '任务执行中' : '就绪'}</span></header>
+      <header className="topbar"><span className="muted">工作台</span><ChevronRight size={12} /><strong>{tab === 'chat' ? detail?.title || '新对话' : ({ runs: '运行记录', skills: '技能', mcp: 'MCP', settings: '设置' })[tab]}</strong><button className="voice-toggle ml-auto" aria-pressed={Boolean(state?.voice_enabled)} disabled={!state || voicePending} onClick={toggleVoice} title="关闭会停止麦克风、播报和语音连接">{state?.voice_enabled ? <Mic size={14} /> : <MicOff size={14} />}{voicePending ? '切换中…' : state?.voice_enabled ? '关闭语音' : '开启语音'}</button><span className="badge"><span className={`dot ${busy ? 'working' : 'online'}`} />{busy ? '任务执行中' : '就绪'}</span></header>
+      <Approvals report={report} onResolved={refresh} />
       {state?.voice_error && <div className="notice" role="alert">语音启动失败：{state.voice_error}</div>}
       {notice && <div role="status" className="notice">{notice}<button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
       {state && !state.model_ready && tab !== 'settings' && <button className="setup-banner" onClick={() => setTab('settings')}>{state.error} · 前往设置 <ChevronRight size={14} /></button>}
@@ -158,6 +164,8 @@ function App() {
         <p className="footnote">咚咚可以修改文件和执行命令，请留意工具的执行结果。</p>
       </Tabs.Content>
       <Tabs.Content value="runs" className="page-scroll"><p className="eyebrow">ACTIVITY</p><h2>每一步，都有迹可循。</h2><p className="muted mb-6">当前会话的执行记录 · {detail?.runs.length || 0} 次运行</p><div className="run-list">{detail?.runs.map(run => <button key={run.id} className="run-row" disabled={run.status === 'running'} onClick={() => inspect(run)}><Workflow size={17} /><div><strong>{run.id}</strong><span className="muted text-xs">{new Date(run.started_at).toLocaleString()}</span></div><span className={`badge ${run.status}`}>{statusText[run.status]}</span><ChevronRight size={14} /></button>) || <p className="muted">开启对话后，运行记录会保存在这里。</p>}</div>{runDetail && <section className="run-inspector"><h3>运行 {runDetail.id}</h3><p>{runDetail.error}</p><p className="muted">用量：{JSON.stringify(runDetail.usage)}</p>{runDetail.events.map(event => <details className="tool-card" key={event.id}><summary>{event.type} {event.data.name}</summary><pre>{JSON.stringify(event.data, null, 2)}</pre></details>)}</section>}</Tabs.Content>
+      <Tabs.Content value="skills" className="page-scroll"><Skills report={report} /></Tabs.Content>
+      <Tabs.Content value="mcp" className="page-scroll"><MCP report={report} /></Tabs.Content>
       <Tabs.Content value="settings" className="page-scroll"><Settings onSaved={refresh} report={report} /></Tabs.Content>
     </main>
   </Tabs.Root>;

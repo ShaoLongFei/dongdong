@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import config, tools, work_gate
+from . import approvals, config, mcp_routes, skills, tools, work_gate
 from . import state as device_state
 from .voice import Voice
 from .web_runtime import WebAgent, WebState
@@ -42,6 +42,7 @@ class SettingsIn(BaseModel):
     api_key: str | None = None
     temperature: float | None = Field(default=None, ge=0, le=2)
     max_tokens: int | None = Field(default=None, ge=1, le=65536)
+    tool_policy: str | None = Field(default=None, pattern="^(auto|ask)$")
 
 
 def create_app(cfg: dict) -> FastAPI:
@@ -60,6 +61,9 @@ def create_app(cfg: dict) -> FastAPI:
 
     app = FastAPI(title="咚咚", lifespan=lifespan)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]"])
+    app.include_router(skills.router(cfg))
+    app.include_router(mcp_routes.router(cfg))
+    app.include_router(approvals.router(state.approvals))
 
     @app.middleware("http")
     async def check_origin(request: Request, call_next):
@@ -179,6 +183,7 @@ def create_app(cfg: dict) -> FastAPI:
             "max_tokens": model["max_tokens"],
             "has_key": bool(config.expand(model["api_key"])),
             "code_backend": cfg.get("code_backend", "cli"),
+            "tool_policy": cfg.get("tool_policy", "auto"),
         }
 
     @app.put("/api/settings")
@@ -199,6 +204,8 @@ def create_app(cfg: dict) -> FastAPI:
             state.workspace = workspace
         if body.code_backend is not None:
             cfg["code_backend"] = body.code_backend
+        if body.tool_policy is not None:
+            cfg["tool_policy"] = body.tool_policy
         model = cfg["model"]
         if body.base_url:
             model["base_url"] = body.base_url.rstrip("/")
