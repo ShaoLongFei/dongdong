@@ -281,6 +281,40 @@ def test_task_scheduler_config_and_startup_recovery():
         restored.close()
 
 
+def test_cross_store_recovery_requires_explicit_resume():
+    from dongdong.task_model import AttemptResult
+    from dongdong.task_scheduler import TaskManager
+
+    with tempfile.TemporaryDirectory(prefix="dongdong-cross-store-") as tmp:
+        root = Path(tmp).resolve()
+        db = root / "tasks.db"
+        first = Store(db)
+        sid = first.create_session("cross store")
+        run_id = first.create_task_run(sid, RunSpec(goal_text="resume", workspace=str(root)))
+        first.add_items(run_id, [ItemSpec(id="write", instruction="write")])
+        assert first.claim_item(run_id, "write", "old-worker", lease_seconds=60)
+        first.close()
+
+        restored = Store(db)
+        manager = TaskManager(
+            restored,
+            cfg={"workspace": str(root), "task_scheduler": {"poll_seconds": 0.01}},
+            runner=lambda *_: AttemptResult("done", output="resumed"),
+        )
+        assert manager.recover_runs() == 1
+        paused = manager.status(run_id)
+        assert paused["run"]["status"] == "paused"
+        assert paused["items"][0]["status"] == "stopped"
+        assert not restored.claim_item(run_id, "write", "unexpected-replay")
+
+        manager.resume(run_id)
+        finished = manager.wait(run_id, 3)
+        assert finished["run"]["status"] == "done"
+        assert finished["items"][0]["result"] == "resumed"
+        manager.close()
+        restored.close()
+
+
 def test_task_scope_conflicts_and_planner_boundaries():
     from dongdong.task_model import normalize_scope
     from dongdong.task_planner import TaskPlanner
