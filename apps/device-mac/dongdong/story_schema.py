@@ -72,14 +72,27 @@ def default_scene(story_text: str, scene_id: str) -> dict:
     }
 
 
-def normalize_scene(raw: dict | str, story_text: str, scene_id: str) -> dict:
+def normalize_scene(
+    raw: dict | str, story_text: str, scene_id: str, *, strict: bool = False
+) -> dict:
     try:
         data = json.loads(raw) if isinstance(raw, str) else raw
         if not isinstance(data, dict):
             raise ValueError("scene must be an object")
+        # 部分模型会额外包一层 scenes；取第一幕后仍按同一受控协议校验。
+        if "elements" not in data and isinstance(data.get("scenes"), list):
+            first = data["scenes"][0] if data["scenes"] else None
+            if isinstance(first, dict):
+                data = first
         raw_elements = data.get("elements")
         if not isinstance(raw_elements, list):
             raise ValueError("elements must be a list")
+        if strict and len(raw_elements) < 3:
+            raise ValueError("模型场景至少需要 3 个元素")
+        if strict:
+            for index, item in enumerate(raw_elements[:8], 1):
+                if not isinstance(item, dict) or item.get("kind") not in ALLOWED_KINDS:
+                    raise ValueError(f"模型场景第 {index} 个元素缺少合法 kind")
         elements = [_element(item, index, 0) for index, item in enumerate(raw_elements[:8])]
         if len(elements) < 3:
             raise ValueError("scene requires at least three elements")
@@ -109,4 +122,6 @@ def normalize_scene(raw: dict | str, story_text: str, scene_id: str) -> dict:
             "elements": elements,
         }
     except (TypeError, ValueError, json.JSONDecodeError):
+        if strict:
+            raise
         return default_scene(story_text, scene_id)

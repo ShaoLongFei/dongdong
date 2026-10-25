@@ -110,7 +110,7 @@ class StorySession:
         async with self._sem:
             try:
                 raw = await self._request_scene(text)
-                scene = normalize_scene(raw, text, scene_id)
+                scene = normalize_scene(raw, text, scene_id, strict=True)
                 self._characters = scene.get("characters", [])
                 self.store.save_scene(self.story_id, scene)
                 scene["svg"] = scene_to_svg(scene)
@@ -118,24 +118,17 @@ class StorySession:
                 self._pending.pop(scene_id, None)
             except Exception as exc:  # model and disk errors are visible in the event stream
                 log.warning("故事场景失败: %s", exc)
-                scene = normalize_scene({}, text, scene_id)
-                try:
-                    self.store.save_scene(self.story_id, scene)
-                    scene["svg"] = scene_to_svg(scene)
-                    self._publish(
-                        "scene", {"storyId": self.story_id, "scene": scene, "fallback": True}
-                    )
-                    self._pending.pop(scene_id, None)
-                except Exception as save_exc:
-                    self._error = str(save_exc)
-                    self.status = "error"
-                    self._publish("error", {"message": str(save_exc)})
+                self._pending.pop(scene_id, None)
+                self._error = str(exc)
+                self.status = "error"
                 self._publish("error", {"message": str(exc), "sceneId": scene_id})
+                self._save_manifest_status()
 
     async def _request_scene(self, text: str) -> dict | str:
         prompt = (
-            "把下面的儿童故事片段转换为 JSON 场景。只输出 JSON，不要 Markdown。"
-            "字段为 elements（至少 3 个受控元素）、characters、durationMs、storyBasis。"
+            "把下面的儿童故事片段转换为白板动画 JSON 场景。只输出 JSON，不要 Markdown。"
+            "elements 至少 3 个，每个元素必须有 kind、x、y、width、height、color、label；"
+            "kind 只能是 tree、rabbit、person、house、sun、object、action_lines、simple_shape。"
             f"\n前文角色：{json.dumps(self._characters, ensure_ascii=False)}\n片段：{text}"
         )
         if self.model is None:
@@ -144,7 +137,10 @@ class StorySession:
             result = self.model.generate_scene(prompt)
             return await result if isinstance(result, Awaitable) else result
         messages = [
-            {"role": "system", "content": "你是儿童故事分镜生成器，只返回 JSON。"},
+            {
+                "role": "system",
+                "content": "你是儿童故事白板动画分镜生成器，只返回符合协议的 JSON。",
+            },
             {"role": "user", "content": prompt},
         ]
         chunks = []
@@ -168,6 +164,8 @@ class StorySession:
             if waiting:
                 await asyncio.gather(*waiting, return_exceptions=True)
         self._save_pending()
+        if self.status != "error" and self._error:
+            self.status = "error"
         if self.status != "error":
             self.status = "done"
         if self.story_id:
@@ -183,17 +181,19 @@ class StorySession:
 
     def _save_pending(self) -> None:
         for scene_id, text in list(self._pending.items()):
-            scene = normalize_scene({}, text, scene_id)
-            try:
-                self.store.save_scene(self.story_id, scene)
-                scene["svg"] = scene_to_svg(scene)
-                self._publish("scene", {"storyId": self.story_id, "scene": scene, "fallback": True})
-            except Exception as exc:
-                self._error = str(exc)
-                self.status = "error"
-                self._publish("error", {"message": str(exc), "sceneId": scene_id})
-            finally:
-                self._pending.pop(scene_id, None)
+            self._pending.pop(scene_id, None)
+            self._error = self._error or "场景生成未完成，未生成伪画面"
+            self.status = "error"
+            self._publish("error", {"message": self._error, "sceneId": scene_id})
+        self._save_manifest_status()
+
+    def _save_manifest_status(self) -> None:
+        if not self.story_id:
+            return
+        manifest = self.store.load(self.story_id)["manifest"]
+        manifest["status"] = self.status
+        manifest["updatedAt"] = datetime.now(UTC).isoformat(timespec="seconds")
+        self.store.save_manifest(self.story_id, manifest)
 
     def state(self) -> dict:
         return {

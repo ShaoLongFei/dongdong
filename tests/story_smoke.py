@@ -208,7 +208,10 @@ def main() -> None:
             store.save_scene(story_id, {**scene, "sceneId": "scene-002"})
             storyboard_png = export_story(Path(tmp) / "stories" / story_id, "png")
             storyboard_pdf = export_story(Path(tmp) / "stories" / story_id, "pdf")
-            assert struct.unpack(">II", storyboard_png.read_bytes()[16:24]) == (1280, 1552)
+            assert struct.unpack(">II", storyboard_png.read_bytes()[16:24]) == (
+                1280,
+                1552,
+            )
             assert storyboard_pdf.read_bytes()[:5] == b"%PDF-"
         else:
             print("story export smoke skipped: macOS qlmanage/sips unavailable")
@@ -288,11 +291,12 @@ def main() -> None:
             session.accept_text("小兔子看见太阳于是跑向森林" * 4)
             assert session.state()["bufferedText"]
             result = await session.stop()
-            assert result["status"] == "done"
-            assert store.load(story_id)["scenes"]
+            assert result["status"] == "error"
+            assert store.load(story_id)["scenes"] == []
             events = session.events(0)
             assert events and session.events(events[-1]["id"]) == []
-            assert any(event["type"] == "export" for event in events)
+            assert any(event["type"] == "error" for event in events)
+            assert not any(event["type"] == "scene" for event in events)
             await session.close()
 
         async def buffering_smoke() -> None:
@@ -316,9 +320,9 @@ def main() -> None:
             pending_id = pending.start()
             pending._pending["scene-001"] = "停止时仍未完成"
             result = await pending.stop()
-            assert result["status"] == "done"
+            assert result["status"] == "error"
             assert pending._pending == {}
-            assert store.load(pending_id)["scenes"]
+            assert store.load(pending_id)["scenes"] == []
 
             restored_id = store.create("story-restored")
             store.save_scene(restored_id, {**scene, "sceneId": "scene-004"})
