@@ -357,7 +357,7 @@ class TaskStore(GoalVerification, TaskProjection):
 
     def claim_item(
         self, run_id: str, item_id: str, worker_id: str, lease_seconds: int = 60
-    ) -> bool:
+    ) -> int | bool:
         ts = datetime.now(UTC)
         expiry = (ts + timedelta(seconds=max(1, lease_seconds))).isoformat(timespec="seconds")
         stamp = ts.isoformat(timespec="seconds")
@@ -366,6 +366,7 @@ class TaskStore(GoalVerification, TaskProjection):
             try:
                 cur = self._conn.execute(
                     "UPDATE items SET status='running', lease_owner=?, lease_until=?, attempts=attempts+1,"
+                    " lease_token=COALESCE(lease_token,0)+1,"
                     " updated_at=? WHERE id=? AND run_id=? AND status='open' AND EXISTS"
                     " (SELECT 1 FROM runs WHERE id=items.run_id AND status='running') AND NOT EXISTS"
                     " (SELECT 1 FROM item_deps d JOIN items p ON p.id=d.depends_on_id"
@@ -377,6 +378,11 @@ class TaskStore(GoalVerification, TaskProjection):
                 if cur.rowcount != 1:
                     self._conn.rollback()
                     return False
+                token = int(
+                    self._conn.execute(
+                        "SELECT lease_token FROM items WHERE id=? AND run_id=?", (item_id, run_id)
+                    ).fetchone()[0]
+                )
                 candidate = self._conn.execute(
                     "SELECT i.scope_json, r.workspace FROM items i JOIN runs r ON r.id=i.run_id "
                     "WHERE i.id=? AND i.run_id=?",
@@ -397,11 +403,6 @@ class TaskStore(GoalVerification, TaskProjection):
                         "UPDATE items SET status='open', lease_owner=NULL, lease_until=NULL, "
                         "attempts=attempts-1, updated_at=? WHERE id=?",
                         (stamp, item_id),
-                    )
-                    self._conn.execute(
-                        "UPDATE attempts SET status='stopped', ended_at=?, error_kind='scope_conflict',"
-                        " error='范围与运行中 Item 冲突' WHERE item_id=? AND worker_id=? AND status='running'",
-                        (stamp, item_id, worker_id),
                     )
                     recent = self._conn.execute(
                         "SELECT 1 FROM events WHERE run_id=? AND type='scope_conflict' "
@@ -427,8 +428,9 @@ class TaskStore(GoalVerification, TaskProjection):
                     self._conn.commit()
                     return False
                 self._conn.execute(
-                    "INSERT INTO attempts(item_id, worker_id, status, started_at) VALUES (?,?,?,?)",
-                    (item_id, worker_id, "running", stamp),
+                    "INSERT INTO attempts(item_id, worker_id, lease_token, status, started_at)"
+                    " VALUES (?,?,?,?,?)",
+                    (item_id, worker_id, token, "running", stamp),
                 )
                 self._conn.execute(
                     "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
@@ -440,7 +442,7 @@ class TaskStore(GoalVerification, TaskProjection):
                     ),
                 )
                 self._conn.commit()
-                return True
+                return token
             except Exception:
                 self._conn.rollback()
                 raise
@@ -488,11 +490,54 @@ class TaskStore(GoalVerification, TaskProjection):
             reads_left, writes_right
         )
 
-    def complete_item(self, item_id: str, worker_id: str, result: str = "") -> bool:
-        return self._finish_item(item_id, worker_id, "done", result=result)
+    def complete_item(
+        self, item_id: str, worker_id: str, result: str = "", *, lease_token: int | None = None
+    ) -> bool:
+        return self._finish_item(item_id, worker_id, "done", result=result, lease_token=lease_token)
+
+    def renew_item(
+        self,
+        run_id: str,
+        item_id: str,
+        worker_id: str,
+        lease_token: int,
+        lease_seconds: int = 60,
+    ) -> bool:
+        expiry = (datetime.now(UTC) + timedelta(seconds=max(1, lease_seconds))).isoformat(
+            timespec="seconds"
+        )
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "UPDATE items SET lease_until=? WHERE run_id=? AND id=? AND lease_owner=? "
+                "AND lease_token=? AND status='running' "
+                "AND EXISTS (SELECT 1 FROM runs WHERE id=? AND status='running')",
+                (expiry, run_id, item_id, worker_id, lease_token, run_id),
+            )
+            return cur.rowcount == 1
+
+    def renew_worker(
+        self, run_id: str, worker_id: str, lease_token: int, lease_seconds: int = 60
+    ) -> bool:
+        expiry = (datetime.now(UTC) + timedelta(seconds=max(1, lease_seconds))).isoformat(
+            timespec="seconds"
+        )
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "UPDATE items SET lease_until=? WHERE run_id=? AND lease_owner=? "
+                "AND lease_token=? AND status='running' AND EXISTS "
+                "(SELECT 1 FROM runs WHERE id=? AND status='running')",
+                (expiry, run_id, worker_id, lease_token, run_id),
+            )
+            return cur.rowcount == 1
 
     def fail_item(
-        self, item_id: str, worker_id: str, error: str, error_kind: str = "retryable"
+        self,
+        item_id: str,
+        worker_id: str,
+        error: str,
+        error_kind: str = "retryable",
+        *,
+        lease_token: int | None = None,
     ) -> bool:
         with self._lock:
             row = self._conn.execute(
@@ -507,7 +552,14 @@ class TaskStore(GoalVerification, TaskProjection):
                 if row[1] >= row[2]
                 else "open"
             )
-        return self._finish_item(item_id, worker_id, status, error=error, error_kind=error_kind)
+        return self._finish_item(
+            item_id,
+            worker_id,
+            status,
+            error=error,
+            error_kind=error_kind,
+            lease_token=lease_token,
+        )
 
     def _finish_item(
         self,
@@ -517,13 +569,17 @@ class TaskStore(GoalVerification, TaskProjection):
         result: str = "",
         error: str = "",
         error_kind: str = "",
+        lease_token: int | None = None,
     ) -> bool:
+        if lease_token is None:
+            return False
         ts = now()
         with self._lock, self._conn:
             row = self._conn.execute(
                 "SELECT i.run_id FROM items i JOIN runs r ON r.id=i.run_id "
-                "WHERE i.id=? AND i.lease_owner=? AND i.status='running' AND r.status='running'",
-                (item_id, worker_id),
+                "WHERE i.id=? AND i.lease_owner=? AND i.lease_token=? AND i.status='running'"
+                " AND r.status='running'",
+                (item_id, worker_id, lease_token),
             ).fetchone()
             if not row:
                 return False
@@ -533,8 +589,18 @@ class TaskStore(GoalVerification, TaskProjection):
             )
             attempt_status = "retryable_error" if status == "open" else status
             self._conn.execute(
-                "UPDATE attempts SET status=?, ended_at=?, output=?, error_kind=?, error=? WHERE item_id=? AND worker_id=? AND status='running'",
-                (attempt_status, ts, result, error_kind, error[:4000], item_id, worker_id),
+                "UPDATE attempts SET status=?, ended_at=?, output=?, error_kind=?, error=?"
+                " WHERE item_id=? AND worker_id=? AND lease_token=? AND status='running'",
+                (
+                    attempt_status,
+                    ts,
+                    result,
+                    error_kind,
+                    error[:4000],
+                    item_id,
+                    worker_id,
+                    lease_token,
+                ),
             )
             self._conn.execute(
                 "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",

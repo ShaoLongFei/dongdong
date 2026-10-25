@@ -45,14 +45,20 @@ def test_task_store_claims_dag_atomically_and_recovers_lease():
             ],
         )
         second = Store(path)
-        assert first.claim_item(run_id, "a", "one", lease_seconds=1)
+        token1 = first.claim_item(run_id, "a", "one", lease_seconds=1)
+        assert token1
         assert not second.claim_item(run_id, "a", "two", lease_seconds=1)
         first.requeue_expired(run_id, now_value="2999-01-01T00:00:00+00:00")
-        assert second.claim_item(run_id, "a", "two", lease_seconds=1)
+        token2 = second.claim_item(run_id, "a", "two", lease_seconds=1)
+        assert token2 and token2 != token1
+        assert not first.renew_worker(run_id, "one", int(token1), lease_seconds=1)
+        assert not first.complete_item("a", "one", "过期输出", lease_token=int(token1))
+        assert not first.fail_item("a", "one", "过期失败", lease_token=int(token1))
         output = "完整输出" * 4000
-        second.complete_item("a", "two", output)
-        assert second.claim_item(run_id, "b", "two", lease_seconds=1)
-        second.fail_item("b", "two", "blocked", error_kind="blocked")
+        assert second.complete_item("a", "two", output, lease_token=int(token2))
+        token_b = second.claim_item(run_id, "b", "two", lease_seconds=1)
+        assert token_b
+        second.fail_item("b", "two", "blocked", error_kind="blocked", lease_token=int(token_b))
         view = second.task_view(run_id)
         assert view["items"][0]["status"] == "done"
         assert view["items"][0]["result"] == output
@@ -201,8 +207,9 @@ def test_goal_preview_is_read_only_and_handles_missing_acceptance():
         sid = store.create_session("preview")
         run_id = store.create_task_run(sid, RunSpec(goal_text="验收"))
         store.add_items(run_id, [ItemSpec(id="item", instruction="完成", acceptance="通过")])
-        assert store.claim_item(run_id, "item", "smoke")
-        store.complete_item("item", "smoke", "完成输出")
+        token = store.claim_item(run_id, "item", "smoke")
+        assert token
+        store.complete_item("item", "smoke", "完成输出", lease_token=int(token))
         before = store.task_view(run_id)
         result = store.preview_goal_verification(
             run_id,
@@ -401,21 +408,23 @@ def test_task_scope_conflicts_and_planner_boundaries():
                 ItemSpec(id="read-a", instruction="r", scope={"read": ["a.txt"]}),
             ]
         )
-        assert store.claim_item(parallel, "write-a", "one")
-        assert store.claim_item(parallel, "write-b", "two")
+        token_a = store.claim_item(parallel, "write-a", "one")
+        token_b = store.claim_item(parallel, "write-b", "two")
+        assert token_a and token_b
         assert not store.claim_item(parallel, "read-a", "three")
-        assert store.complete_item("write-a", "one")
-        assert store.complete_item("write-b", "two")
+        assert store.complete_item("write-a", "one", lease_token=int(token_a))
+        assert store.complete_item("write-b", "two", lease_token=int(token_b))
         conflict = run_with_items(
             [
                 ItemSpec(id="first", instruction="first", scope={"write": ["same.txt"]}),
                 ItemSpec(id="second", instruction="second", scope={"write": ["same.txt"]}),
             ]
         )
-        assert store.claim_item(conflict, "first", "one")
+        token = store.claim_item(conflict, "first", "one")
+        assert token
         assert not store.claim_item(conflict, "second", "two")
         assert any(event["type"] == "scope_conflict" for event in store.events(conflict))
-        assert store.complete_item("first", "one")
+        assert store.complete_item("first", "one", lease_token=int(token))
         readers_workspace = root / "readers"
         readers_workspace.mkdir()
         readers = run_with_items(

@@ -67,6 +67,12 @@ class Store(TaskStore):
         for name, definition in additions.items():
             if name not in columns:
                 self._conn.execute(f"ALTER TABLE runs ADD COLUMN {name} {definition}")
+        for table in ("items", "attempts"):
+            columns = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
+            if "lease_token" not in columns:
+                self._conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN lease_token INTEGER NOT NULL DEFAULT 0"
+                )
 
     def close(self) -> None:
         with self._lock:

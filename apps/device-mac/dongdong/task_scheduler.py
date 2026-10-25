@@ -157,28 +157,21 @@ class TaskManager:
                     if item["status"] != "open":
                         continue
                     worker = f"{run_id[:6]}-{uuid.uuid4().hex[:6]}"
-                    if self.store.claim_item(
+                    token = self.store.claim_item(
                         run_id, item["id"], worker, lease_seconds=self.lease_seconds
-                    ):
+                    )
+                    if token:
                         future = self.executor.submit(
-                            self._execute, run_id, worker, item["id"], cancel
+                            self._execute, run_id, worker, item["id"], token, cancel
                         )
-                        futures[future] = worker
+                        futures[future] = (worker, int(token))
                         active += 1
-                futures = {
-                    future: worker for future, worker in futures.items() if not future.done()
-                }
+                futures = {future: value for future, value in futures.items() if not future.done()}
                 # 活跃 worker 续租；不能因模型等待超过 60 秒便重复执行命令。
-                with self.store._lock, self.store._conn:
-                    lease_until = datetime.fromtimestamp(
-                        time.time() + self.lease_seconds, UTC
-                    ).isoformat(timespec="seconds")
-                    for worker in futures.values():
-                        self.store._conn.execute(
-                            "UPDATE items SET lease_until=? WHERE run_id=? AND lease_owner=? "
-                            "AND status='running'",
-                            (lease_until, run_id, worker),
-                        )
+                for future, (worker, token) in futures.items():
+                    if future.done():
+                        continue
+                    self.store.renew_worker(run_id, worker, token, lease_seconds=self.lease_seconds)
                 view = self.store.task_view(run_id)
                 statuses = {item["status"] for item in view["items"]}
                 if statuses and self._items_resolved(view["items"]):
@@ -225,7 +218,9 @@ class TaskManager:
 
         return bool(items) and all(resolved(item) for item in items)
 
-    def _execute(self, run_id: str, worker: str, item_id: str, cancel: threading.Event) -> None:
+    def _execute(
+        self, run_id: str, worker: str, item_id: str, token: int, cancel: threading.Event
+    ) -> None:
         view = self.store.task_view(run_id)
         item = next(item for item in view["items"] if item["id"] == item_id)
         try:
@@ -235,15 +230,22 @@ class TaskManager:
         if cancel.is_set() or (self.store.get_run(run_id) or {}).get("status") != "running":
             result = AttemptResult("stopped", error="Run 已停止")
         if result.status == "done":
-            self.store.complete_item(item_id, worker, result.output)
+            self.store.complete_item(item_id, worker, result.output, lease_token=token)
         elif result.status == "stopped":
-            self.store.fail_item(item_id, worker, result.error or "已停止", error_kind="blocked")
+            self.store.fail_item(
+                item_id,
+                worker,
+                result.error or "已停止",
+                error_kind="blocked",
+                lease_token=token,
+            )
         else:
             self.store.fail_item(
                 item_id,
                 worker,
                 result.error,
                 error_kind=result.error_kind or result.status.removesuffix("_error"),
+                lease_token=token,
             )
 
     def _finish(self, run_id: str, status: str, error: str = "") -> None:
