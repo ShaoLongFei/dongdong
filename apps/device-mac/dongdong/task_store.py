@@ -253,7 +253,8 @@ class TaskStore(GoalVerification, TaskProjection):
                     run_id,
                     goal[0] if goal else None,
                     failed_item_id,
-                    text or f"修复失败 Item：{failed['instruction']}",
+                    text
+                    or f"修复失败 Item：{failed['instruction']}\n原错误：{failed['error'] or '无'}",
                     failed["acceptance"],
                     failed["agent"],
                     failed["cwd"],
@@ -391,9 +392,10 @@ class TaskStore(GoalVerification, TaskProjection):
                 "UPDATE items SET status=?, lease_owner=NULL, lease_until=NULL, result=?, error=?, updated_at=? WHERE id=?",
                 (status, result, error[:4000], ts, item_id),
             )
+            attempt_status = "retryable_error" if status == "open" else status
             self._conn.execute(
                 "UPDATE attempts SET status=?, ended_at=?, output=?, error_kind=?, error=? WHERE item_id=? AND worker_id=? AND status='running'",
-                (status, ts, result, error_kind, error[:4000], item_id, worker_id),
+                (attempt_status, ts, result, error_kind, error[:4000], item_id, worker_id),
             )
             self._conn.execute(
                 "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
@@ -445,13 +447,22 @@ class TaskStore(GoalVerification, TaskProjection):
                     "SELECT 1 FROM items WHERE id=? AND parent_id IS NOT NULL", (item_id,)
                 ).fetchone()
             ):
+                ancestor = item_id
+                while True:
+                    parent_row = self._conn.execute(
+                        "SELECT parent_id FROM items WHERE id=?", (ancestor,)
+                    ).fetchone()
+                    if not parent_row or not parent_row[0]:
+                        break
+                    ancestor = parent_row[0]
                 self._conn.execute(
-                    "WITH RECURSIVE descendants(id) AS ("
-                    " SELECT ? UNION SELECT d.item_id FROM item_deps d JOIN descendants x"
-                    " ON d.depends_on_id=x.id)"
-                    " UPDATE items SET status='open', error='', updated_at=? WHERE run_id=?"
-                    " AND status='blocked' AND id IN descendants",
-                    (item_id, ts, row[0]),
+                    "UPDATE items SET status='open', error='', updated_at=? WHERE run_id=? AND status='blocked'"
+                    " AND id IN (SELECT item_id FROM item_deps WHERE depends_on_id=?)"
+                    " AND NOT EXISTS (SELECT 1 FROM item_deps d JOIN items dep ON dep.id=d.depends_on_id"
+                    " WHERE d.item_id=items.id AND dep.status!='done'"
+                    " AND NOT (dep.status IN ('blocked','exhausted','failed','error')"
+                    " AND EXISTS (SELECT 1 FROM items r WHERE r.parent_id=dep.id AND r.status='done')))",
+                    (ts, row[0], ancestor),
                 )
             return True
 
@@ -482,4 +493,9 @@ class TaskStore(GoalVerification, TaskProjection):
                     "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
                     (row[1], "lease_expired", json.dumps({"item_id": row[0]}), stamp),
                 )
+                if next_status == "exhausted":
+                    self._conn.execute(
+                        "UPDATE items SET status='blocked', error=? WHERE id IN (SELECT item_id FROM item_deps WHERE depends_on_id=?) AND status='open'",
+                        (f"依赖 {row[0]} 重试耗尽", row[0]),
+                    )
             return len(rows)

@@ -1,5 +1,6 @@
 """任务管理器的生命周期辅助函数。"""
 
+import json
 from datetime import UTC, datetime
 
 
@@ -21,30 +22,57 @@ def monitor(manager, run_id: str) -> dict:
 
 
 def recover(manager) -> int:
+    # 先回收已经失效的租约；这些 Item 可以在显式 resume 时重新领取。
+    with manager.store._lock:
+        run_ids = [
+            row[0]
+            for row in manager.store._conn.execute(
+                "SELECT id FROM runs WHERE status IN ('running','planning')"
+            ).fetchall()
+        ]
+    for run_id in run_ids:
+        manager.store.requeue_expired(run_id)
+
+    recovered = 0
     with manager.store._lock, manager.store._conn:
         rows = manager.store._conn.execute(
             "SELECT id FROM runs WHERE status IN ('running','planning')"
         ).fetchall()
         for row in rows:
+            run_id = row[0]
+            stopped = manager.store._conn.execute(
+                "SELECT COUNT(*) FROM items WHERE run_id=? AND status='running'", (run_id,)
+            ).fetchone()[0]
             manager.store._conn.execute(
-                "UPDATE runs SET status='paused', error='进程重启，请确认后恢复' WHERE id=?", row
+                "UPDATE runs SET status='paused', error='进程重启，请确认后恢复' WHERE id=?", (run_id,)
             )
             manager.store._conn.execute(
                 "UPDATE items SET status='stopped', lease_owner=NULL, lease_until=NULL "
                 "WHERE run_id=? AND status='running'",
-                row,
+                (run_id,),
             )
             manager.store._conn.execute(
                 "UPDATE attempts SET status='stopped', ended_at=?, error_kind='recovered',"
                 " error='进程重启，任务暂停' WHERE item_id IN (SELECT id FROM items WHERE run_id=?)"
                 " AND status='running'",
-                (manager.store._conn.execute("SELECT datetime('now')").fetchone()[0], row[0]),
+                (manager.store._conn.execute("SELECT datetime('now')").fetchone()[0], run_id),
             )
             manager.store._conn.execute(
                 "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,datetime('now'))",
-                (row[0], "run_recovered", '{"message":"进程重启，结束悬挂尝试"}'),
+                (
+                    run_id,
+                    "run_recovered",
+                    json.dumps(
+                        {
+                            "message": "进程重启，任务暂停；过期租约已回收",
+                            "stopped_items": stopped,
+                        },
+                        ensure_ascii=False,
+                    ),
+                ),
             )
-        return len(rows)
+            recovered += 1
+        return recovered
 
 
 def close(manager) -> None:

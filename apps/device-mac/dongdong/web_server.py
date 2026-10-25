@@ -223,6 +223,16 @@ def create_app(cfg: dict) -> FastAPI:
             raise HTTPException(409, "任务不在运行")
         return {"ok": True}
 
+    @app.post("/api/runs/{rid}/repair")
+    async def api_repair(rid: str, body: dict | None = None):
+        body = body or {}
+        try:
+            return state.manager.repair(
+                rid, body.get("item_id") or None, body.get("instruction") or None
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
     @app.get("/api/settings")
     async def api_settings():
         model = cfg["model"]

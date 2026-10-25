@@ -120,6 +120,19 @@ class WebAgent:
 
         return asyncio.run_coroutine_threadsafe(resume(), self.loop).result(timeout=3)
 
+    def task_repair(self, run_id: str = "", item_id: str = "", instruction: str = "") -> str:
+        rid = run_id or self.state._last_run
+
+        async def repair():
+            result = self.state.manager.repair(rid, item_id or None, instruction or None)
+            run = result.get("run") or {}
+            if run.get("session_id"):
+                self.state._runs[run["session_id"]] = rid
+                self.state._last_runs[run["session_id"]] = rid
+            return json.dumps(result, ensure_ascii=False)
+
+        return asyncio.run_coroutine_threadsafe(repair(), self.loop).result(timeout=3)
+
     def snapshot(self) -> dict | None:
         rid = self.state._run_id or self.state._last_run
         run = self.state.store.get_run(rid) if rid else None

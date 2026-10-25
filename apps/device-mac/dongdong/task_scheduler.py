@@ -29,16 +29,22 @@ class TaskManager:
         model=None,
         runner=None,
         approve=None,
-        max_workers: int = 1,
-        poll_seconds: float = 0.1,
+        max_workers: int | None = None,
+        poll_seconds: float | None = None,
+        lease_seconds: int | None = None,
         verifier=None,
     ):
         self.store = store
         self.cfg = cfg or config.load()
         self.model = model
         self.runner = runner
-        self.max_workers = max(1, min(int(max_workers), 32))
-        self.poll_seconds = max(0.01, float(poll_seconds))
+        scheduler_cfg = self.cfg.get("task_scheduler") or {}
+        worker_limit = max_workers if max_workers is not None else scheduler_cfg.get("max_workers", 1)
+        self.max_workers = max(1, min(int(worker_limit), 32))
+        poll_limit = poll_seconds if poll_seconds is not None else scheduler_cfg.get("poll_seconds", 0.1)
+        self.poll_seconds = max(0.01, min(float(poll_limit), 60.0))
+        lease_limit = lease_seconds if lease_seconds is not None else scheduler_cfg.get("lease_seconds", 60)
+        self.lease_seconds = max(1, min(int(lease_limit), 3600))
         self.executor = ThreadPoolExecutor(
             max_workers=self.max_workers, thread_name_prefix="dongdong-task"
         )
@@ -135,7 +141,9 @@ class TaskManager:
                     if item["status"] != "open":
                         continue
                     worker = f"{run_id[:6]}-{uuid.uuid4().hex[:6]}"
-                    if self.store.claim_item(run_id, item["id"], worker, lease_seconds=60):
+                    if self.store.claim_item(
+                        run_id, item["id"], worker, lease_seconds=self.lease_seconds
+                    ):
                         futures.add(
                             self.executor.submit(self._execute, run_id, worker, item["id"], cancel)
                         )
@@ -146,7 +154,7 @@ class TaskManager:
                     self.store._conn.execute(
                         "UPDATE items SET lease_until=? WHERE run_id=? AND status='running'",
                         (
-                            datetime.fromtimestamp(time.time() + 60, UTC).isoformat(
+                            datetime.fromtimestamp(time.time() + self.lease_seconds, UTC).isoformat(
                                 timespec="seconds"
                             ),
                             run_id,

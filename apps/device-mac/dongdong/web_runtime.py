@@ -45,7 +45,7 @@ class WebState:
 
         self.meeting = Meeting(self)
         self.manager = TaskManager(
-            self.store, cfg=cfg, model=self.model, approve=self.approvals.request, max_workers=4
+            self.store, cfg=cfg, model=self.model, approve=self.approvals.request
         )
 
     def activate(self) -> None:
@@ -124,9 +124,7 @@ class WebState:
         current = self.stories.get(self.task_session)
         if current and current.status == "recording":
             return current
-        return next(
-            (story for story in self.stories.values() if story.status == "recording"), None
-        )
+        return next((story for story in self.stories.values() if story.status == "recording"), None)
 
     def recover_stories(self) -> list[dict]:
         """刷新磁盘故事索引；只恢复元数据，不启动录音或麦克风。"""
