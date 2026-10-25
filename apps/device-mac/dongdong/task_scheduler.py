@@ -131,13 +131,13 @@ class TaskManager:
         thread.start()
 
     def _loop(self, run_id: str, cancel: threading.Event, owns_gate: bool) -> None:
-        futures = set()
+        futures = {}
         try:
             planning = self._planning.pop(run_id, None)
             if planning:
                 plan_run(self, run_id, *planning, cancel)
             while not cancel.is_set() and not self._closed:
-                view = self.store.task_view(run_id)
+                view = self.monitor_once(run_id)
                 if not view or view["run"]["status"] != "running":
                     break
                 active = sum(item["status"] == "running" for item in view["items"])
@@ -150,22 +150,25 @@ class TaskManager:
                     if self.store.claim_item(
                         run_id, item["id"], worker, lease_seconds=self.lease_seconds
                     ):
-                        futures.add(
-                            self.executor.submit(self._execute, run_id, worker, item["id"], cancel)
+                        future = self.executor.submit(
+                            self._execute, run_id, worker, item["id"], cancel
                         )
+                        futures[future] = worker
                         active += 1
-                futures = {future for future in futures if not future.done()}
+                futures = {
+                    future: worker for future, worker in futures.items() if not future.done()
+                }
                 # 活跃 worker 续租；不能因模型等待超过 60 秒便重复执行命令。
                 with self.store._lock, self.store._conn:
-                    self.store._conn.execute(
-                        "UPDATE items SET lease_until=? WHERE run_id=? AND status='running'",
-                        (
-                            datetime.fromtimestamp(time.time() + self.lease_seconds, UTC).isoformat(
-                                timespec="seconds"
-                            ),
-                            run_id,
-                        ),
-                    )
+                    lease_until = datetime.fromtimestamp(
+                        time.time() + self.lease_seconds, UTC
+                    ).isoformat(timespec="seconds")
+                    for worker in futures.values():
+                        self.store._conn.execute(
+                            "UPDATE items SET lease_until=? WHERE run_id=? AND lease_owner=? "
+                            "AND status='running'",
+                            (lease_until, run_id, worker),
+                        )
                 view = self.store.task_view(run_id)
                 statuses = {item["status"] for item in view["items"]}
                 if statuses and self._items_resolved(view["items"]):
