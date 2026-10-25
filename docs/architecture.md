@@ -265,3 +265,16 @@ Web 仅监听 loopback，并校验 Host/Origin；没有远程账号鉴权，因�
 | 灵矽自定义模型 `/v1/chat/completions` 入站接口 | 早期备选方案，当前未实现；实际语音走设备 MCP |
 
 当前执行模型仍是单活动任务、单 Runtime 循环；开发时使用 subagent 并行实施，不代表产品运行时已有多 agent 编排。后续实现依据先查本页和 [决策记录](decisions.md)，历史设计/计划的差异见 [文档导航](README.md)。
+
+
+## 会议代码修改模式（2026-10-25）
+
+会话内显式开启，固定工作区内 Git 项目目录。`meeting_store.py` 复用 Store 的 SQLite 连接建立 meetings、meeting_discussion、proposals、meeting_controls；方案正文不可变，展示和确认记录独立于正文哈希。一次仅一个开启的会议；讨论与待确认不挂起 Runtime。
+
+`WebState.voice_text` 将模式内用户 STT 分流到 Meeting；TTS 不作为人类输入。完整“整理一下方案”“按这个方案实施”由本地控制解析，普通 STT 仅登记讨论。云端 `self.code.run` 在此模式只查状态，不发起新执行；两个入口不能合成第二次确认。`/api/meetings/{sid}` 管模式与查询，`/actions` 生成/确认/显式恢复；方案 shown 和产物接口都校验所属会话与版本。
+
+生成 run 使用独立上下文、只读文件工具及 read_birdview/submit_proposal；宿主固定参数调用上游来源发现和渲染器，不开放 shell、产品写入或外部 MCP。生成讨论截止序号固定，晚到意见使确认失效。当前源码包含 untracked/未提交内容的指纹，确认时再次比对。
+
+确认通过 SQLite 条件更新只领取当前已展示版本一次；实施 run 接固定方案、受约束写文件工具和阶段记录。shell 结束后对比 Git 可见源码指纹，额外变化会停止并报告；被忽略/项目外文件不在检查范围，原有权限边界不能保证文件级隔离。扩范围抛 ScopeChange 中止循环，现有取消等待子进程清理。最终 meeting_result 记录检查、变更统计和产物 ID；SSE 等宿主收尾才结束，避免丢最后事件。
+
+`vendor/birdview` 是固定 MIT 上游分发，渲染依赖锁与图标许可随包保存。HTML 保存在 `~/.dongdong/meetings/<id>/`，仅按已注册 ID 读取，CSP sandbox + iframe 只允许脚本、不允许同源权限。显示回执在 iframe load 后复查 HTML 读取成功，并检查服务器产物存在，不证明人已阅读；真实浏览器视觉验收另行执行。前端 Meeting.jsx 提供讨论、历史方案、地图、确认、恢复和检查回看。
