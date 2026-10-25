@@ -74,7 +74,7 @@ class WebAgent:
         text = "".join(
             event["data"].get("delta", "") for event in events if event["type"] == "text"
         )
-        return f"任务 {rid} {status.get(run['status'], run['status'])}：\n{run['error'] or text[-2000:] or '(还没有输出)'}"
+        return f"任务 {rid} {status.get(run['status'], run['status'])}：\n{run['error'] or text or '(还没有输出)'}"
 
     def stop(self, job_id: str = "") -> str:
         rid = job_id or self.state._run_id or self.state._last_run or self.last

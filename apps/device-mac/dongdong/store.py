@@ -262,7 +262,7 @@ class Store(TaskStore):
                     run_id,
                     name,
                     json.dumps(args, ensure_ascii=False),
-                    result[:12000],
+                    result,
                     int(ok),
                     ms,
                     now(),
