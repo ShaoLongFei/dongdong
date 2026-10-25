@@ -115,7 +115,8 @@ def _render(svg_path: Path, output: Path, kind: str) -> None:
     try:
         with tempfile.TemporaryDirectory(prefix="dongdong-quicklook-") as temp:
             temp_dir = Path(temp)
-            thumbnail_source = temp_dir / svg_path.name
+            # Quick Look 按文件名缓存 SVG 缩略图；唯一临时名避免重复导出拿到上一幕旧画面。
+            thumbnail_source = temp_dir / f"{svg_path.stem}-{uuid.uuid4().hex}.svg"
             thumbnail_source.write_bytes(svg_path.read_bytes())
             result = subprocess.run(
                 [
@@ -143,7 +144,7 @@ def _render(svg_path: Path, output: Path, kind: str) -> None:
                     "-z",
                     str(height),
                     str(width),
-                    str(thumbnail),
+                    thumbnail,
                     "--out",
                     str(png_path),
                 ],

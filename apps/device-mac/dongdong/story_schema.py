@@ -142,45 +142,76 @@ def _element(raw: object, index: int, start_ms: int) -> dict:
 
 
 def _compose(elements: list[dict], story_text: str) -> list[dict]:
-    """把模型提供的元素放入稳定镜头，避免角色贴边或动作漂移。"""
-    characters = [
-        item for item in elements if item["kind"] in {"fox", "rabbit", "hedgehog", "bird", "person"}
-    ]
-    slots = {1: (500,), 2: (250, 700), 3: (190, 510, 830), 4: (130, 420, 710, 1000)}
-    for item, x in zip(characters, slots.get(len(characters), slots[4])):
-        item["x"] = max(72, min(WIDTH - item["width"] - 72, x))
-        item["y"] = 270 if item["kind"] == "bird" else 350
+    """把模型元素放入一组有叙事关系的镜头槽位。"""
+    text = str(story_text or "")
+    trapped = "缠" in text or "被困" in text
+    rescue = "剪断" in text or "帮忙" in text
+    gift = "果子" in text or "获救" in text
+    promise = "约定" in text or "办法" in text
+    if not rescue and not any(word in text for word in ("啄木鸟", "鸟")):
+        elements = [item for item in elements if item["kind"] != "bird"]
+    left, right = (
+        (170, 760)
+        if trapped
+        else (120, 780)
+        if rescue
+        else (220, 760)
+        if gift
+        else (280, 700)
+        if promise
+        else (420, 420)
+    )
+    bird_x, bird_y = (510, 245) if rescue else (520, 270)
+    slots = {
+        "fox": (left, 390 if promise else 350),
+        "rabbit": (left, 390 if promise else 350),
+        "person": (left, 390 if promise else 350),
+        "hedgehog": (right, 390 if promise else 350),
+        "bird": (bird_x, bird_y),
+    }
+    used = set()
+    for item in elements:
+        if item["kind"] not in slots or item["kind"] in used:
+            continue
+        x, y = slots[item["kind"]]
+        item.update(x=x, y=y)
+        used.add(item["kind"])
 
     for item in elements:
         label = item["label"]
         if item["kind"] == "object" and any(word in label for word in ("溪", "水")):
-            item.update(x=820, y=460, width=max(item["width"], 260), height=max(item["height"], 45))
+            item.update(x=850, y=500, width=max(item["width"], 300), height=max(item["height"], 52))
         elif item["kind"] == "object" and any(word in label for word in ("藤", "树枝")):
-            item.update(x=650, y=465, width=max(item["width"], 260), height=max(item["height"], 42))
-        elif item["kind"] == "object" and "果" in label:
-            item.update(x=535, y=330, width=max(item["width"], 60), height=max(item["height"], 60))
-        elif "蒲公英" in label:
-            item.update(y=350)
-        elif "山谷" in label or "草坡" in label or "草地" in label:
             item.update(
-                x=120, y=420, width=max(item["width"], 980), height=max(item["height"], 150)
+                x=610 if rescue else 700,
+                y=485,
+                width=max(item["width"], 280),
+                height=max(item["height"], 48),
+            )
+        elif item["kind"] == "object" and "果" in label:
+            item.update(x=535, y=390, width=max(item["width"], 64), height=max(item["height"], 64))
+        elif "蒲公英" in label:
+            item.update(x=item["x"], y=455)
+        elif any(word in label for word in ("山谷", "草坡", "草地")):
+            item.update(
+                x=80, y=470, width=max(item["width"], 1120), height=max(item["height"], 140)
             )
         elif item["kind"] == "action_lines":
             if "剪断" in label:
                 item.update(
-                    x=700, y=330, width=max(item["width"], 180), height=max(item["height"], 110)
+                    x=560, y=235, width=max(item["width"], 300), height=max(item["height"], 180)
                 )
             elif "果子" in label:
                 item.update(
-                    x=470, y=320, width=max(item["width"], 220), height=max(item["height"], 90)
+                    x=330, y=265, width=max(item["width"], 460), height=max(item["height"], 150)
                 )
             elif "约定" in label:
                 item.update(
-                    x=520, y=280, width=max(item["width"], 220), height=max(item["height"], 100)
+                    x=460, y=275, width=max(item["width"], 300), height=max(item["height"], 150)
                 )
             else:
                 item.update(
-                    x=520, y=280, width=max(item["width"], 150), height=max(item["height"], 90)
+                    x=500, y=225, width=max(item["width"], 260), height=max(item["height"], 130)
                 )
         item["x"] = max(36, min(WIDTH - item["width"] - 36, item["x"]))
     return elements
