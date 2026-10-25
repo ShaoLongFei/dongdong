@@ -38,6 +38,14 @@ def _peek_service():
         return _service
 
 
+def bind_service(service) -> None:
+    global _service
+    with _service_lock:
+        if _service is not None:
+            raise RuntimeError("agent service 已启动，请先关闭旧服务")
+        _service = service
+
+
 def service_snapshot():
     service = _peek_service()
     return service.snapshot() if service else None

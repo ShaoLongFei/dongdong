@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -14,8 +15,9 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import config, work_gate
-from .web_runtime import WebState
+from . import config, tools, work_gate
+from . import state as device_state
+from .web_runtime import WebAgent, WebState
 
 STATIC = Path(__file__).with_name("static")
 
@@ -29,6 +31,7 @@ class SessionIn(BaseModel):
 
 
 class SettingsIn(BaseModel):
+    code_backend: str | None = Field(default=None, pattern="^(builtin|cli)$")
     workspace: str | None = None
     base_url: str | None = None
     model: str | None = None
@@ -37,15 +40,34 @@ class SettingsIn(BaseModel):
     max_tokens: int | None = Field(default=None, ge=1, le=65536)
 
 
-def create_app(cfg: dict) -> FastAPI:
+def create_app(cfg: dict, *, voice: bool = False) -> FastAPI:
     state = WebState(cfg)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        tools.bind_service(WebAgent(state))
+        voice_task = asyncio.create_task(run_voice()) if voice else None
+        if not voice:
+            device_state.set_(connection="disabled")
         try:
             yield
         finally:
+            if voice_task:
+                voice_task.cancel()
+                await asyncio.gather(voice_task, return_exceptions=True)
+            await asyncio.to_thread(tools.close_service)
             await state.close()
+
+    async def run_voice():
+        try:
+            from .linx import Device
+
+            await Device(cfg).run()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            device_state.set_(connection="error")
+            logging.getLogger("dongdong.web").exception("语音未启动，Web 仍可使用: %s", exc)
 
     app = FastAPI(title="咚咚", lifespan=lifespan)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]"])
@@ -67,6 +89,7 @@ def create_app(cfg: dict) -> FastAPI:
             "backend": cfg.get("code_backend", "cli"),
             "active_run": state._run_id,
             "busy": bool(work_gate.current()),
+            "voice": device_state.snapshot(cfg),
         }
 
     @app.get("/api/sessions")
@@ -154,18 +177,27 @@ def create_app(cfg: dict) -> FastAPI:
             "temperature": model["temperature"],
             "max_tokens": model["max_tokens"],
             "has_key": bool(config.expand(model["api_key"])),
+            "code_backend": cfg.get("code_backend", "cli"),
         }
 
     @app.put("/api/settings")
     async def api_save_settings(body: SettingsIn):
-        if work_gate.current():
+        if not work_gate.acquire("settings"):
             raise HTTPException(409, "任务在跑，先停止再改设置")
+        try:
+            return save_settings(body)
+        finally:
+            work_gate.release("settings")
+
+    def save_settings(body: SettingsIn):
         if body.workspace is not None:
             workspace = Path(body.workspace).expanduser().resolve()
             if not workspace.is_dir():
                 raise HTTPException(400, f"工作区不存在: {workspace}")
             cfg["workspace"] = str(workspace)
             state.workspace = workspace
+        if body.code_backend is not None:
+            cfg["code_backend"] = body.code_backend
         model = cfg["model"]
         if body.base_url:
             model["base_url"] = body.base_url.rstrip("/")
@@ -194,11 +226,13 @@ def create_app(cfg: dict) -> FastAPI:
     return app
 
 
-def serve(cfg: dict, host: str | None = None, port: int | None = None) -> None:
+def serve(
+    cfg: dict, host: str | None = None, port: int | None = None, *, voice: bool = False
+) -> None:
     host = host or cfg["web"]["host"]
     port = port or int(cfg["web"]["port"])
     _local_host(host)
-    uvicorn.run(create_app(cfg), host=host, port=port, log_level="info")
+    uvicorn.run(create_app(cfg, voice=voice), host=host, port=port, log_level="info")
 
 
 def _local_host(host: str) -> None:

@@ -8,7 +8,7 @@ import json
 import logging
 import sys
 
-from . import bridge, config, doctor, panel, screen, tools
+from . import bridge, config, doctor, screen, tools
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -77,10 +77,12 @@ def main(argv: list[str] | None = None) -> None:
 
         asyncio.run(chat_cli.main(cfg, args.message))
         return
-    if args.cmd == "web":
+    if args.cmd in {"web", "run"}:
         from . import web_server
 
-        web_server.serve(cfg, args.host, args.port)
+        web_server.serve(
+            cfg, getattr(args, "host", None), getattr(args, "port", None), voice=args.cmd == "run"
+        )
         return
     if args.cmd == "serve":
         if args.host:
@@ -95,11 +97,7 @@ def main(argv: list[str] | None = None) -> None:
 
     device = Device(cfg)
     try:
-        if args.cmd == "bind":
-            asyncio.run(device.ensure_token())
-        else:
-            panel.start(cfg)
-            asyncio.run(device.run())
+        asyncio.run(device.ensure_token())
     except KeyboardInterrupt:
         print("\n再见")
     finally:

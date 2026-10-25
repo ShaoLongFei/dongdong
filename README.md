@@ -20,7 +20,7 @@ apps/device-mac（Python，跑在 Mac 上）──────────┘
 ./scripts/setup.sh            # 建 venv、装依赖
 ./scripts/dev.sh doctor       # 环境体检（麦克风、扬声器、agent、投屏目标）
 ./scripts/dev.sh bind         # 首次：拿激活码，去 xrobo.qiniu.com 绑定设备
-./scripts/dev.sh run          # 开始语音控制
+./scripts/dev.sh run          # 工作台 + 灵矽语音（同一进程）
 
 # 不绑定灵矽也能手动用内置 agent（需要 DEEPSEEK_API_KEY）
 export DEEPSEEK_API_KEY=...
@@ -32,6 +32,8 @@ cd apps/web && npm ci && npm run build && cd ../..
 ```
 
 详细步骤见 [`docs/runbook.md`](docs/runbook.md)。
+
+`web` 和 `run` 二选一启动。设置页把语音后端设为 `builtin` 后，语音任务和 Web 共享模型、工作区、运行记录和停止入口；配置保存后下一任务生效。
 
 ## 目录
 

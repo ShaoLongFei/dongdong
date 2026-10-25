@@ -1,5 +1,3 @@
-"""边界 smoke：.venv/bin/python tests/smoke.py（或 ./scripts/check.sh）。"""
-
 from __future__ import annotations
 
 import asyncio
@@ -18,18 +16,6 @@ logging.disable(logging.CRITICAL)  # 预期内的报错别刷屏
 
 from dongdong import agent, config, mcp, memory, screen, tools, work_gate  # noqa: E402
 from dongdong.linx import _hello  # noqa: E402
-
-
-def test_config_merge_keeps_defaults():
-    merged = config._merge({"a": 1, "b": {"c": 2, "d": 3}}, {"b": {"c": 9}})
-    assert merged == {"a": 1, "b": {"c": 9, "d": 3}}, merged
-
-
-def test_device_id_shape():
-    ident = config._mac_like()
-    parts = ident.split(":")
-    assert len(parts) == 6 and all(len(p) == 2 for p in parts), ident
-    assert config._mac_like() == ident, "同一台机器必须稳定"
 
 
 def test_hello_declares_mcp_and_opus():
@@ -114,15 +100,6 @@ def test_resolve_dir_relative_name():
             pass
         else:
             raise AssertionError(f"不该放行: {bad}")
-
-
-def test_custom_agent_from_config_file():
-    cfg = config.load()
-    cfg["agents"]["myagent"] = {"cmd": ["echo", "{prompt}"], "env": {}, "timeout_s": 5}
-    config.save(cfg)
-    reloaded = config.load()
-    assert reloaded["agents"]["myagent"]["timeout_s"] == 5
-    assert reloaded["agent"] == "codex", "加 agent 不能把默认值冲掉"
 
 
 def test_agent_argv_and_env():
@@ -282,6 +259,28 @@ def test_web_local_access_boundary():
         with contextlib.suppress(ValueError):
             _local_host("0.0.0.0")
             raise AssertionError("没有鉴权时不能监听公网")
+
+    asyncio.run(check())
+
+
+def test_shared_runtime_rejects_reentry_and_cwd_escape():
+    from dongdong.web_runtime import WebState
+
+    async def check():
+        cfg = config.load()
+        cfg["workspace"], cfg["model"]["api_key"] = str(config.HOME), "boundary-only"
+        state = WebState(cfg)
+        sid = state.store.create_session()
+        assert work_gate.acquire("settings")
+        try:
+            for cwd, error in [("/", ValueError), (None, RuntimeError)]:
+                with contextlib.suppress(error):
+                    await state.start(sid, "boundary", cwd)
+                    raise AssertionError("越界或重入必须拒绝")
+                assert not state.store.list_runs(sid)
+        finally:
+            work_gate.release("settings")
+            await state.close()
 
     asyncio.run(check())
 

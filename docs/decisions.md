@@ -25,6 +25,8 @@
 
 ## 已知的技术债（`shortcut:`）
 
+- 2026-10-25：`run` 统一为 Web + Device 同进程、同事件循环；builtin MCP 用同步适配器投递到 WebState，设置保存与任务启动共用互斥，下一任务即时使用新配置。取代上一条“run 保留旧面板”的过渡方案；CLI 后端继续显式保留。
+
 - 2026-10-25：Web 使用 FastAPI + React/Vite/Tailwind，先独立 `web` 命令，保留 `run` 的语音面板；仅本机访问。取消必须等 Runtime/子进程清理后释放进程内互斥，不能用 concurrent Future 的 cancel 返回值判断清理完成。跨进程互斥、统一入口后续再做。
 
 | 位置 | 限制 | 什么时候该还 |

@@ -63,11 +63,16 @@ class Device:
             await self.send(_hello())
             recv = asyncio.create_task(self._recv(ws))
             mic = asyncio.create_task(self._mic(ws))
-            done, pending = await asyncio.wait({recv, mic}, return_when=asyncio.FIRST_COMPLETED)
-            for task in pending:
-                task.cancel()
-            for task in done:
-                task.result()  # 把异常抛给上层去重连
+            try:
+                done, _ = await asyncio.wait({recv, mic}, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    task.result()  # 把异常抛给上层去重连
+            finally:
+                # 父任务退出或重连前必须等子任务清理完，避免旧录音协程继续使用设备。
+                recv.cancel()
+                mic.cancel()
+                await asyncio.gather(recv, mic, return_exceptions=True)
+                self.ws = None
 
     async def send(self, obj: dict) -> None:
         if self.ws:

@@ -20,12 +20,15 @@ function App() {
   const [runDetail, setRunDetail] = useState(null);
   const end = useRef(null);
   const selection = useRef('');
+  const watching = useRef('');
+  watching.current = watch;
   const report = error => setNotice(error instanceof Error ? error.message : error);
   async function refresh() {
     try {
       const [health, list] = await Promise.all([api('/state'), api('/sessions')]);
       setState(health); setSessions(list.sessions);
       if (!selection.current && list.sessions.length) choose(list.sessions[0].id);
+      else if (selection.current && !watching.current) await load(selection.current);
     } catch (error) { report(error); }
   }
   async function load(id, resume = true) {
@@ -44,7 +47,7 @@ function App() {
     const timer = setInterval(refresh, 3000);
     return () => clearInterval(timer);
   }, []);
-  useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [events, detail, tab]);
+  useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [events.length, detail?.messages.length, selected, tab]);
   useEffect(() => {
     if (!watch) return;
     setEvents([]);
@@ -130,6 +133,7 @@ function App() {
       {notice && <div role="status" className="notice">{notice}<button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
       {state && !state.model_ready && tab !== 'settings' && <button className="setup-banner" onClick={() => setTab('settings')}>{state.error} · 前往设置 <ChevronRight size={14} /></button>}
       <Tabs.Content value="chat" className="chat-page">
+        <div className="voice-preview"><AudioLines size={14} /><span>语音 · {({ connected: '已连接', connecting: '连接中', disconnected: '重连中', disabled: '未开启', error: '启动失败', starting: '启动中' })[state?.voice?.connection] || '未开启'}</span>{state?.voice?.last_stt && <span>你说：{state.voice.last_stt}</span>}{state?.voice?.last_tts && <span className="muted">咚咚：{state.voice.last_tts}</span>}</div>
         <div className="conversation">
           {!messages.length && !watch ? <div className="welcome"><span className="welcome-icon"><AudioLines size={34} /></span><p className="eyebrow">YOUR LOCAL COMPANION</p><h1>想做什么，交给咚咚。</h1><p className="muted">读代码、改文件、跑命令。一起把想法变成进展。</p><div className="suggestions">{['读一下工作区的 README，概括项目现状', '列出项目文件，帮我理解代码结构', '检查当前 git 状态，给出下一步建议'].map((text, i) => <button key={text} onClick={() => setInput(text)}><span className="muted">0{i + 1}</span>{text}<ArrowUp size={14} /></button>)}</div></div> : <div className="messages">
             {messages.map(message => <article className={`message ${message.role}`} key={message.id}><div className="message-label">{message.role === 'user' ? '你' : message.role === 'tool' ? <><Terminal size={13} />工具结果</> : <><AudioLines size={14} />咚咚</>}</div><div className="message-text">{message.content}</div>{message.tool_calls?.map(call => <details className="tool-card" key={call.id}><summary><Terminal size={13} />{call.function.name}</summary><pre>{call.function.arguments}</pre></details>)}</article>)}
