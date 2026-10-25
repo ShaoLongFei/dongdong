@@ -239,6 +239,10 @@ def test_project_files_read_only_boundaries():
                     assert (
                         await client.get("/api/projects/p/files/content", params={"path": path})
                     ).status_code == 404
+                for path in (".git", ".git/config", ".venv", "node_modules/package.json"):
+                    assert (
+                        await client.get("/api/projects/p/files/content", params={"path": path})
+                    ).status_code == 404
                 assert (await client.get("/api/projects/missing/files")).status_code == 404
 
         asyncio.run(check())

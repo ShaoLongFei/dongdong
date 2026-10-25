@@ -32,6 +32,8 @@ def _safe_path(root: Path, requested: str) -> Path:
         raise HTTPException(404, "文件路径不存在")
     try:
         relative = Path(requested)
+        if any(part in _SKIP for part in relative.parts):
+            raise HTTPException(404, "文件路径不存在")
         if any(part in {"", "."} for part in relative.parts):
             relative = Path(*[part for part in relative.parts if part not in {"", "."}])
         if any(part == ".." for part in relative.parts):
