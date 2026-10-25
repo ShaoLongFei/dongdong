@@ -20,7 +20,7 @@
 
 当前代码已交付的能力：SQLite WAL 迁移、Run/Goal/Item/Attempt/Event 持久化、依赖与环检测、CAS claim、lease、有限重试、取消/暂停/恢复、统一 Web/MCP 状态投影、4 worker、结构化 Planner、规划失败回退、多 Item DAG、独立 Item Runtime 上下文和规划状态 UI。首次规划已经接入 TaskManager；本规格剩余内容属于后续演进，不应再按“自动规划尚未实施”理解。
 
-已完成的自动规划与验收边界：模型为一次目标返回经过 schema 校验的多个 Item 和依赖关系；规划失败有可见事件并回退到单 Item；独立 Item 可以并行执行；依赖 Item 串行执行；Run 收口前持久化 Goal acceptance、Item 结果摘要和 `goal_verified` 事件。有约束但没有 verifier 的 Run 进入 `needs_review`，不会标记为 `done`。Item 文件范围声明与 SQLite 事务内冲突检测已完成；完整 Monitor 收口、配置化调度和跨进程协调继续保留为后续阶段。
+已完成的自动规划与验收边界：模型为一次目标返回经过 schema 校验的多个 Item 和依赖关系；规划失败有可见事件并回退到单 Item；独立 Item 可以并行执行；依赖 Item 串行执行；Run 收口前持久化 Goal acceptance、Item 结果摘要和 `goal_verified` 事件。有约束但没有 verifier 的 Run 进入 `needs_review`，不会标记为 `done`。Item 文件范围声明、SQLite 事务内冲突检测、停摆检测、有限 drain 和最终验收阶段已完成；完整最终验收 Planner、配置化调度和跨进程协调继续保留为后续阶段。
 
 当前实现与后续事项：
 
@@ -181,7 +181,7 @@ Worker 每次只执行一个 Item。它创建独立的 Agent 会话，输入包�
 
 Python 无法强制终止任意线程，因此 Worker 必须在工具边界检查取消信号；超出 drain grace 的外部 CLI 由适配器终止进程。
 
-当前仅有 lease 恢复和基础 deadline 检查；停摆检测、有限 drain、最终验收 Planner 和完整收口顺序尚未实现。
+当前已有 lease 恢复、基础 deadline 检查、停摆检测、有限 drain 和最终验收阶段；最终验收 Planner 与更完整的收口编排仍待实现。
 
 ## 6. 重试与收口
 
