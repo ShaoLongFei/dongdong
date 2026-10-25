@@ -55,7 +55,7 @@ class WebState:
             self.manager.on_finished = lambda rid: self.loop.call_soon_threadsafe(
                 self._finished, rid
             )
-            self.manager.recover_runs()
+            self.manager.recover_runs(auto_recover=self.manager.auto_recover)
 
     def _finished(self, rid: str) -> None:
         run = self.store.get_run(rid)

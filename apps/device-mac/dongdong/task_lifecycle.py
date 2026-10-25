@@ -56,6 +56,7 @@ def monitor(manager, run_id: str) -> dict:
 
 
 def recover(manager) -> int:
+    manager._last_recovered_runs = []
     # 先回收已经失效的租约；这些 Item 可以在显式 resume 时重新领取。
     with manager.store._lock:
         run_ids = [
@@ -106,6 +107,7 @@ def recover(manager) -> int:
                     ),
                 ),
             )
+            manager._last_recovered_runs.append(run_id)
             recovered += 1
         return recovered
 

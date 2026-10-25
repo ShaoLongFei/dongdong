@@ -594,6 +594,75 @@ def test_conversations_isolate_modes_runs_voice_and_cancellation():
     asyncio.run(check())
 
 
+def test_optional_auto_recovery_across_manager_restart():
+    from dongdong.task_model import AttemptResult
+    from dongdong.task_scheduler import TaskManager
+
+    with tempfile.TemporaryDirectory(prefix="dongdong-auto-recover-") as tmp:
+        root = Path(tmp).resolve()
+        db = root / "tasks.db"
+        (root / "explicit").mkdir()
+        (root / "automatic").mkdir()
+        first = Store(db)
+        explicit_sid = first.create_session("explicit recover")
+        automatic_sid = first.create_session("automatic recover")
+        explicit_id = first.create_task_run(
+            explicit_sid,
+            RunSpec(goal_text="explicit", workspace=str(root / "explicit")),
+        )
+        automatic_id = first.create_task_run(
+            automatic_sid,
+            RunSpec(goal_text="automatic", workspace=str(root / "automatic")),
+        )
+        for run_id in (explicit_id, automatic_id):
+            first.add_items(run_id, [ItemSpec(id=f"work-{run_id}", instruction="work")])
+            assert first.claim_item(run_id, f"work-{run_id}", "old-process", lease_seconds=60)
+        first.close()
+
+        restored = Store(db)
+        manager = TaskManager(
+            restored,
+            cfg={"workspace": str(root), "task_scheduler": {"auto_recover": "true"}},
+            runner=lambda *_: AttemptResult("done", output="continued"),
+            poll_seconds=0.01,
+        )
+        assert manager.auto_recover is False
+        assert manager.recover_runs() == 2
+        assert manager.status(explicit_id)["run"]["status"] == "paused"
+        manager.resume(explicit_id)
+        assert manager.wait(explicit_id, 3)["run"]["status"] == "done"
+        manager.close()
+        restored.close()
+
+        restored = Store(db)
+        manager = TaskManager(
+            restored,
+            cfg={"workspace": str(root), "task_scheduler": {"auto_recover": True}},
+            runner=lambda *_: AttemptResult("done", output="continued"),
+            poll_seconds=0.01,
+        )
+        assert manager.auto_recover is True
+        # automatic_id 已在第一次进程中暂停，模拟第二次进程再次遗留 running。
+        with restored._lock, restored._conn:
+            restored._conn.execute(
+                "UPDATE runs SET status='running', error='' WHERE id=?", (automatic_id,)
+            )
+            restored._conn.execute(
+                "UPDATE items SET status='running', lease_owner='old-process', lease_until=NULL "
+                "WHERE run_id=?",
+                (automatic_id,),
+            )
+        assert manager.recover_runs() == 1
+        finished = manager.wait(automatic_id, 3)
+        assert finished["run"]["status"] == "done"
+        assert finished["items"][0]["result"] == "continued"
+        events = [event["type"] for event in finished["events"]]
+        assert "run_recovered" in events
+        assert manager.recover_runs() == 0
+        manager.close()
+        restored.close()
+
+
 if __name__ == "__main__":
     for name, test in sorted(globals().copy().items()):
         if name.startswith("test_"):

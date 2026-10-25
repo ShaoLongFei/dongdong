@@ -53,6 +53,9 @@ class TaskManager:
         self.lease_seconds = max(1, min(int(lease_limit), 3600))
         drain_limit = scheduler_cfg.get("drain_seconds", 2)
         self.drain_seconds = max(0.0, min(float(drain_limit), 30.0))
+        auto_recover = scheduler_cfg.get("auto_recover", False)
+        # 只接受 bool；字符串 "true" 不得意外打开跨进程自动续跑。
+        self.auto_recover = auto_recover if isinstance(auto_recover, bool) else False
         self.executor = ThreadPoolExecutor(
             max_workers=self.max_workers, thread_name_prefix="dongdong-task"
         )
@@ -63,6 +66,9 @@ class TaskManager:
         self._threads: dict[str, threading.Thread] = {}
         self._planning: dict[str, tuple[str, str]] = {}
         self._closed = False
+        self._recovery_lock = threading.Lock()
+        self._recovery_done = False
+        self._last_recovered_runs: list[str] = []
         self.on_finished = None
 
     def submit(
@@ -469,8 +475,40 @@ class TaskManager:
     def monitor_once(self, run_id: str) -> dict:
         return monitor(self, run_id)
 
-    def recover_runs(self) -> int:
-        return recover(self)
+    def recover_runs(self, *, auto_recover: bool | None = None) -> int:
+        # activate 可能被生命周期重复调用；同一 manager 只允许执行一次恢复。
+        with self._recovery_lock:
+            if self._recovery_done:
+                return 0
+            self._recovery_done = True
+            count = recover(self)
+            run_ids = list(getattr(self, "_last_recovered_runs", []))
+        enabled = (
+            self.auto_recover
+            if auto_recover is None
+            else (auto_recover if isinstance(auto_recover, bool) else False)
+        )
+        if enabled:
+            for run_id in run_ids:
+                self.store.add_event(
+                    run_id,
+                    "auto_recover_started",
+                    {
+                        "message": "单主机 SQLite 可选自动恢复；旧进程仍存活时不保证避免双主风险",
+                    },
+                )
+                try:
+                    self.resume(run_id)
+                except Exception as exc:  # noqa: BLE001 自动恢复失败必须保持可确认的暂停态
+                    run = self.store.get_run(run_id)
+                    if run and run.get("status") in {"running", "planning"}:
+                        self.pause(run_id)
+                    self.store.add_event(
+                        run_id,
+                        "auto_recover_failed",
+                        {"error": str(exc)[:4000], "status": "paused"},
+                    )
+        return count
 
     def close(self) -> None:
         close_manager(self)

@@ -43,6 +43,7 @@ DEFAULTS: dict = {
         "lease_seconds": 60,
         "stall_limit": 3,
         "drain_seconds": 2,
+        "auto_recover": False,
     },
     "disabled_skills": [],
     "mcp_servers": {},
@@ -89,6 +90,13 @@ DEFAULTS: dict = {
 
 def load() -> dict:
     cfg = _merge(DEFAULTS, _read())
+    scheduler = cfg.get("task_scheduler")
+    if not isinstance(scheduler, dict):
+        scheduler = {}
+        cfg["task_scheduler"] = scheduler
+    # 自动恢复是有副作用的开关；只接受真正的 bool，避免 JSON 字符串误开启。
+    if not isinstance(scheduler.get("auto_recover"), bool):
+        scheduler["auto_recover"] = False
     return cfg
 
 
