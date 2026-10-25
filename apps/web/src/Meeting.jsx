@@ -5,6 +5,37 @@ import FolderPicker from './FolderPicker';
 
 const phases = { discussion: '讨论中', generating: '整理方案中', ready: '待确认', executing: '实施中', result: '实施结果', interrupted: '已中断' };
 
+function ScopeList({ items, empty = '未提供' }) {
+  const values = (items || []).filter(Boolean);
+  return values.length ? <ul>{values.map((item, index) => <li key={`${index}-${typeof item === 'string' ? item : 'item'}`}>{item}</li>)}</ul> : <p className="muted">{empty}</p>;
+}
+
+function EvidenceList({ items }) {
+  const values = (items || []).filter(item => item?.path);
+  return values.length ? <ul className="meeting-evidence">{values.map((item, index) => <li key={`${item.path}-${item.line || index}`}><code>{item.path}{item.line ? `:${item.line}${item.endLine ? `-${item.endLine}` : ''}` : ''}</code>{(item.symbol || item.note) && <span>{[item.symbol, item.note].filter(Boolean).join(' · ')}</span>}</li>)}</ul> : <p className="muted">未提供源码证据</p>;
+}
+
+function ProposalScope({ payload }) {
+  const architecture = payload?.architecture || {};
+  const modules = architecture.modules || [];
+  const relationships = architecture.relationships || [];
+  const rules = Array.isArray(payload?.rules?.rules) ? payload.rules.rules : [];
+  const ruleReview = payload?.rules?.ruleReview;
+  return <details className="meeting-scope" open>
+    <summary>范围与依据 · 实施前请逐项确认</summary>
+    <div className="scope-grid">
+      <section><h4>涉及模块与职责</h4>{modules.length ? <ul>{modules.map(module => <li key={module.id}><strong>{module.name}</strong>{module.role && <span className="scope-tag">{module.role}</span>}<p>{module.responsibility || '未提供职责说明'}</p></li>)}</ul> : <p className="muted">未提供模块清单</p>}</section>
+      <section><h4>接口与模块关系</h4>{relationships.length ? <ul>{relationships.map(relation => <li key={relation.id}><strong>{relation.label || relation.id}</strong><p>{relation.from} → {relation.to}{relation.kind ? ` · ${relation.kind}` : ''}{relation.responsibility ? ` · ${relation.responsibility}` : ''}</p><EvidenceList items={relation.evidence} /></li>)}</ul> : <p className="muted">未提供接口或关系</p>}</section>
+      <section><h4>适用规则与安全边界</h4>{rules.length ? <ul>{rules.map(rule => <li key={rule.id}><strong>{rule.name || rule.id}</strong><p>{rule.explanation || rule.note || '未提供规则说明'}</p><EvidenceList items={rule.evidence} /></li>)}</ul> : <p className="muted">未提供已审查规则{ruleReview?.scope ? `（审查范围：${ruleReview.scope}）` : ''}</p>}</section>
+      <section><h4>准备修改的文件</h4><ScopeList items={payload?.files?.map(file => <code key={file}>{file}</code>)} /></section>
+      <section><h4>判断依据</h4><EvidenceList items={modules.flatMap(module => module.evidence || [])} /></section>
+      <section><h4>验证计划</h4><ScopeList items={payload?.verification} /></section>
+    </div>
+    {payload?.constraints_text && <div className="scope-note"><strong>约束摘要</strong><p>{payload.constraints_text}</p></div>}
+    {!!payload?.limitations?.length && <div className="scope-note"><strong>覆盖缺口</strong><ScopeList items={payload.limitations} /></div>}
+  </details>;
+}
+
 export default function Meeting({ sid, workspace, report, onRun, onChange, readonly = false }) {
   const [meeting, setMeeting] = useState(null);
   const [directory, setDirectory] = useState(workspace || '.');
@@ -99,6 +130,7 @@ export default function Meeting({ sid, workspace, report, onRun, onChange, reado
     {proposal && <>
       <div className="meeting-heading"><Map size={17} /><strong>方案 v{proposal.version}</strong><span className="muted">{current ? '当前方案' : '历史版本 · 仅供回看'}</span><select aria-label="方案版本" value={proposal.id} onChange={e => history(e.target.value)}>{meeting.history.map(item => <option key={item.id} value={item.id}>方案 v{item.version}</option>)}</select></div>
       <h3>{proposal.payload.summary}</h3><p className="meeting-copy">{proposal.payload.solution}</p>
+      <ProposalScope payload={proposal.payload} />
       <details><summary>预期行为、修改范围与验证</summary><p className="meeting-copy">{proposal.payload.expected}</p><ul>{proposal.payload.files.map(name => <li key={name}><code>{name}</code></li>)}</ul><p className="meeting-copy">{proposal.payload.constraints_text}</p><ul>{proposal.payload.verification.map(item => <li key={item}>{item}</li>)}</ul></details>
       {!!proposal.payload.open_questions?.length && <p className="notice">待决问题：{proposal.payload.open_questions.join('；')}</p>}
       {!!proposal.payload.limitations?.length && <p className="muted">覆盖缺口：{proposal.payload.limitations.join('；')}</p>}
