@@ -1,6 +1,6 @@
 # 咚咚生产任务调度内核设计
 
-> 状态：设计稿，尚未实现。
+> 状态：基础调度已实现；自动规划与多 Item DAG 演进规格，待实施。
 > 
 > 依据：`design/` 的 Goal/Item/Event/Run 模型、CAS claim、View → Decision 与收尾规则；`design2/` 的调度、规划落地和监察分层；当前 `Runtime`、SQLite/SSE、Web 和灵矽 MCP 入口。
 
@@ -17,6 +17,10 @@
 3. worker 崩溃、进程重启或租约过期后，任务可以重新领取，不会永久卡在 running。
 4. 子任务的结果、失败、重试和输出保留在事件记录中，Web 和灵矽看到同一状态。
 5. 现有简单任务仍然可以作为只有一个 Item 的 Run 执行。
+
+当前代码已交付的基础能力：SQLite WAL 迁移、Run/Goal/Item/Attempt/Event 持久化、依赖与环检测、CAS claim、lease、有限重试、取消/暂停/恢复、统一 Web/MCP 状态投影和 4 worker。当前 `TaskPlanner` 仍把普通请求包装成一个 Item，因此本规格接下来的实施重点是“自动规划”，不是重写已有存储和执行内核。
+
+本阶段的验收边界：模型为一次目标返回经过 schema 校验的多个 Item 和依赖关系；规划失败有可见事件并回退到单 Item；独立 Item 可以并行执行；依赖 Item 串行执行；Run 在所有 Item 完成后收口。Goal 的模型驱动证据验收、文件范围冲突分析和跨进程多机调度继续保留为后续阶段。
 
 ## 2. 范围与约束
 
@@ -133,7 +137,11 @@ Planner 接收只读 `View`，返回结构化 `Decision`：新增/修改 Goal、
 
 `View` 至少包含 Run 目标、Goals、Items、Attempt 摘要、最近事件、剩余预算、是否停摆和是否收尾。Decision 必须通过 schema、工作区白名单、Agent 名称、依赖存在性、DAG 环检测和数量上限校验后才落库。
 
-首次规划由编程模型完成。模型可以调用现有 `update_plan` 生成用户可见计划，但生产调度器将该计划转换为 Item DAG；`update_plan` 不再是唯一的任务状态来源。Planner 失败只记录事件并按退避重试，不直接把 Run 标成完成。
+首次规划由编程模型完成。Planner 使用专用的结构化输出提示和 JSON schema，只允许返回目标摘要、Item 列表、依赖 ID、验收说明、Agent 和工作目录；模型不能直接写 SQLite，也不能把任意路径或凭据带入 Item。模型可以调用现有 `update_plan` 生成用户可见计划，但生产调度器将规划结果转换为 Item DAG；`update_plan` 不再是唯一的任务状态来源。
+
+规划流程分两步：先记录 `planning` 事件并调用 Planner，再在同一 Run 内事务性写入完整 Item 批次。规划结果必须通过 Item 数量上限、非空 instruction、依赖存在性、环检测、工作区路径和 Agent 白名单校验。校验失败时保留 `planning_error` 事件，回退为原始目标的单 Item，并继续走现有执行器。模型不可用、返回非 JSON 或超时采用同一回退路径，不能把用户任务误报为已完成。
+
+Planner 不重复执行任务，也不在本阶段修改已经运行的 Item。后续任务追加或修复 Item 需要单独的 steer/repair 设计；本阶段只处理首次规划。
 
 ### 5.2 Scheduler
 
@@ -177,7 +185,7 @@ Run 收口顺序固定为：停止新 claim → 等待在跑 Item drain → 运�
 
 ### Web
 
-Web 消息创建 Run 后交给 Run Manager。当前 `WebState.start → Runtime.run` 的直连路径迁移为“创建 Run → Planner → Scheduler → Worker”。SSE 继续读取 `events`，前端的 `plan` 视图改为读取 Item 投影；旧事件格式继续支持历史运行记录。
+Web 消息创建 Run 后交给 Run Manager。当前 `WebState.start → Runtime.run` 的直连路径已经由 TaskManager 接管；本阶段只补上“创建 Run → Planner → Scheduler → Worker”中的首次 Planner。SSE 继续读取 `events`，前端的 `plan` 视图同时显示规划状态、Item 数量和 Item 依赖；旧事件格式继续支持历史运行记录。
 
 ### 灵矽 MCP
 
@@ -218,6 +226,8 @@ Web 消息创建 Run 后交给 Run Manager。当前 `WebState.start → Runtime.
 必须覆盖会破坏用户数据或执行命令的边界，测试继续遵守项目约定，集中到现有 smoke 入口或明确的调度 smoke 文件：
 
 - DAG 环检测、缺失依赖和依赖状态计算；
+
+自动规划阶段还必须覆盖：结构化规划成功生成多个 Item、无效 JSON/超时/非法路径回退单 Item、独立 Item 在 worker 上并行、依赖 Item 等待前置完成、规划事件与 Item 投影可通过旧 SSE/API 读取，以及规划失败不会伪装成成功。
 - 两个 worker 同时 claim 同一 Item 只有一个成功；
 - lease 过期恢复、进程重启恢复和 Run 终态禁止新 claim；
 - retryable/blocked/exhausted 的状态转移和下游阻断；
