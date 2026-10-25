@@ -55,6 +55,14 @@ def _shape(element: dict) -> str:
         word in label for word in ("萤火虫", "点点")
     ):
         cx, cy = x + w // 2, y + h // 2
+        if element.get("pose") == "sitting":
+            return (
+                f'<circle cx="{cx}" cy="{cy - 8}" r="{min(w, h) // 4}" fill="#FFD34E" stroke="#5B5550" stroke-width="4"/>'
+                f'<circle cx="{cx - 18}" cy="{cy - 16}" r="5" fill="#3D382F"/><circle cx="{cx + 18}" cy="{cy - 16}" r="5" fill="#3D382F"/>'
+                f'<path d="M{cx - 34},{cy - 50} q-28,-34 -44,0 M{cx + 34},{cy - 50} q28,-34 44,0" fill="none" stroke="#5B5550" stroke-width="5" stroke-linecap="round"/>'
+                f'<path d="M{cx - 44},{cy + 30} l-22,24 M{cx + 44},{cy + 30} l22,24 M{cx - 36},{cy + 54} h72" fill="none" stroke="#5B5550" stroke-width="9" stroke-linecap="round"/>'
+                f'<circle cx="{cx + 82}" cy="{cy - 4}" r="24" fill="#FFF4A8" opacity=".8"/>'
+            )
         return (
             f'<circle cx="{cx}" cy="{cy}" r="{min(w, h) // 4}" fill="#FFD34E" stroke="#5B5550" stroke-width="4"/>'
             f'<circle cx="{cx - 18}" cy="{cy - 8}" r="5" fill="#3D382F"/><circle cx="{cx + 18}" cy="{cy - 8}" r="5" fill="#3D382F"/>'
@@ -315,6 +323,8 @@ def _layer(element: dict) -> int:
         return 3
     if kind == "object" and ("果" in label or "种子" in label):
         return 3
+    if kind in {"object", "simple_shape"} and any(word in label for word in ("溪", "水")):
+        return 1
     if kind == "object":
         return 2
     return 1
@@ -448,7 +458,7 @@ def _interaction(element: dict, raw_elements: list[dict]) -> str:
             f'<path d="M{tx - 100} {ty - 70} q45 -35 90 0 q45 35 90 0" fill="none" stroke="{element["color"]}" stroke-width="6" stroke-linecap="round"/>'
             f'<path d="M{tx + 72} {ty - 70} l22 -10 M{tx + 72} {ty - 70} l18 15" stroke="{element["color"]}" stroke-width="6" stroke-linecap="round"/>'
         )
-    if any(word in label for word in ("划行", "捞回", "小船", "船")):
+    if any(word in label for word in ("划行", "捞回", "捞种子", "小船", "船")):
         boat = _find_element(raw_elements, "object", ("船", "叶"))
         seed = _find_element(raw_elements, "object", ("种子", "月亮种子"))
         if not boat or not seed:
@@ -505,6 +515,15 @@ def scene_to_svg(scene: dict) -> str:
     for element in ordered:
         parts.append(
             f'<g data-start-ms="{int(element.get("startMs", 0))}" data-duration-ms="{int(element.get("durationMs", 0))}">{_shape(element)}</g>'
+        )
+    boat = _find_element(ordered, "object", ("船", "叶"))
+    if boat:
+        # 船的前沿压住角色下半身，给坐在船里的动作一个明确的前后层次。
+        bx, by, bw = boat["x"], boat["y"], boat["width"]
+        rim_y = by + boat["height"] // 2 + 8
+        parts.append(
+            f'<path d="M{bx + 18} {rim_y} Q{bx + bw // 2} {rim_y + 34} {bx + bw - 18} {rim_y}" '
+            'fill="none" stroke="#5B5550" stroke-width="9" stroke-linecap="round"/>'
         )
     for element in ordered:
         if interaction := _interaction(element, ordered):
