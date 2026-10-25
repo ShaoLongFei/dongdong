@@ -10,8 +10,9 @@
 灵矽平台（ASR → 大模型 → TTS）  ←── WebSocket ──┐
    ↓ MCP tools/call                              │
 apps/device-mac（Python，跑在 Mac 上）──────────┘
-   ├── Web → 内置 Runtime → 编程模型 / 文件 / shell / Skills / 外部 MCP
-   ├── 语音工具 → 内置 Runtime 或 codex / claude / deepseek CLI
+   ├── Web / builtin 语音任务 → SQLite 任务调度 → Runtime → 模型 / 文件 / shell
+   ├── Runtime 扩展 → 本地 Skills / 外部 MCP 工具
+   ├── CLI 语音任务 → codex / claude / deepseek 子进程
    └── 设备工具 → 长期记忆 / AirPlay 发现与投屏脚本
 ```
 
@@ -19,32 +20,62 @@ apps/device-mac（Python，跑在 Mac 上）──────────┘
 
 ## 快速开始
 
+需要 macOS、`uv`、系统 Opus 库；构建工作台还需要 Node.js/npm。缺少依赖时可先执行 `brew install uv opus node`。安装脚本使用 Python 3.12。
+
 ```bash
 ./scripts/setup.sh            # 建 venv、装依赖
+cd apps/web && npm ci && npm run build && cd ../..
 ./scripts/dev.sh doctor       # 环境体检（麦克风、扬声器、agent、投屏目标）
-./scripts/dev.sh bind         # 首次：拿激活码，去 xrobo.qiniu.com 绑定设备
-./scripts/dev.sh run          # 启动工作台，界面按钮开启语音
 
-# 不绑定灵矽也能手动用内置 agent（需要 DEEPSEEK_API_KEY）
+# 默认内置模型为 deepseek-flash；也可启动后在“设置”中配置兼容模型
+export DEEPSEEK_API_KEY=...
+```
+
+文字任务无需绑定灵矽。要使用语音，请在启动工作台前完成设备绑定：
+
+```bash
+./scripts/dev.sh bind         # 首次获取激活码，去 https://xrobo.qiniu.com/ 绑定
+```
+
+然后启动工作台，打开 <http://127.0.0.1:8766>；使用语音时点击“开启语音”：
+
+```bash
+./scripts/dev.sh run          # web 命令也是同一入口
+```
+
+也可以直接在终端使用内置 agent，不需要构建前端：
+
+```bash
 export DEEPSEEK_API_KEY=...
 ./scripts/dev.sh chat --message "读一下 README 并总结"
-
-# 独立 Web 工作台：对话、运行记录、模型/工作区设置
-cd apps/web && npm ci && npm run build && cd ../..
-./scripts/dev.sh web          # http://127.0.0.1:8766
+./scripts/dev.sh chat         # 交互对话：/new、/sessions、/quit
 ```
 
 详细步骤见 [`docs/runbook.md`](docs/runbook.md)。
 
 `web` 和 `run` 二选一启动，语音默认关闭，顶部按钮可随时开启/关闭麦克风和播报。设置页把语音后端设为 `builtin` 后，语音任务和 Web 共享模型、工作区、运行记录和停止入口；配置保存后下一任务生效。
 
+关闭语音会停止采音、播报并断开连接，已派发的编程任务继续执行；停止任务使用对话内的停止按钮。刷新页面保留语音开关状态，重启服务后回到关闭。
+
 对话内会展开执行卡：多步骤任务显示步骤清单、当前与接下来要做的事，工具调用和耗时实时更新。交付后自动折叠，可展开回看；刷新后保留历史。语音发起任务时，点击“查看当前步骤”进入对应任务。连续语音任务会追加到当前任务会话并保留上下文，重连和麦克风开关不会创建新会话；需要独立上下文时点击“开启新对话”。步骤由内置 agent 更新，模型未提供清单时显示实际工具或等待状态；此进度卡适用于 `builtin` 后端。
+
+## 任务状态与功能进度
+
+Web 和内置语音任务已接入 SQLite 任务调度，运行记录展示任务项、状态、尝试次数和错误摘要。灵矽可通过 `self.task.status`、`self.task.stop`、`self.task.resume` 查询、停止或恢复任务。当前 Web 调度配置为一个 worker，普通请求默认生成一个任务项；自动拆解和并行执行不能视为已完整交付。设计与实施范围见 [任务调度计划](docs/superpowers/plans/2026-10-25-task-scheduler.md)。
+
+项目绑定目录、全局/项目记忆及会话归档已在独立分支 [`codex/projects-memory-archive`](https://github.com/ShaoLongFei/dongdong/tree/codex/projects-memory-archive) 实现，尚未合入当前 `codex/web-console` 分支；当前工作台没有这些入口。[设计说明](docs/superpowers/specs/2026-10-25-projects-memory-archive-design.md) 记录目标，实际可用能力以所运行分支的代码为准。实时讲故事模式仍处于设计阶段。
 
 ## 技能、外部工具和审批
 
 - **技能**：将已有技能放到 `~/.dongdong/skills/<名称>/SKILL.md`，在“技能”页刷新、查看和启停。内置 agent 先看描述，需要时读取完整指令；不自动下载或安装。
 - **MCP**：在“MCP”页添加本机 stdio、Streamable HTTP 或 SSE 服务，保存后可测试连接和查看工具。只有启用的服务才会在任务开始时连接，任务结束或取消后关闭。密钥放环境变量或请求头字段（支持 `${ENV}`），列表不回显其值。
-- **审批**：设置中的“工具执行方式”默认自动执行；切换“逐次确认”后，内置 agent 写文件、跑命令、调用外部 MCP 工具前会等待“允许一次”或“拒绝”。审批卡在所有页面可见，停止任务会撤销等待。CLI 无审批界面时直接拒绝，不会挂住。此设置不接管旧 CLI 后端自身的权限行为。
+- **审批**：设置中的“工具执行方式”默认自动执行；切换“逐次确认”后，内置 agent 写文件、跑命令、调用外部 MCP 工具前会等待“允许一次”或“拒绝”。审批卡在所有页面可见。独立 `chat/call/serve` 入口没有 Web 审批回调，会拒绝需要确认的内置工具操作；外部 CLI 后端仍使用各 CLI 自身的权限机制。
+
+## 长期记忆与数据
+
+当前分支通过设备工具 `self.memory.search/save/list/delete` 提供 Mem0 长期记忆，由灵矽模型选择调用；尚未接入内置 Runtime 的自动检索。需要为服务进程设置 `OPENAI_API_KEY`，它与编程模型的 key 独立。保存文字和搜索查询会发送到 OpenAI，向量和记忆历史存于仓库 `.memory/`。配置步骤见 [长期记忆](docs/runbook.md#7-长期记忆)。
+
+配置默认存于 `~/.dongdong/config.json`，会话、运行、事件及任务状态存于 `~/.dongdong/dongdong.db`；普通语音只保存识别与播报文字，不保存音频。`DONGDONG_HOME` 可更换配置和会话库目录，Mem0 的 `.memory/` 路径不随之改变。
 
 ## 目录
 
@@ -68,17 +99,19 @@ Mac 上的 agent 执行。**不需要公网穿透，也不开放入站端口。*
 ```
 
 默认 `cli` 保持旧 codex/claude 路径不变；改成 `builtin` 后走本地 `Runtime`。提示词模板、
-时间限制和安全边界见 [`docs/linx-voice-prompt.md`](docs/linx-voice-prompt.md)。
+等待时间和安全边界见 [`docs/linx-voice-prompt.md`](docs/linx-voice-prompt.md)。内置语音调用最多同步等待8秒，未完成时返回任务号供后续查询；CLI 的 `timeout_s` 是同步等待时间，超时后任务仍可能继续执行。
 
 ## 接入自己的 agent
 
-`codex` / `claude` / `deepseek` 都只是配置项。想换成 ollama、某个内部 CLI，改 `~/.dongdong/config.json` 的 `agents` 就行，代码不用动：
+使用 `code_backend=cli` 时，`codex` / `claude` / `deepseek` 都是配置项。想换成 ollama、某个内部 CLI，修改 `~/.dongdong/config.json` 的 `agents`，并将 `agent` 设为对应名称：
 
 ```json
-{ "agents": { "ollama": { "cmd": ["ollama", "run", "qwen2.5-coder:7b", "{prompt}"], "timeout_s": 300 } } }
+{ "code_backend": "cli", "agent": "ollama", "agents": { "ollama": { "cmd": ["ollama", "run", "qwen2.5-coder:7b", "{prompt}"], "timeout_s": 300 } } }
 ```
 
 见 [docs/agents.md](docs/agents.md)。
+
+Web 文字和 `chat` 始终使用内置 Runtime，模型在 `model` 配置或工作台“设置”中更换。工作台默认仅允许本机访问；文件工具受工作区边界限制，shell 和外部 MCP 仍具有服务进程权限，审批不等于系统沙箱。
 
 ## 规矩
 
