@@ -62,7 +62,7 @@ def create_app(cfg: dict, *, voice: bool = False) -> FastAPI:
         try:
             from .linx import Device
 
-            await Device(cfg).run()
+            await Device(cfg, on_text=state.voice_text).run()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -90,6 +90,7 @@ def create_app(cfg: dict, *, voice: bool = False) -> FastAPI:
             "active_run": state._run_id,
             "busy": bool(work_gate.current()),
             "voice": device_state.snapshot(cfg),
+            "voice_session": state.voice_session,
         }
 
     @app.get("/api/sessions")

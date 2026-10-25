@@ -37,6 +37,7 @@ button:hover:not(:disabled) { filter: brightness(1.13); }
 .eyebrow { color: #91a67a; letter-spacing: 2px; font-size: 10px; margin: 20px 0 14px; }
 .chat-page { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .voice-preview { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 24px; background: #1b2119; font-size: 11px; color: #bbcca9; max-height: 90px; overflow: auto; }
+.voice-history { margin-left: auto; color: #c1dfa0; white-space: nowrap; }
 .backend-select { padding: 12px; border: 1px solid #343f2d; border-radius: 7px; background: #1a2017; color: #e2eadb; }
 [data-state="inactive"] { display: none; }
 .navigation [data-state="inactive"] { display: flex; }

@@ -20,8 +20,9 @@ MAX_TTS_FRAME = 5760  # 60ms @48k 的上限，给解码器留够
 
 
 class Device:
-    def __init__(self, cfg: dict):
+    def __init__(self, cfg: dict, *, on_text=None):
         self.cfg = cfg
+        self.on_text = on_text
         self.ws = None
         self.session_id = ""
         self.ready = asyncio.Event()
@@ -121,11 +122,15 @@ class Device:
         elif kind == "stt":
             log.info("你: %s", msg.get("text"))
             state.set_(last_stt=msg.get("text", ""))
+            if self.on_text and msg.get("text"):
+                self.on_text(self.session_id, "user", msg["text"])
         elif kind == "tts":
             tts_state = msg.get("state")
             if tts_state == "sentence_start":
                 log.info("咚咚: %s", msg.get("text"))
                 state.set_(last_tts=msg.get("text", ""))
+                if self.on_text and msg.get("text"):
+                    self.on_text(self.session_id, "assistant", msg["text"])
             elif tts_state == "start":
                 log.info("TTS 开始")
             elif tts_state == "stop" and msg.get("is_aborted"):

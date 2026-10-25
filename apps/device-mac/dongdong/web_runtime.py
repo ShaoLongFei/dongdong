@@ -28,7 +28,17 @@ class WebState:
         self._task: asyncio.Task | None = None
         self._run_id = ""
         self._last_run = ""
+        self.voice_session = ""
+        self._voice_connection = None
         self.reload()
+
+    def voice_text(self, connection: str, role: str, text: str) -> None:
+        if not text.strip():
+            return
+        if not self.voice_session or connection != self._voice_connection:
+            self.voice_session = self.store.create_session("语音对话", "linx-voice")
+            self._voice_connection = connection
+        self.store.append_message(self.voice_session, role, text)
 
     def reload(self) -> None:
         if not self.workspace.is_dir():

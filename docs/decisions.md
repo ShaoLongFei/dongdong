@@ -39,6 +39,8 @@
 
 ## 实测踩到的坑（2026-10）
 
+- 2026-10-25：语音返回到达但无声时，先检查系统静音；实测音量 75% 仍可能 `output muted:true`。普通 STT/TTS 原来只更新顶部状态，现按连接存入独立“语音对话”，不保存音频、不重复记录 TTS start/stop。
+
 **macOS 27 上控制中心没有可脚本化的菜单栏项。**
 `process "ControlCenter"` 的 `menu bars` 数量为 0；状态栏项目都在 `MenuBarAgent` 里，
 但它的项没有 title/description，`menu bar item i` 索引报 `invalid index`，只能读到 5 个无名的「组」。
