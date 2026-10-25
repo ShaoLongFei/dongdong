@@ -2,7 +2,20 @@ from __future__ import annotations
 
 # ruff: noqa: I001 -- 先导入 smoke，初始化临时 HOME 和设备端模块路径。
 
-from smoke import ROOT, asyncio, config, contextlib, tempfile, Path
+from smoke import (
+    ROOT,
+    asyncio,
+    config,
+    contextlib,
+    tempfile,
+    Path,
+    SimpleNamespace,
+    patch,
+    tools,
+    mcp,
+)
+import json
+from dongdong.meeting import Meeting
 from dongdong.store import Store
 
 
@@ -27,6 +40,26 @@ def test_meeting_confirmation_and_control_boundaries():
         db, sid = Meetings(store), store.create_session()
         db.open(sid, tmp)
         db.discuss(sid, "修改需求", "voice")
+        meeting = Meeting.__new__(Meeting)
+        meeting.db, meeting.notice = db, ""
+        status = meeting.mcp_status()
+        assert json.loads(status)["workspace"] == tmp
+        assert json.loads(status)["discussion_count"] == 1
+        service = SimpleNamespace(meeting_status=meeting.mcp_status)
+        with patch.object(tools, "_service", service):
+            for name in ("self.system.status", "self.code.run", "self.code.result"):
+                assert tools.call(name, {})["content"][0]["text"] == status
+            listed = mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+            assert all(
+                tmp in item["description"]
+                for item in listed["result"]["tools"]
+                if item["name"] in {"self.system.status", "self.code.run", "self.code.result"}
+            )
+        db.close(sid)
+        with patch.object(tools, "_service", service):
+            listed = mcp.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+            assert all(tmp not in item["description"] for item in listed["result"]["tools"])
+        db.open(sid, tmp)
         proposal = db.publish(sid, 1, {"solution": "真实方案"}, "a" * 32)
         db.update(sid, phase="ready")
 

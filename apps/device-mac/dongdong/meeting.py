@@ -264,11 +264,16 @@ class Meeting:
         return json.dumps(
             {
                 "mode": "代码修改",
+                "workspace": meeting["workspace"],
+                "session_id": meeting["sid"],
                 "phase": meeting["phase"],
+                "discussion_count": meeting["seq"],
                 "proposal": version,
                 "notice": self.notice or meeting["error"],
                 "run_id": meeting["run_id"],
-                "instruction": "会议语音已本地保存；仅整理指令生成地图，实施须本地明确确认。",
+                "instruction": "项目目录已在工作台选择，不要再次询问路径。会议语音已本地保存；"
+                "普通讨论不启动调查，准备好后请用户说“咚咚，整理一下方案”；"
+                "仅该指令生成地图，实施须本地明确确认。",
             },
             ensure_ascii=False,
         )

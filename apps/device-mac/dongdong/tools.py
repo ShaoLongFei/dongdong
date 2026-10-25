@@ -100,11 +100,16 @@ def call(name: str, arguments: dict) -> dict:
     return result
 
 
-@tool("self.system.status", "查看咚咚当前状态：用哪个 agent、工作目录、有没有任务在跑")
+@tool(
+    "self.system.status",
+    "查看当前模式、已选项目目录和任务状态；用户说这个项目时先查询，不要先问路径",
+)
 def _status(args: dict) -> str:
     cfg = config.load()
     backend = _backend(cfg)
     service = _peek_service()
+    if service and hasattr(service, "meeting_status") and (status := service.meeting_status()):
+        return status
     if service and hasattr(service, "execution_workspace"):
         cfg = {**cfg, "workspace": service.execution_workspace()}
         cfg.update(projects=[cfg["workspace"]], cwd=cfg["workspace"])
@@ -162,8 +167,11 @@ def _code_run(args: dict) -> str:
     props={"job_id": {"type": "string", "description": "任务号，不填就是最近一次"}},
 )
 def _code_result(args: dict) -> str:
+    service = _peek_service()
+    if not args.get("job_id") and service and hasattr(service, "meeting_status"):
+        if status := service.meeting_status():
+            return status
     if _backend(config.load()) == "builtin":
-        service = _peek_service()
         return service.result(args.get("job_id") or "") if service else "还没有跑过任务。"
     return agent.result(args.get("job_id") or "")
 
@@ -178,9 +186,6 @@ def _code_stop(args: dict) -> str:
         service = _peek_service()
         return service.stop(args.get("job_id") or "") if service else "没有可停的任务。"
     return agent.stop(args.get("job_id") or "")
-
-
-# ---------------------------------------------------------------- 投屏
 
 
 @tool("self.screen.list", "列出局域网里可以投屏的 AirPlay 设备（电视、Apple TV）")
@@ -205,8 +210,6 @@ def _screen_mirror(args: dict) -> str:
 def _screen_stop(args: dict) -> str:
     return screen.stop(config.load())
 
-
-# ---------------------------------------------------------------- 记忆
 
 _MEMORY_SCOPE = {
     "type": "string",

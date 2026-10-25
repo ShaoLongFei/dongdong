@@ -28,7 +28,17 @@ def handle(payload: dict) -> dict | None:
             },
         )
     if method == "tools/list":
-        return _ok(rid, {"tools": [t.describe() for t in tools.TOOLS.values()], "nextCursor": None})
+        listed = [t.describe() for t in tools.TOOLS.values()]
+        service = tools._peek_service()
+        status = (
+            service.meeting_status() if service and hasattr(service, "meeting_status") else None
+        )
+        if status:
+            # 云端不会收到本地模式变化；发现工具时带上目录，后续调用仍查询实时状态。
+            for item in listed:
+                if item["name"] in {"self.system.status", "self.code.run", "self.code.result"}:
+                    item["description"] += f"\n当前会议上下文（操作前查询实时状态）：{status}"
+        return _ok(rid, {"tools": listed, "nextCursor": None})
     if method == "tools/call":
         params = payload.get("params") or {}
         name = params.get("name") or ""
