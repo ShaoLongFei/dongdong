@@ -219,13 +219,6 @@ class Runtime:
                                 result = await builtin_tools.call_tool(
                                     call.name, args, self.tool_ctx
                                 )
-                            result = (
-                                result[:200_000]
-                                if call.name == "read_birdview"
-                                else result[:32_768]
-                                if call.name == "read_skill"
-                                else result[:12_000]
-                            )
                             ok = not result.startswith(("执行失败:", "未知工具"))
                             if call.name == "shell":
                                 ok = result.startswith("exit_code=0\n")

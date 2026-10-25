@@ -25,11 +25,14 @@ def test_task_store_claims_dag_atomically_and_recovers_lease():
         assert not second.claim_item(run_id, "a", "two", lease_seconds=1)
         first.requeue_expired(run_id, now_value="2999-01-01T00:00:00+00:00")
         assert second.claim_item(run_id, "a", "two", lease_seconds=1)
-        second.complete_item("a", "two", "ok")
+        output = "完整输出" * 4000
+        second.complete_item("a", "two", output)
         assert second.claim_item(run_id, "b", "two", lease_seconds=1)
         second.fail_item("b", "two", "blocked", error_kind="blocked")
         view = second.task_view(run_id)
         assert view["items"][0]["status"] == "done"
+        assert view["items"][0]["result"] == output
+        assert next(a for a in view["attempts"] if a["worker_id"] == "two")["output"] == output
         assert view["items"][1]["status"] == "blocked"
         with contextlib.suppress(ValueError):
             first.add_items(run_id, [ItemSpec(id="c", instruction="c", depends_on=("missing",))])

@@ -15,8 +15,6 @@ from .llm import ModelConfig, model_from_config, stream_chat
 from .runtime import Runtime
 from .store import Store
 
-MAX_OUTPUT = 12_000
-
 
 class Job:
     def __init__(self, instruction: str, workspace: Path, session_id: str):
@@ -41,13 +39,11 @@ class Job:
             elif kind == "tool_call":
                 self.output += f"\n[工具] {data.get('name')} {str(data.get('arguments'))[:300]}\n"
             elif kind == "tool_result":
-                self.output += f"\n[结果] {str(data.get('result'))[:500]}\n"
+                self.output += f"\n[结果] {data.get('result')}\n"
             elif kind == "error":
                 self.error = str(data.get("message") or "")
             elif kind == "done":
                 self.output += "\n"
-            if len(self.output) > MAX_OUTPUT:
-                self.output = self.output[-MAX_OUTPUT:]
 
     def summary(self) -> str:
         with self._lock:
@@ -59,7 +55,7 @@ class Job:
             return f"任务 {self.id} 已停止。"
         if self.status == "error":
             return f"任务 {self.id} 失败：{self.error or '未知错误'}"
-        answer = (self.answer.strip() or output)[-2000:] or "(无输出)"
+        answer = (self.answer.strip() or output) or "(无输出)"
         return f"任务 {self.id} 完成：\n{answer}"
 
 

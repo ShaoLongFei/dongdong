@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 MAX_READ = 200_000
-MAX_OUTPUT = 12_000
 MAX_ITEMS = 200
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__"}
 DANGEROUS = ("sudo ", "rm -rf /", "mkfs", "shutdown", "reboot", "diskutil erase", ":(){")
@@ -38,7 +37,7 @@ TOOL_SPECS = [
                 "type": "object",
                 "properties": {
                     "command": {"type": "string", "description": "要执行的命令"},
-                    "timeout_s": {"type": "number", "description": "超时秒数，默认 30"},
+                    "timeout_s": {"type": "number", "description": "超时秒数，默认 30，最多 300"},
                 },
                 "required": ["command"],
             },
@@ -133,15 +132,16 @@ def resolve_path(workspace: Path, raw: str) -> Path:
     return path
 
 
-async def _drain(stream, limit: int) -> bytes:
-    """边读边丢，只保留最后 limit 字节（尾部错误信息最重要），避免巨量输出打爆内存。"""
+async def _drain(stream, limit: int | None = None) -> bytes:
+    """普通命令保留完整输出；固定 Birdview 子进程可显式限制收集大小。"""
     data = bytearray()
     while True:
         chunk = await stream.read(8192)
         if not chunk:
             return bytes(data)
         data.extend(chunk)
-        del data[: max(0, len(data) - limit)]
+        if limit is not None:
+            del data[: max(0, len(data) - limit)]
 
 
 def _kill_group(proc) -> None:
@@ -183,7 +183,7 @@ async def _shell(args: dict, ctx: ToolContext) -> str:
         stderr=asyncio.subprocess.STDOUT,
         start_new_session=True,  # 独立进程组，超时/后台子进程可整组杀掉
     )
-    reader = asyncio.create_task(_drain(proc.stdout, MAX_OUTPUT))
+    reader = asyncio.create_task(_drain(proc.stdout))
     try:
         error, text = await _collect(proc, reader, timeout)
     except asyncio.CancelledError:
@@ -266,7 +266,7 @@ def _grep(args: dict, ctx: ToolContext) -> str:
                 continue
             for lineno, line in enumerate(text.splitlines(), 1):
                 if regex.search(line):
-                    hits.append(f"{path.relative_to(ctx.workspace)}:{lineno}: {line.strip()[:300]}")
+                    hits.append(f"{path.relative_to(ctx.workspace)}:{lineno}: {line.strip()}")
                     if len(hits) >= 100:
                         return "\n".join(hits)
     return "\n".join(hits) or "(无匹配)"

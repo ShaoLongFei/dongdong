@@ -226,6 +226,7 @@ def test_skill_approval_and_mcp_cleanup_boundaries():
 
     async def check():
         async with MCPTools({}) as external:
+            assert external.call_timeout == 180
             external._stack.push_async_callback(broken_cleanup)
         assert external.errors == ["连接清理失败 (ExceptionGroup)"]
         try:

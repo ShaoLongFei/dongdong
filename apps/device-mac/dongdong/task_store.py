@@ -207,11 +207,11 @@ class TaskStore:
                 return False
             self._conn.execute(
                 "UPDATE items SET status=?, lease_owner=NULL, lease_until=NULL, result=?, error=?, updated_at=? WHERE id=?",
-                (status, result[:12000], error[:4000], ts, item_id),
+                (status, result, error[:4000], ts, item_id),
             )
             self._conn.execute(
                 "UPDATE attempts SET status=?, ended_at=?, output=?, error_kind=?, error=? WHERE item_id=? AND worker_id=? AND status='running'",
-                (status, ts, result[:12000], error_kind, error[:4000], item_id, worker_id),
+                (status, ts, result, error_kind, error[:4000], item_id, worker_id),
             )
             self._conn.execute(
                 "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",

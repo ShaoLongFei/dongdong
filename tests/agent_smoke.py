@@ -134,7 +134,7 @@ def test_shell_timeout_and_output():
             assert time.monotonic() - started < 2.0, "后台子进程不能无限拖住返回"
             out = await call_tool("shell", {"command": "yes x | head -c 1000000"}, ctx)
             assert "exit_code=0" in out
-            assert len(out) < 13_000, "输出必须被截断"
+            assert out.removeprefix("exit_code=0\n") == "x\n" * 500_000, "输出不得被截断"
 
     asyncio.run(run())
 
@@ -163,6 +163,8 @@ def test_agent_loop_executes_tool_then_answers():
             store = Store(workspace / "t.db")
             sid = store.create_session("测试")
             calls = []
+            contents = "完整工具结果\n" * 3000
+            (workspace / "large.txt").write_text(contents)
 
             async def fake_stream(cfg, messages, tools):
                 calls.append(messages)
@@ -171,28 +173,29 @@ def test_agent_loop_executes_tool_then_answers():
                         tool_calls=[
                             ToolCall(
                                 id="c1",
-                                name="write_file",
-                                arguments='{"path":"x.txt","content":"hi"}',
+                                name="read_file",
+                                arguments='{"path":"large.txt"}',
                             )
                         ]
                     )
                 else:
+                    assert messages[-1]["content"] == contents
                     yield StreamEvent(text="写好了")
 
             runtime = Runtime(
-                store,
-                ModelConfig("http://unused", "k", "m"),
-                workspace,
-                stream_fn=fake_stream,
+                store, ModelConfig("http://unused", "k", "m"), workspace, stream_fn=fake_stream
             )
             events = []
             answer = await runtime.run(
                 sid, "建个文件", on_event=lambda kind, data: events.append(kind)
             )
             assert answer == "写好了"
-            assert (workspace / "x.txt").read_text() == "hi"
             roles = [m["role"] for m in store.messages(sid)]
             assert roles == ["user", "assistant", "tool", "assistant"]
+            with store._lock:
+                assert (
+                    store._conn.execute("SELECT result FROM tool_calls").fetchone()[0] == contents
+                )
             assert "tool_call" in events and "done" in events
             store.close()
 

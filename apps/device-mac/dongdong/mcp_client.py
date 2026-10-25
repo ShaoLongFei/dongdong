@@ -18,7 +18,7 @@ SERVER_NAME = re.compile(r"[A-Za-z0-9_-]{1,32}\Z")
 
 
 class MCPTools:
-    def __init__(self, servers: dict, connect_timeout: float = 15, call_timeout: float = 60):
+    def __init__(self, servers: dict, connect_timeout: float = 15, call_timeout: float = 180):
         self.servers = servers
         self.connect_timeout = connect_timeout
         self.call_timeout = call_timeout
