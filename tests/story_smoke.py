@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import platform
+import struct
 import sys
 import tempfile
 from pathlib import Path
@@ -9,11 +11,12 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
 
-from dongdong.story import StorySession, story_for
-from dongdong.story_schema import normalize_scene
-from dongdong.story_store import StoryStore
-from dongdong.story_svg import scene_to_svg
-from dongdong.web_runtime import WebState
+from dongdong.story import StorySession, story_for  # noqa: E402
+from dongdong.story_export import export_story  # noqa: E402
+from dongdong.story_schema import normalize_scene  # noqa: E402
+from dongdong.story_store import StoryStore  # noqa: E402
+from dongdong.story_svg import scene_to_svg  # noqa: E402
+from dongdong.web_runtime import WebState  # noqa: E402
 
 
 def main() -> None:
@@ -83,6 +86,16 @@ def main() -> None:
         assert (Path(tmp) / "stories" / story_id).stat().st_mode & 0o777 == 0o700
         store.save_scene(story_id, scene)
         assert store.load(story_id)["scenes"][0]["sceneId"] == "scene-001"
+        if platform.system() == "Darwin" and all(
+            Path(tool).is_file() for tool in ("/usr/bin/qlmanage", "/usr/bin/sips")
+        ):
+            png = export_story(Path(tmp) / "stories" / story_id, "png")
+            pdf = export_story(Path(tmp) / "stories" / story_id, "pdf")
+            assert png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+            assert struct.unpack(">II", png.read_bytes()[16:24]) == (1280, 720)
+            assert pdf.read_bytes()[:5] == b"%PDF-"
+        else:
+            print("story export smoke skipped: macOS qlmanage/sips unavailable")
         for scene_id in ("scene-10", "scene-2", "scene-1"):
             store.save_scene(story_id, {**scene, "sceneId": scene_id})
         assert [item["sceneId"] for item in store.load(story_id)["scenes"]] == [

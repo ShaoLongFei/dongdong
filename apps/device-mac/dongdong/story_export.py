@@ -32,16 +32,17 @@ def bundled_ffmpeg() -> Path:
 
 
 def _render(svg_path: Path, output: Path, kind: str) -> None:
+    errors = []
     try:
         import cairosvg
 
         converter = cairosvg.svg2png if kind == "png" else cairosvg.svg2pdf
         converter(url=str(svg_path), write_to=str(output), output_width=1280, output_height=720)
         return
-    except ModuleNotFoundError:
-        pass
+    except ModuleNotFoundError as exc:
+        errors.append(f"CairoSVG 不可用: {exc}")
     except Exception as exc:
-        raise RuntimeError(f"SVG 转 {kind.upper()} 失败: {exc}") from exc
+        errors.append(f"CairoSVG 转换失败: {exc}")
     try:
         from playwright.sync_api import sync_playwright
 
@@ -54,9 +55,67 @@ def _render(svg_path: Path, output: Path, kind: str) -> None:
             else:
                 page.pdf(path=str(output), width="1280px", height="720px", print_background=True)
             browser.close()
+            return
+    except ModuleNotFoundError as exc:
+        errors.append(f"Playwright 不可用: {exc}")
     except Exception as exc:
+        errors.append(f"Playwright 转换失败: {exc}")
+
+    if platform.system() != "Darwin":
+        raise RuntimeError(f"缺少 SVG 转 {kind.upper()} 能力；" + "；".join(errors))
+    qlmanage = Path("/usr/bin/qlmanage")
+    sips = Path("/usr/bin/sips")
+    native_available = True
+    if not (qlmanage.is_file() and os.access(qlmanage, os.X_OK)):
+        native_available = False
+        errors.append(f"macOS Quick Look 不可用: {qlmanage}")
+    if not (sips.is_file() and os.access(sips, os.X_OK)):
+        native_available = False
+        errors.append(f"macOS sips 不可用: {sips}")
+    if not native_available:
+        raise RuntimeError(f"缺少 SVG 转 {kind.upper()} 能力；" + "；".join(errors))
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="dongdong-quicklook-") as temp:
+            temp_dir = Path(temp)
+            thumbnail_source = temp_dir / svg_path.name
+            thumbnail_source.write_bytes(svg_path.read_bytes())
+            result = subprocess.run(
+                [str(qlmanage), "-t", "-s", "1280", "-o", str(temp_dir), str(thumbnail_source)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            thumbnail = temp_dir / f"{thumbnail_source.name}.png"
+            if result.returncode or not thumbnail.is_file():
+                detail = (result.stderr or result.stdout).strip().splitlines()[-1:]
+                raise RuntimeError(f"Quick Look 生成缩略图失败: {' '.join(detail) or '未生成 PNG'}")
+            png_path = output if kind == "png" else temp_dir / "scene.png"
+            result = subprocess.run(
+                [str(sips), "-z", "720", "1280", str(thumbnail), "--out", str(png_path)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if result.returncode or not png_path.is_file():
+                detail = (result.stderr or result.stdout).strip().splitlines()[-1:]
+                raise RuntimeError(f"sips 调整 PNG 尺寸失败: {' '.join(detail) or '未生成 PNG'}")
+            if kind == "pdf":
+                result = subprocess.run(
+                    [str(sips), "-s", "format", "pdf", str(png_path), "--out", str(output)],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                if result.returncode or not output.is_file():
+                    detail = (result.stderr or result.stdout).strip().splitlines()[-1:]
+                    raise RuntimeError(f"sips 转 PDF 失败: {' '.join(detail) or '未生成 PDF'}")
+    except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
         raise RuntimeError(
-            f"缺少 SVG 转 {kind.upper()} 能力：请安装 cairosvg 或 Playwright 浏览器"
+            f"SVG 转 {kind.upper()} 失败；" + "；".join(errors) + f"；原生回退: {exc}"
         ) from exc
 
 
