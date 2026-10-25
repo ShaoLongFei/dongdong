@@ -101,12 +101,16 @@ def _dispatch(cfg: dict, target: str, action: str) -> str:
 
 
 def _find_target(target: str) -> dict | None:
-    """按名称或地址选择目标，避免要求用户重复输入 mDNS 细节。"""
+    """按名称、名称片段或地址选择目标，避免要求用户重复输入 mDNS 细节。"""
     wanted = target.casefold()
-    for item in targets(3.0):
-        if wanted in {item["name"].casefold(), item["address"].casefold()}:
-            return item
-    return None
+    found = targets(3.0)
+    exact = [
+        item for item in found if wanted in {item["name"].casefold(), item["address"].casefold()}
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    partial = [item for item in found if wanted and wanted in item["name"].casefold()]
+    return partial[0] if len(partial) == 1 else None
 
 
 def _no_menu_bar() -> bool:
