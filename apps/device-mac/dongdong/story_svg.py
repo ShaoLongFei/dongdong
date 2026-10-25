@@ -41,6 +41,16 @@ def _shape(element: dict) -> str:
     c = escape(element["color"], quote=True)
     kind = element["kind"]
     label = element["label"]
+    if kind in {"object", "simple_shape"} and any(
+        word in label for word in ("空出的", "原来所在", "种子不见")
+    ):
+        cx, cy = x + w // 2, y + h // 2
+        return (
+            f'<ellipse cx="{cx}" cy="{cy + 12}" rx="{max(34, w // 2)}" ry="{max(12, h // 4)}" '
+            'fill="#8B6F47" opacity=".22"/>'
+            f'<ellipse cx="{cx}" cy="{cy + 4}" rx="{max(28, w // 3)}" ry="{max(10, h // 5)}" '
+            'fill="none" stroke="#8B6F47" stroke-width="5" stroke-dasharray="10 8"/>'
+        )
     if kind in {"fox", "rabbit", "hedgehog", "bird", "person"} and any(
         word in label for word in ("萤火虫", "点点")
     ):
@@ -52,7 +62,11 @@ def _shape(element: dict) -> str:
             f'<path d="M{cx - 45},{cy + 38} l-30,42 M{cx + 45},{cy + 38} l30,42 M{cx - 30},{cy + 60} h60" fill="none" stroke="#5B5550" stroke-width="9" stroke-linecap="round"/>'
             f'<circle cx="{cx + 82}" cy="{cy + 4}" r="24" fill="#FFF4A8" opacity=".8"/>'
         )
-    if kind in {"object", "simple_shape"} and any(word in label for word in ("种子", "月亮种子")):
+    if (
+        kind in {"object", "simple_shape"}
+        and any(word in label for word in ("种子", "月亮种子"))
+        and not any(word in label for word in ("空出", "原来", "不见", "没有"))
+    ):
         cx, cy = x + w // 2, y + h // 2
         return (
             f'<ellipse cx="{cx}" cy="{cy + 8}" rx="{max(18, w // 3)}" ry="{max(14, h // 3)}" fill="{c}" stroke="#5B5550" stroke-width="3"/>'
@@ -82,6 +96,14 @@ def _shape(element: dict) -> str:
     if kind == "tree":
         return f'<rect x="{x + w // 2 - 16}" y="{y + h // 2}" width="32" height="{h // 2}" fill="{c}"/><circle cx="{x + w // 2}" cy="{y + h // 3}" r="{min(w, h) // 3}" fill="{c}"/>'
     if kind == "rabbit":
+        if element.get("pose") == "sitting":
+            cx = x + w // 2
+            return (
+                f'<ellipse cx="{cx}" cy="{y + h * 3 // 5}" rx="{w // 3}" ry="{h // 3}" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
+                f'<circle cx="{cx}" cy="{y + h // 3}" r="{min(w, h) // 5}" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
+                f'<path d="M{cx - 22},{y + h // 4} l-14,-{h // 5} l28,12 M{cx + 22},{y + h // 4} l14,-{h // 5} l-28,12" fill="none" stroke="{c}" stroke-width="10"/>'
+                f'<path d="M{cx - w // 6},{y + h * 4 // 5} h{w // 7} M{cx + w // 12},{y + h * 4 // 5} h{w // 7}" stroke="#5B5550" stroke-width="9" stroke-linecap="round"/>'
+            )
         return f'<ellipse cx="{x + w // 2}" cy="{y + h // 2}" rx="{w // 3}" ry="{h // 3}" fill="{c}"/><circle cx="{x + w // 2}" cy="{y + h // 4}" r="{min(w, h) // 5}" fill="{c}"/><path d="M{x + w // 2 - 22},{y + h // 5} l-12,-{h // 4} l28,18 M{x + w // 2 + 22},{y + h // 5} l12,-{h // 4} l-28,18" fill="none" stroke="{c}" stroke-width="10"/>'
     if kind == "fox":
         cx, head_y = x + w // 2, y + h // 3
@@ -150,12 +172,17 @@ def _shape(element: dict) -> str:
             word in label
             for word in ("寻找", "风", "吹", "顺流", "划行", "捞回", "挖土", "种下", "庆祝")
         ):
-            return (
+            motion = (
                 f'<path d="M{x + 10},{y + h // 2} q{w // 5},-{h // 3} {w * 2 // 5},0 '
                 f'M{x + w // 4},{y + h * 4 // 5} q{w // 5},-{h // 3} {w * 2 // 5},0" fill="none" '
                 f'stroke="{c}" stroke-width="7" stroke-linecap="round"/>'
                 f'<path d="M{x + w * 3 // 5},{y + h // 3} l22,12 l-20,12" fill="none" stroke="{c}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>'
             )
+            if "挖土" in label or "种下" in label:
+                motion += f'<ellipse cx="{x + w // 2}" cy="{y + h - 10}" rx="42" ry="13" fill="none" stroke="#8B6F47" stroke-width="6"/>'
+            if "划行" in label or "捞回" in label:
+                motion += f'<path d="M{x + w // 2 - 80} {y + h - 25} l55 20 M{x + w // 2 + 80} {y + h - 25} l-55 20" stroke="#8B5A2B" stroke-width="7" stroke-linecap="round"/>'
+            return motion
         return (
             f'<path d="M{x + 10},{y + h * 3 // 5} q{w // 5},-{h // 3} {w * 2 // 5},0 '
             f'M{x + w // 4},{y + h * 4 // 5} q{w // 5},-{h // 3} {w * 2 // 5},0" fill="none" '
@@ -286,7 +313,7 @@ def _layer(element: dict) -> int:
         return 4
     if kind in {"fox", "rabbit", "hedgehog", "bird", "person"}:
         return 3
-    if kind == "object" and "果" in label:
+    if kind == "object" and ("果" in label or "种子" in label):
         return 3
     if kind == "object":
         return 2
@@ -408,6 +435,42 @@ def _interaction(element: dict, raw_elements: list[dict]) -> str:
         return (
             f'{sound}<ellipse cx="{foot_x - 22}" cy="{foot_y}" rx="26" ry="13" fill="none" stroke="#2F6D35" stroke-width="7"/>'
             f'<ellipse cx="{foot_x + 26}" cy="{foot_y + 4}" rx="26" ry="13" fill="none" stroke="#2F6D35" stroke-width="7"/>'
+        )
+    if any(word in label for word in ("寻找", "风", "吹")):
+        target = _find_element(raw_elements, "object", ("种子", "月亮种子"))
+        if target and any(word in target["label"] for word in ("空出", "原来", "不见")):
+            target = None
+        if not target:
+            return ""
+        tx = target["x"] + target["width"] // 2
+        ty = target["y"] + target["height"] // 2
+        return (
+            f'<path d="M{tx - 100} {ty - 70} q45 -35 90 0 q45 35 90 0" fill="none" stroke="{element["color"]}" stroke-width="6" stroke-linecap="round"/>'
+            f'<path d="M{tx + 72} {ty - 70} l22 -10 M{tx + 72} {ty - 70} l18 15" stroke="{element["color"]}" stroke-width="6" stroke-linecap="round"/>'
+        )
+    if any(word in label for word in ("划行", "捞回", "小船", "船")):
+        boat = _find_element(raw_elements, "object", ("船", "叶"))
+        seed = _find_element(raw_elements, "object", ("种子", "月亮种子"))
+        if not boat or not seed:
+            return ""
+        bx, by = _box_center(boat)
+        sx, sy = _box_center(seed)
+        return (
+            f'<path d="M{bx} {by - 14} Q{(bx + sx) // 2} {sy + 36} {sx} {sy}" fill="none" '
+            f'stroke="{element["color"]}" stroke-width="5" stroke-dasharray="10 10" stroke-linecap="round"/>'
+            f'<path d="M{bx - 76} {by - 8} l48 30 M{bx + 76} {by - 8} l-48 30" '
+            'stroke="#8B5A2B" stroke-width="7" stroke-linecap="round"/>'
+        )
+    if any(word in label for word in ("挖土", "种下", "种进土")):
+        seed = _find_element(raw_elements, "object", ("种子", "月亮种子"))
+        if not seed:
+            return ""
+        sx = seed["x"] + seed["width"] // 2
+        sy = seed["y"] + seed["height"]
+        return (
+            f'<ellipse cx="{sx}" cy="{sy + 25}" rx="42" ry="13" fill="#8B6F47" opacity=".28"/>'
+            f'<path d="M{sx} {sy - 8} V{sy + 22}" fill="none" stroke="#8B6F47" stroke-width="5" stroke-dasharray="7 7"/>'
+            f'<path d="M{sx - 54} {sy + 34} q24 -22 48 0 M{sx + 6} {sy + 34} q24 -22 48 0" fill="none" stroke="#8B6F47" stroke-width="6" stroke-linecap="round"/>'
         )
     return ""
 
