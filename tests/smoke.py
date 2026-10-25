@@ -415,6 +415,7 @@ if __name__ == "__main__":
     print("smoke 通过" if not failures else f"{failures} 个失败")
     sys.exit(1 if failures else 0)
 
+
 def test_meeting_confirmation_and_control_boundaries():
     from dongdong import birdview, skills
     from dongdong.meeting_store import Meetings
@@ -540,5 +541,3 @@ def test_meeting_baseline_detects_uncommitted_and_new_files():
             assert await fingerprint(work) != initial
 
     asyncio.run(check())
-
-

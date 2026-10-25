@@ -81,13 +81,21 @@ class WebState:
         )
 
     async def start(
-        self, session_id: str, text: str, cwd: str | None = None, *,
-        meeting_options=None, finished=None, observer=None,
+        self,
+        session_id: str,
+        text: str,
+        cwd: str | None = None,
+        *,
+        meeting_options=None,
+        finished=None,
+        observer=None,
     ) -> str:
         if self.meeting.db.active() and meeting_options is None:
             raise ValueError("代码修改模式中请通过会议入口讨论、整理和确认")
         if meeting_options is not None:
-            return await self._start_meeting(session_id, text, cwd, meeting_options, finished, observer)
+            return await self._start_meeting(
+                session_id, text, cwd, meeting_options, finished, observer
+            )
         if self.busy:
             raise RuntimeError("上一个任务还在跑")
         if self.model is None:
@@ -130,10 +138,16 @@ class WebState:
         async def work():
             status, error = "done", ""
             try:
-                runtime = Runtime(self.store, self.model, workspace,
+                runtime = Runtime(
+                    self.store,
+                    self.model,
+                    workspace,
                     max_steps=int(self.cfg["runtime"]["max_steps"]),
                     history_messages=int(self.cfg["runtime"]["history_messages"]),
-                    cfg=self.cfg, approve=self.approvals.request, **(options or {}))
+                    cfg=self.cfg,
+                    approve=self.approvals.request,
+                    **(options or {}),
+                )
                 await runtime.run(session_id, text, on_event=on_event)
             except asyncio.CancelledError:
                 status, error = "stopped", "用户停止；保留部分改动"
@@ -161,7 +175,9 @@ class WebState:
         self._task = task
         task.add_done_callback(self._consume)
         try:
-            done, _ = await asyncio.wait({started, task}, timeout=2, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                {started, task}, timeout=2, return_when=asyncio.FIRST_COMPLETED
+            )
             if started in done:
                 self._last_run = started.result()
                 self._run_id = self._last_run
