@@ -22,6 +22,7 @@ from . import (
     memory_routes,
     projects,
     skills,
+    story_store,
     tools,
     work_gate,
 )
@@ -34,10 +35,6 @@ STATIC = Path(__file__).with_name("static")
 
 class MessageIn(BaseModel):
     text: str
-
-
-class StoryModeIn(BaseModel):
-    enabled: bool = Field(strict=True)
 
 
 class SettingsIn(BaseModel):
@@ -73,6 +70,7 @@ def create_app(cfg: dict) -> FastAPI:
     app.include_router(mcp_routes.router(cfg))
     app.include_router(approvals.router(state.approvals))
     app.include_router(projects.router(state))
+    app.include_router(story_store.router(state))
     app.include_router(memory_routes.router(state))
 
     @app.middleware("http")
@@ -89,15 +87,16 @@ def create_app(cfg: dict) -> FastAPI:
             active = None
         return {
             "version": cfg.get("version", ""),
-            "meeting_session": (state.meeting.db.active() or {}).get("sid", ""),
+            "meeting_session": (state.meeting.db.active(state.task_session) or {}).get("sid", ""),
             "workspace": str(state.project_workspace(state.current_project)),
             "current_project": state.current_project,
             "model_ready": state.model is not None,
             "error": state.error,
             "backend": cfg.get("code_backend", "cli"),
             "active_run": state._run_id if active else "",
-            "task_session": active["session_id"] if active else state.task_session,
-            "busy": bool(work_gate.current()),
+            "task_session": state.task_session,
+            "busy": state.busy,
+            "active_runs": dict(state._runs),
             "voice": device_state.snapshot(cfg),
             "voice_session": state.task_session,
             "voice_enabled": voice.enabled,
@@ -115,24 +114,18 @@ def create_app(cfg: dict) -> FastAPI:
         await voice.set_enabled(body.enabled)
         return {"enabled": voice.enabled}
 
-    @app.put("/api/story/mode")
-    async def api_story_mode(body: StoryModeIn):
-        return await state.story_mode(body.enabled)
-
-    @app.get("/api/story/state")
-    async def api_story_state():
-        return state.story.state()
-
     @app.get("/api/story/events")
     async def api_story_events(request: Request, since: int = 0):
+        story = state.story
+
         async def stream():
             cursor = max(0, since)
             while not await request.is_disconnected():
-                events = state.story.events(cursor)
+                events = story.events(cursor)
                 for event in events:
                     cursor = event["id"]
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                current = state.story.state()
+                current = story.state()
                 if current["status"] in {"done", "ready", "error"} and not events:
                     return
                 await asyncio.sleep(0.2)
@@ -142,25 +135,6 @@ def create_app(cfg: dict) -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
-
-    @app.get("/api/stories")
-    async def api_stories():
-        return {"stories": state.story.store.list_stories()}
-
-    @app.get("/api/stories/{story_id}")
-    async def api_story(story_id: str):
-        try:
-            return state.story.store.load(story_id)
-        except ValueError as exc:
-            raise HTTPException(404, str(exc)) from None
-
-    @app.post("/api/stories/{story_id}/replay")
-    async def api_story_replay(story_id: str):
-        try:
-            scenes = state.story.replay(story_id)
-        except ValueError as exc:
-            raise HTTPException(404, str(exc)) from None
-        return {"storyId": story_id, "scenes": scenes, "cursor": state.story.state()["cursor"]}
 
     @app.get("/api/sessions/{sid}")
     async def api_session(sid: str):
@@ -223,7 +197,12 @@ def create_app(cfg: dict) -> FastAPI:
                 if await request.is_disconnected():
                     return
                 run = state.store.get_run(rid)
-                if run and run["status"] != "running" and not events and state._run_id != rid:
+                if (
+                    run
+                    and run["status"] != "running"
+                    and not events
+                    and rid not in state._runs.values()
+                ):
                     yield "event: end\ndata: {}\n\n"
                     return
                 await asyncio.sleep(0.2)
@@ -264,8 +243,6 @@ def create_app(cfg: dict) -> FastAPI:
             work_gate.release("settings")
 
     def save_settings(body: SettingsIn):
-        if state.meeting.db.active():
-            raise HTTPException(409, "请先退出代码修改模式再更改设置")
         if body.workspace is not None:
             workspace = Path(body.workspace).expanduser().resolve()
             if not workspace.is_dir():

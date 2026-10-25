@@ -181,7 +181,7 @@ async def execute(controller, meeting: dict, proposal: dict) -> dict:
         finished=finish,
         observer=observe,
     )
-    if host.busy:
+    if host.session_busy(sid):
         db.execution(pid, "running", rid)
         db.update(sid, phase="executing", run_id=rid)
     return {"run_id": rid, "message": f"正在实施方案 v{proposal['version']}"}

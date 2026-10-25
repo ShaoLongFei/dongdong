@@ -52,7 +52,7 @@ export default function Sidebar({ selected, onChoose, onNew, state, report, onCh
       setCreating(false); setName(''); setPath('');
     }
   }
-  const busy = state?.busy || pending;
+  const busy = pending;
   return <aside className="sidebar">
     <a className="brand" href="/" aria-label="咚咚首页"><span className="brand-icon"><AudioLines size={22} /></span><strong>咚咚<span className="muted text-xs font-normal ml-2">工作台</span></strong></a>
     <button className="new-session" disabled={busy} onClick={() => onNew(state?.current_project || null)}><Plus size={17} /><span>开启新对话</span></button>
@@ -66,7 +66,7 @@ export default function Sidebar({ selected, onChoose, onNew, state, report, onCh
           <button disabled={busy} onClick={() => onNew(project.id || null)}>新对话</button>
           {project.id && <button disabled={busy} onClick={() => { const next = window.prompt('项目新名称', project.name); if (next?.trim()) mutate(`/projects/${project.id}`, 'PATCH', { name: next.trim() }); }}>重命名</button>}
         </div>
-        {groups[project.id]?.sessions.map(session => <button key={session.id} className={selected === session.id ? 'selected' : ''} onClick={() => onChoose(session.id)}><MessageSquare size={13} /><span>{session.title}</span><ChevronRight size={12} /></button>)}
+        {groups[project.id]?.sessions.map(session => <button key={session.id} className={selected === session.id ? 'selected' : ''} onClick={() => onChoose(session.id)}><MessageSquare size={13} /><span>{session.title}</span>{state?.active_runs?.[session.id] && <span className="project-current">运行中</span>}<ChevronRight size={12} /></button>)}
         {!groups[project.id] ? <p className="group-empty">加载中…</p> : !groups[project.id].sessions.length && <p className="group-empty">{archived ? '没有归档对话' : '还没有对话'}</p>}
         {groups[project.id]?.has_more && <button className="load-more" disabled={loading[project.id]} onClick={() => page(project.id, true)}>加载更多</button>}
       </details>

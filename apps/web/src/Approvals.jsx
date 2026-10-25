@@ -3,7 +3,7 @@ import { api } from './api';
 
 const approvalKey = item => JSON.stringify([item.run_id, item.id]);
 
-export default function Approvals({ report, onResolved }) {
+export default function Approvals({ report, onResolved, runIds = [] }) {
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(new Set());
   const callbacks = useRef({ report, onResolved });
@@ -41,10 +41,11 @@ export default function Approvals({ report, onResolved }) {
     }
   }
 
-  if (!items.length) return null;
+  const visible = items.filter(item => runIds.includes(item.run_id));
+  if (!visible.length) return null;
   return <section className="approvals" aria-label="待审批操作">
     <h2>操作需要你的批准</h2>
-    {items.map(item => <article className="approval-card" key={approvalKey(item)}>
+    {visible.map(item => <article className="approval-card" key={approvalKey(item)}>
       <h3>{item.name}</h3>
       <p className="muted text-xs">任务 {item.run_id}</p>
       <pre>{JSON.stringify(item.arguments, null, 2)}</pre>

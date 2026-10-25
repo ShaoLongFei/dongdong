@@ -1,29 +1,27 @@
-"""跨 Web / 语音的任务闸门：同一时间只允许一个 agent 改工作区。"""
-
-from __future__ import annotations
+"""会话任务分别互斥；无 scope 的配置/旧设备入口仍独占整个进程。"""
 
 import threading
 
 _lock = threading.Lock()
-_owner = ""
+_owners = {}
 
 
-def acquire(owner: str) -> bool:
-    global _owner
+def acquire(owner: str, scope: str = "") -> bool:
     with _lock:
-        if _owner:
+        if (not scope and _owners) or "" in _owners or scope in _owners:
             return False
-        _owner = owner
+        _owners[scope] = owner
         return True
 
 
 def release(owner: str) -> None:
-    global _owner
     with _lock:
-        if _owner == owner:
-            _owner = ""
+        for scope in [key for key, value in _owners.items() if value == owner]:
+            del _owners[scope]
 
 
-def current() -> str:
+def current(scope: str | None = None) -> str:
     with _lock:
-        return _owner
+        if scope is None:
+            return next(iter(_owners.values()), "")
+        return _owners.get("", "") or _owners.get(scope, "")

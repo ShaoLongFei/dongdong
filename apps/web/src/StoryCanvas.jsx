@@ -15,6 +15,7 @@ export default function StoryCanvas({ state, onModeChange }) {
   const [scenes, setScenes] = useState([]);
   const [error, setError] = useState('');
   useEffect(() => {
+    setScenes([]); setError('');
     if (!state?.storyId) return undefined;
     let cursor = 0;
     const source = new EventSource(`/api/story/events?since=${cursor}`);

@@ -88,7 +88,8 @@ def test_meeting_confirmation_and_control_boundaries():
         db.open(sid, tmp)
         db.discuss(sid, "修改需求", "voice")
         meeting = Meeting.__new__(Meeting)
-        meeting.db, meeting.notice = db, ""
+        meeting.db, meeting.notices = db, {}
+        meeting.host = SimpleNamespace(task_session=sid)
         status = meeting.mcp_status()
         assert json.loads(status)["workspace"] == tmp
         assert json.loads(status)["discussion_count"] == 1

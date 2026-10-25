@@ -91,7 +91,7 @@ flowchart TB
 
 独立 `call` 是一次性进程，builtin 超过同步等待后不能保证继续：当前服务线程是 daemon，命令退出会结束进程。长任务使用持续运行的 `run/web`；`serve` 可以保持服务运行，但当前尚无统一的有序退出收尾。
 
-`work_gate` 让 Web、设备编程任务与设置/能力变更在**同一进程内**互斥，忙时拒绝，不排队；取消清理完成后释放。直接 `chat/Runtime` 不走这道闸门，也没有跨进程锁。不要用多个入口进程同时修改同一工作区。
+`work_gate` 按会话 ID 隔离 Web/内置语音任务，同一对话不可重入，其他对话可继续；配置与独立旧设备入口使用无 scope 的全局独占，活动任务期间拒绝变更。取消清理完成后释放。直接 `chat/Runtime` 不走这道闸门，也没有跨进程锁。不要用多个入口进程同时修改同一工作区。
 
 ## 4. 任务执行与实时展示
 
@@ -176,7 +176,7 @@ sequenceDiagram
 
 **外部 MCP。** `mcp_client.py` 使用官方 SDK，支持 stdio、Streamable HTTP、SSE；工具名映射为 `mcp_<服务名>_<索引>`。每 run 建立连接并在同一 asyncio task 退出；连接/发现默认 15 秒、工具调用默认 60 秒。失败服务写 `mcp_error`，其它能力继续；普通清理异常不会覆盖任务结果或取消。
 
-**审批。** `tool_policy=auto` 默认自动执行；`ask` 对 shell、写/改文件、`memory_save`、所有外部 MCP 工具调用确认一次，只读与计划不确认。全局组件独立轮询，换页面/会话后仍可批准；授权仅匹配 `(run_id, call_id)`，不持久化。CLI 和独立 AgentService 无回调时拒绝需审批操作。服务进程启动/连接本身不属于工具调用审批。
+**审批。** `tool_policy=auto` 默认自动执行；`ask` 对 shell、写/改文件、`memory_save`、所有外部 MCP 工具调用确认一次，只读与计划不确认。审批按当前对话的运行列表展示，换页面仍可批准，切换对话后只显示该对话审批；授权仅匹配 `(run_id, call_id)`，不持久化。CLI 和独立 AgentService 无回调时拒绝需审批操作。服务进程启动/连接本身不属于工具调用审批。
 
 ## 7. 数据与存储关系
 
@@ -237,7 +237,7 @@ erDiagram
 
 `DONGDONG_HOME` 可替换配置、会话库和技能的默认根目录。Mem0 全局沿用 `user_id=device_id`，项目使用 `device_id:project:项目ID` 隔离提取、查询、更新与删除，使用 `OPENAI_API_KEY` 调 OpenAI 提取/嵌入；保存内容和查询文本会发送到 OpenAI。Runtime 每轮按用户消息自动检索全局与会话项目，各≤5条、总注入≤4000字符，标注为参考事实而非指令；无key跳过，失败记录memory_error并继续。不会自动保存整轮对话；明确记住用memory_save，默认项目、global跨项目，无项目回落全局。SDK初始化和操作在线程串行执行；删除先校验全部ID归属。
 
-项目创建后路径固定，只可重命名。WebState按会话决定每个run的目录和记忆，运行中不随浏览变化；移动下一轮生效，既有文件/记忆不动。归档入口只读且服务端拒绝新任务，恢复后继续。项目切换、移动、归档/恢复与任务共用gate，忙时409；管理页按明确global/项目范围读写。设备self.memory.*默认当前语音项目，可选scope=global；独立call/serve默认全局。侧栏每组20条分页，不全量轮询历史。
+项目创建后路径固定，只可重命名。WebState按会话决定每个run的目录和记忆，运行中不随浏览变化；移动下一轮生效，既有文件/记忆不动。归档入口只读且服务端拒绝新任务，恢复后继续。新建/切换项目与对话不受后台任务影响；移动、归档/恢复只检查目标对话的任务和模式，忙时409；管理页按明确global/项目范围读写。设备self.memory.*默认当前语音项目，可选scope=global；独立call/serve默认全局。侧栏每组20条分页，不全量轮询历史。
 
 ## 8. 模块索引
 
@@ -279,11 +279,11 @@ Web 仅监听 loopback，并校验 Host/Origin；没有远程账号鉴权，因�
 | ESP32 固件转发 | 仅有规划与 Mac bridge，未烧录/联调 |
 | 灵矽自定义模型 `/v1/chat/completions` 入站接口 | 早期备选方案，当前未实现；实际语音走设备 MCP |
 
-当前Web默认单worker，由TaskManager管理Run/Goal/Item/Attempt；普通请求一个Item，会议生成/实施保持受约束Runtime入口。重启暂停遗留调度任务，显式恢复；工作线程续租且取消后等真实执行退出再释放闸门。后续实现依据先查本页和 [决策记录](decisions.md)，历史设计/计划的差异见 [文档导航](README.md)。
+当前Web共享4个worker，不同对话的普通任务可并行（超过线程数等待空闲worker），由TaskManager管理Run/Goal/Item/Attempt；普通请求一个Item，会议生成/实施保持受约束Runtime入口。重启暂停遗留调度任务，显式恢复；工作线程续租且取消后等真实执行退出再释放闸门。后续实现依据先查本页和 [决策记录](decisions.md)，历史设计/计划的差异见 [文档导航](README.md)。
 
 ## 会议代码修改模式（2026-10-25）
 
-会话内显式开启，固定工作区内 Git 项目目录。`meeting_store.py` 复用 Store 的 SQLite 连接建立 meetings、meeting_discussion、proposals、meeting_controls；方案正文不可变，展示和确认记录独立于正文哈希。一次仅一个开启的会议；讨论与待确认不挂起 Runtime。
+会话内显式开启，固定工作区内 Git 项目目录。`meeting_store.py` 复用 Store 的 SQLite 连接建立 meetings、meeting_discussion、proposals、meeting_controls；方案正文不可变，展示和确认记录独立于正文哈希。多个对话可各自开启会议；目录、讨论、通知、方案、确认与后台运行都按会话 ID 隔离。语音及隐式 MCP 查询/停止跟随当前选中对话，显式 run ID 只作用于该运行；后台完成不改变当前选择。讨论与待确认不挂起 Runtime。
 
 `WebState.voice_text` 将模式内用户 STT 分流到 Meeting；TTS 不作为人类输入。完整“整理一下方案”“按这个方案实施”由本地控制解析，普通 STT 仅登记讨论。云端 `self.code.run` 在此模式只查状态，不发起新执行；两个入口不能合成第二次确认。`/api/meetings/{sid}` 管模式与查询，`/actions` 生成/确认/显式恢复；方案 shown 和产物接口都校验所属会话与版本。
 

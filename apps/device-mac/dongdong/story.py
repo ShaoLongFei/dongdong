@@ -175,7 +175,9 @@ class StorySession:
                     scene = normalize_scene({}, text, scene_id)
                     try:
                         self.store.save_scene(self.story_id, scene)
-                        self._publish("scene", {"storyId": self.story_id, "scene": scene, "fallback": True})
+                        self._publish(
+                            "scene", {"storyId": self.story_id, "scene": scene, "fallback": True}
+                        )
                     except Exception as exc:
                         self._error = str(exc)
                         self.status = "error"
@@ -226,3 +228,28 @@ class StorySession:
             await self.stop()
         elif self._tasks:
             await asyncio.gather(*list(self._tasks), return_exceptions=True)
+
+
+def story_command(text: str) -> str | None:
+    normalized = "".join(str(text).split())
+    if any(
+        phrase in normalized for phrase in ("结束讲故事", "停止讲故事", "退出故事模式", "结束故事")
+    ):
+        return "stop"
+    if any(phrase in normalized for phrase in ("开始讲故事", "进入故事模式", "开启故事模式")):
+        return "start"
+    return None
+
+
+async def set_story_mode(host, enabled: bool, sid: str | None = None) -> dict:
+    sid = host.task_session if sid is None else sid
+    if sid not in host.stories:
+        host.stories[sid] = StorySession(model=host.model, store=host.story.store)
+    story = host.stories[sid]
+    if enabled:
+        if host.meeting.db.active(sid) or host.session_busy(sid):
+            raise ValueError("请先结束本对话任务并退出代码修改模式")
+        story.start()
+    else:
+        await story.stop()
+    return story.state()

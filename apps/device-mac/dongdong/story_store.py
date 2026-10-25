@@ -9,7 +9,14 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import BaseModel, Field
+
 from .story_svg import scene_to_svg
+
+
+class StoryModeIn(BaseModel):
+    enabled: bool = Field(strict=True)
+
 
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _SCENE_NUMBER = re.compile(r"^scene-(\d+)$")
@@ -144,3 +151,41 @@ class StoryStore:
                 except ValueError:
                     continue
         return sorted(result, key=lambda item: item.get("createdAt", ""), reverse=True)
+
+
+def router(state):
+    from fastapi import APIRouter, HTTPException
+
+    routes = APIRouter(prefix="/api")
+
+    @routes.put("/story/mode")
+    async def mode(body: StoryModeIn):
+        try:
+            return await state.story_mode(body.enabled)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+
+    @routes.get("/story/state")
+    async def current():
+        return state.story.state()
+
+    @routes.get("/stories")
+    async def stories():
+        return {"stories": state.story.store.list_stories()}
+
+    @routes.get("/stories/{story_id}")
+    async def story(story_id: str):
+        try:
+            return state.story.store.load(story_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @routes.post("/stories/{story_id}/replay")
+    async def replay(story_id: str):
+        try:
+            scenes = state.story.replay(story_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from None
+        return {"storyId": story_id, "scenes": scenes, "cursor": state.story.state()["cursor"]}
+
+    return routes

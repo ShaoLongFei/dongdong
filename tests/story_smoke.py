@@ -156,5 +156,6 @@ def main() -> None:
     assert WebState._story_command("退出故事模式") == "stop"
     assert WebState._story_command("讲个故事") is None
 
+
 if __name__ == "__main__":
     main()

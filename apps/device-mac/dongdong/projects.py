@@ -9,7 +9,6 @@ from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
-from . import work_gate
 from .store import now
 
 
@@ -53,11 +52,6 @@ def use_session(state, sid: str) -> None:
     session = state.store.get_session(sid)
     if not session or session["archived_at"]:
         raise ValueError("会话不存在或已归档")
-    active = state.meeting.db.active()
-    if active and active["sid"] != sid:
-        raise ValueError("请先退出当前代码修改模式")
-    if state.busy and state.task_session != sid:
-        raise ValueError("任务运行中，请结束后再切换当前对话")
     state.current_project = session["project_id"]
     state.task_session = state._project_tasks[state.current_project] = sid
 
@@ -107,12 +101,6 @@ end tell"""
                 raise HTTPException(400, "请选择已存在的文件夹")
             return {"path": str(path)}
 
-    def gate(owner: str):
-        if state.meeting.db.active():
-            raise HTTPException(409, "请先退出代码修改模式再修改项目或会话")
-        if not work_gate.acquire(owner):
-            raise HTTPException(409, "任务运行中，请结束后再修改项目或会话")
-
     def project(project_id: str | None):
         if project_id is None:
             return None
@@ -133,40 +121,28 @@ end tell"""
             raise HTTPException(400, "项目目录无效") from None
         if not path.is_dir():
             raise HTTPException(400, f"项目目录不存在: {path}")
-        gate("project-settings")
         try:
-            try:
-                pid = state.store.create_project(body.name.strip(), str(path))
-            except Exception as exc:
-                if "UNIQUE" in str(exc).upper():
-                    raise HTTPException(409, "这个目录已经绑定了项目") from None
-                raise
-            return state.store.get_project(pid)
-        finally:
-            work_gate.release("project-settings")
+            pid = state.store.create_project(body.name.strip(), str(path))
+        except Exception as exc:
+            if "UNIQUE" in str(exc).upper():
+                raise HTTPException(409, "这个目录已经绑定了项目") from None
+            raise
+        return state.store.get_project(pid)
 
     @routes.patch("/projects/{project_id}")
     async def rename_project(project_id: str, body: ProjectNameIn):
         project(project_id)
-        gate("project-settings")
-        try:
-            state.store.rename_project(project_id, body.name.strip())
-            return state.store.get_project(project_id)
-        finally:
-            work_gate.release("project-settings")
+        state.store.rename_project(project_id, body.name.strip())
+        return state.store.get_project(project_id)
 
     @routes.put("/projects/current")
     async def set_current(body: CurrentProjectIn):
         item = project(body.project_id)
-        gate("project-settings")
         try:
-            try:
-                state.set_project(body.project_id)
-            except ValueError as exc:
-                raise HTTPException(400, str(exc)) from None
-            return {"current_project": item["id"] if item else None}
-        finally:
-            work_gate.release("project-settings")
+            state.set_project(body.project_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        return {"current_project": item["id"] if item else None}
 
     @routes.get("/sessions")
     async def list_sessions(
@@ -193,12 +169,8 @@ end tell"""
             else state.current_project
         )
         project(pid)
-        gate("session-settings")
-        try:
-            sid = state.new_session((body.title if body else "新会话"), "web", pid)
-            use_session(state, sid)
-        finally:
-            work_gate.release("session-settings")
+        sid = state.new_session((body.title if body else "新会话"), "web", pid)
+        use_session(state, sid)
         return state.store.get_session(sid)
 
     @routes.patch("/sessions/{session_id}")
@@ -207,21 +179,19 @@ end tell"""
         if not session:
             raise HTTPException(404, "会话不存在")
         project(body.project_id)
-        gate("session-settings")
+        if state.meeting.db.active(session_id) or state.session_busy(session_id):
+            raise HTTPException(409, "请先结束本对话任务并退出代码修改模式")
+        values = {}
+        if "project_id" in body.model_fields_set:
+            values["project_id"] = body.project_id
+        if body.archived is not None:
+            values["archived_at"] = now() if body.archived else None
         try:
-            values = {}
-            if "project_id" in body.model_fields_set:
-                values["project_id"] = body.project_id
-            if body.archived is not None:
-                values["archived_at"] = now() if body.archived else None
-            try:
-                state.store.update_session(session_id, values)
-            except ValueError as exc:
-                raise HTTPException(409, str(exc)) from None
-            state.forget_session(session_id)
-            return state.store.get_session(session_id)
-        finally:
-            work_gate.release("session-settings")
+            state.store.update_session(session_id, values)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+        state.forget_session(session_id)
+        return state.store.get_session(session_id)
 
     @routes.put("/sessions/current")
     async def current_session(body: CurrentSessionIn):
