@@ -27,6 +27,7 @@ ALLOWED_COLORS = {
     "#C94F5C",
 }
 ALLOWED_KINDS = {
+    "bear",
     "tree",
     "rabbit",
     "hedgehog",
@@ -52,6 +53,8 @@ def _visual_color(item: dict) -> str:
     label = str(item.get("label") or "")
     for words, color in (
         (("萤火虫", "点点"), "#FFD34E"),
+        (("小熊", "熊", "米米"), "#D9B38C"),
+        (("风筝",), "#F2C14E"),
         (("兔子", "小兔"), "#E8D7C5"),
         (("种子", "月亮种子"), "#D9B7FF"),
         (("发光的花", "小花"), "#F6D84A"),
@@ -79,6 +82,8 @@ def _kind(item: dict) -> str:
         return "fox"
     if "啄木鸟" in label:
         return "bird"
+    if any(word in label for word in ("小熊", "熊", "米米")):
+        return "bear"
     if "刺猬" in label or "团团" in label:
         return "hedgehog"
     return raw if raw in ALLOWED_KINDS else "simple_shape"
@@ -113,7 +118,7 @@ def _element(raw: object, index: int, start_ms: int) -> dict:
     color = _visual_color(item)
     width = _safe_int(item.get("width"), 180, 1, WIDTH)
     height = _safe_int(item.get("height"), 160, 1, HEIGHT)
-    if kind in {"fox", "rabbit", "hedgehog", "person"}:
+    if kind in {"fox", "rabbit", "hedgehog", "person", "bear"}:
         width, height = max(width, 210), max(height, 230)
     elif kind == "bird":
         width, height = max(width, 170), max(height, 145)
@@ -166,7 +171,7 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
     boat_scene = any(
         any(word in item["label"] for word in ("小船", "船", "划行", "捞回")) for item in elements
     )
-    celebration = any(word in text for word in ("庆祝", "朋友都来", "朋友们都来"))
+    celebration = any(word in text for word in ("庆祝", "欢呼", "朋友都来", "朋友们都来"))
     left, right = (
         (170, 760)
         if trapped
@@ -190,10 +195,35 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
         "fox": (left, 390 if promise else 350),
         "rabbit": (left, 390 if promise else 350),
         "person": (left, 390 if promise else 350),
+        "bear": (left, 390 if promise else 350),
         "hedgehog": (right, 390 if promise else 350),
         "bird": (bird_x, bird_y),
     }
     used = set()
+    # 模型偶尔在后续镜头漏掉已出现角色；文本仍明确提及时补回，保证连续性。
+    known_characters = (
+        ("bear", "小熊米米", ("小熊", "米米")),
+        ("bird", "小鸟圆圆", ("小鸟", "圆圆")),
+        ("fox", "狐狸阿栗", ("狐狸", "阿栗")),
+        ("rabbit", "小兔子", ("兔子",)),
+        ("hedgehog", "刺猬团团", ("刺猬", "团团")),
+    )
+    known_kinds = {item["kind"] for item in elements}
+    for kind, label, words in known_characters:
+        if any(word in text for word in words) and kind not in known_kinds:
+            elements.append(
+                _element(
+                    {
+                        "kind": kind,
+                        "label": label,
+                        "width": 210 if kind == "bear" else 170,
+                        "height": 230 if kind == "bear" else 145,
+                    },
+                    len(elements),
+                    0,
+                )
+            )
+            known_kinds.add(kind)
     if celebration:
         # “森林里的朋友都来庆祝”是故事明确写出的群体角色；模型偶尔只返回主角，
         # 补两只小鸟让结尾有可见的庆祝参与者，同时不改变主角连续性。
@@ -278,6 +308,25 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
             )
         elif item["kind"] == "object" and "果" in label:
             item.update(x=535, y=390, width=max(item["width"], 64), height=max(item["height"], 64))
+        elif item["kind"] == "object" and "风筝" in label:
+            if any(word in label for word in ("天空", "飞")) or any(
+                word in text for word in ("放上天空", "重新放", "升空", "放飞")
+            ):
+                item.update(
+                    x=700, y=180, width=max(item["width"], 125), height=max(item["height"], 85)
+                )
+            elif any(word in label for word in ("桥另一边", "对岸")):
+                item.update(
+                    x=930, y=300, width=max(item["width"], 125), height=max(item["height"], 85)
+                )
+            elif any(word in text for word in ("树枝", "挂", "大树")):
+                item.update(
+                    x=895, y=300, width=max(item["width"], 125), height=max(item["height"], 85)
+                )
+            else:
+                item.update(
+                    x=520, y=470, width=max(item["width"], 150), height=max(item["height"], 85)
+                )
         elif item["kind"] == "object" and any(word in label for word in ("小船", "船", "树叶")):
             item.update(
                 x=350 if boat_scene else 420,
@@ -296,7 +345,7 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
                 item.update(
                     x=430, y=125, width=max(item["width"], 360), height=max(item["height"], 100)
                 )
-            elif "剪断" in label:
+            elif any(word in label for word in ("剪断", "取下", "修理", "风筝", "欢呼")):
                 item.update(
                     x=560, y=235, width=max(item["width"], 300), height=max(item["height"], 180)
                 )
@@ -314,7 +363,7 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
                 )
     if promise:
         for item in elements:
-            if item["kind"] in {"fox", "hedgehog", "rabbit", "person"}:
+            if item["kind"] in {"fox", "hedgehog", "rabbit", "person", "bear"}:
                 item["pose"] = "sitting"
     elif trapped:
         for item in elements:
@@ -322,7 +371,7 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
                 item["pose"] = "sitting"
     if boat_scene:
         for item in elements:
-            if item["kind"] in {"fox", "rabbit", "hedgehog", "person"}:
+            if item["kind"] in {"fox", "rabbit", "hedgehog", "person", "bear"}:
                 item["pose"] = "sitting"
         for index, item in enumerate(
             item for item in elements if item["kind"] == "bird" and "庆祝" in item["label"]

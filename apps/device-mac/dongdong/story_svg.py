@@ -51,7 +51,7 @@ def _shape(element: dict) -> str:
             f'<ellipse cx="{cx}" cy="{cy + 4}" rx="{max(28, w // 3)}" ry="{max(10, h // 5)}" '
             'fill="none" stroke="#8B6F47" stroke-width="5" stroke-dasharray="10 8"/>'
         )
-    if kind in {"fox", "rabbit", "hedgehog", "bird", "person"} and any(
+    if kind in {"fox", "rabbit", "hedgehog", "bird", "person", "bear"} and any(
         word in label for word in ("萤火虫", "点点")
     ):
         cx, cy = x + w // 2, y + h // 2
@@ -70,6 +70,17 @@ def _shape(element: dict) -> str:
             f'<path d="M{cx - 45},{cy + 38} l-30,42 M{cx + 45},{cy + 38} l30,42 M{cx - 30},{cy + 60} h60" fill="none" stroke="#5B5550" stroke-width="9" stroke-linecap="round"/>'
             f'<circle cx="{cx + 82}" cy="{cy + 4}" r="24" fill="#FFF4A8" opacity=".8"/>'
         )
+    if kind == "bear":
+        cx = x + w // 2
+        cy = y + h // 2
+        return (
+            f'<ellipse cx="{cx}" cy="{cy + 28}" rx="{w // 3}" ry="{h // 3}" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
+            f'<circle cx="{cx}" cy="{cy - 34}" r="{min(w, h) // 4}" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
+            f'<circle cx="{cx - 28}" cy="{cy - 68}" r="18" fill="{c}" stroke="#5B5550" stroke-width="4"/><circle cx="{cx + 28}" cy="{cy - 68}" r="18" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
+            f'<circle cx="{cx - 15}" cy="{cy - 38}" r="5" fill="#3D382F"/><circle cx="{cx + 15}" cy="{cy - 38}" r="5" fill="#3D382F"/>'
+            f'<path d="M{cx - 16},{cy - 16} q16,14 32,0" fill="none" stroke="#3D382F" stroke-width="4" stroke-linecap="round"/>'
+            f'<path d="M{cx - w // 6},{y + h * 4 // 5} h{w // 7} M{cx + w // 12},{y + h * 4 // 5} h{w // 7}" stroke="#5B5550" stroke-width="10" stroke-linecap="round"/>'
+        )
     if (
         kind in {"object", "simple_shape"}
         and any(word in label for word in ("种子", "月亮种子"))
@@ -87,6 +98,13 @@ def _shape(element: dict) -> str:
             f'<path d="M{cx} {base} Q{cx - 12} {y + h // 2} {cx} {y + h // 3}" fill="none" stroke="#4F8B45" stroke-width="7"/>'
             f'<circle cx="{cx}" cy="{y + h // 4}" r="{max(18, min(w, h) // 7)}" fill="{c}" stroke="#FFF4A8" stroke-width="7"/>'
             f'<circle cx="{cx - 24}" cy="{y + h // 4 + 8}" r="14" fill="#FFF4A8"/><circle cx="{cx + 24}" cy="{y + h // 4 + 8}" r="14" fill="#FFF4A8"/>'
+        )
+    if kind in {"object", "simple_shape"} and "风筝" in label:
+        knot_x, knot_y = x + w // 2, y + h // 2
+        return (
+            f'<path d="M{knot_x} {y} L{x + w} {knot_y} L{knot_x} {y + h} L{x} {knot_y} Z" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
+            f'<path d="M{knot_x} {y + h} q18 24 -8 48 q-22 22 8 44 q30 20 8 42" fill="none" stroke="#D7A84B" stroke-width="5"/>'
+            f'<path d="M{knot_x} {knot_y} L{x + w // 2 + 28} {knot_y - 24}" stroke="#FFF4B1" stroke-width="4"/>'
         )
     if kind in {"object", "simple_shape"} and any(word in label for word in ("溪", "水")):
         return (
@@ -178,7 +196,21 @@ def _shape(element: dict) -> str:
             return ""
         if any(
             word in label
-            for word in ("寻找", "风", "吹", "顺流", "划行", "捞回", "挖土", "种下", "庆祝")
+            for word in (
+                "寻找",
+                "风",
+                "吹",
+                "顺流",
+                "划行",
+                "捞回",
+                "挖土",
+                "种下",
+                "庆祝",
+                "欢呼",
+                "取下",
+                "修理",
+                "风筝",
+            )
         ):
             motion = (
                 f'<path d="M{x + 10},{y + h // 2} q{w // 5},-{h // 3} {w * 2 // 5},0 '
@@ -224,7 +256,7 @@ def _shape(element: dict) -> str:
 
 def _label_position(element: dict, index: int) -> tuple[int, int]:
     x = min(WIDTH - 180, max(12, element["x"]))
-    if element["kind"] in {"fox", "rabbit", "hedgehog", "bird", "person"}:
+    if element["kind"] in {"fox", "rabbit", "hedgehog", "bird", "person", "bear"}:
         y = min(HEIGHT - 24, max(112, element["y"] + element["height"] + 28))
     elif element["kind"] == "action_lines":
         label = element["label"]
@@ -288,7 +320,7 @@ def _display_label(element: dict) -> str:
     label = element["label"]
     if any(mark in label for mark in ("<", ">", "&", '"', "'")):
         return label
-    if element["kind"] in {"fox", "rabbit", "hedgehog", "person", "bird"}:
+    if element["kind"] in {"fox", "rabbit", "hedgehog", "person", "bird", "bear"}:
         for name in ("阿栗", "团团", "啄木鸟", "米米", "圆圆"):
             if name in label:
                 return name
@@ -319,7 +351,7 @@ def _layer(element: dict) -> int:
     label = element["label"]
     if kind == "action_lines":
         return 4
-    if kind in {"fox", "rabbit", "hedgehog", "bird", "person"}:
+    if kind in {"fox", "rabbit", "hedgehog", "bird", "person", "bear"}:
         return 3
     if kind == "object" and ("果" in label or "种子" in label):
         return 3
@@ -429,13 +461,14 @@ def _interaction(element: dict, raw_elements: list[dict]) -> str:
             return ""
         cx = source["x"] + source["width"] // 2
         cy = source["y"] + (source["height"] // 3 if source is water else 32)
-        tx = target["x"] + target["width"] // 2
-        direction = -1 if tx < cx else 1
+        direction = -1 if target["x"] < cx else 1
+        tx = target["x"] + (target["width"] if direction < 0 else 0)
+        target_y = target["y"] + target["height"] // 2
         sound = (
             f'<path d="M{cx + direction * 20} {cy} q{direction * 45} -35 {direction * 90} 0 '
             f'M{cx + direction * 40} {cy + 30} q{direction * 35} -25 {direction * 70} 0" '
             'fill="none" stroke="#5B5550" stroke-width="7" stroke-linecap="round"/>'
-            f'<path d="M{tx} {cy} l{direction * 22} 12 l{direction * -22} 12" fill="none" '
+            f'<path d="M{tx} {target_y} l{direction * 22} 12 l{direction * -22} 12" fill="none" '
             'stroke="#5B5550" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>'
         )
         if source["kind"] != "hedgehog":
@@ -529,7 +562,7 @@ def scene_to_svg(scene: dict) -> str:
         if interaction := _interaction(element, ordered):
             parts.append(interaction)
     for element in ordered:
-        if element["kind"] in {"fox", "rabbit", "hedgehog", "bird", "person"}:
+        if element["kind"] in {"fox", "rabbit", "hedgehog", "bird", "person", "bear"}:
             cx = element["x"] + element["width"] // 2
             cy = min(700, element["y"] + element["height"] - 4)
             parts.append(

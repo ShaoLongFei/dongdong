@@ -20,7 +20,7 @@ _CHARACTER_COLORS = {
     "圆圆": "#8B6F47",
     "啄木鸟": "#8B4513",
 }
-_CHARACTER_KINDS = {"fox", "rabbit", "hedgehog", "bird", "person"}
+_CHARACTER_KINDS = {"bear", "fox", "rabbit", "hedgehog", "bird", "person"}
 _BOUNDARY = re.compile(r"[。！？!?；;\n]")
 _MIN_CHUNK = 36
 _MAX_CHUNK = 180
@@ -163,9 +163,15 @@ class StorySession:
                         )
                         if not key:
                             continue
-                        style = self._character_styles.setdefault(
-                            key, (element["kind"], _CHARACTER_COLORS.get(key, element["color"]))
+                        color = next(
+                            (
+                                known_color
+                                for known_name, known_color in _CHARACTER_COLORS.items()
+                                if known_name in key or key in known_name
+                            ),
+                            element["color"],
                         )
+                        style = self._character_styles.setdefault(key, (element["kind"], color))
                         element["kind"], element["color"] = style
                     self._characters = scene.get("characters", [])
                     self.store.save_scene(self.story_id, scene)
@@ -188,7 +194,7 @@ class StorySession:
             "每幕必须有 description 和至少 3 个 elements。"
             "每个元素必须有 kind、x、y、width、height、color、label；"
             "角色元素可有 pose，只有 standing 或 sitting；故事写到坐在草坡上时必须使用 sitting。"
-            "kind 只能是 tree、rabbit、hedgehog、fox、bird、person、house、sun、object、action_lines、simple_shape。"
+            "kind 只能是 bear、tree、rabbit、hedgehog、fox、bird、person、house、sun、object、action_lines、simple_shape。"
             "画布是 1280x720；标题栏占用 y=0-100，主体必须放在 y=130-600 的中部区域；"
             "角色在相邻场景中保持相同 kind、颜色和称呼；"
             "不要凭空添加故事里没有的角色或物件，动作要用 action_lines 表现。"
