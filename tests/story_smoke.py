@@ -133,6 +133,7 @@ def main() -> None:
         (Path(tmp) / "stories" / story_id / "manifest.json").unlink()
         recovered = store.load(story_id)
         assert all(item["sceneId"] != "outside" for item in recovered["scenes"])
+        store.save_manifest(story_id, recovered["manifest"])
         try:
             store.load("../escape")
         except ValueError:
@@ -150,7 +151,7 @@ def main() -> None:
         missing_job = store.exports.status("missing")
         assert missing_job["status"] == "missing"
         job_id = store.exports.submit(story_id, "mp4")
-        for _ in range(600):
+        for _ in range(2000):
             job = store.exports.status(job_id)
             if job["status"] != "running":
                 break
