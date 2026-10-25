@@ -180,6 +180,70 @@ def test_web_access_project_cwd_and_reentry_boundaries():
     asyncio.run(check())
 
 
+def test_project_files_read_only_boundaries():
+    import httpx
+    from dongdong.project_files import router
+    from fastapi import FastAPI
+
+    with tempfile.TemporaryDirectory(prefix="dongdong-files-") as temp_dir:
+        root = Path(temp_dir)
+        (root / "visible.txt").write_text("你好", encoding="utf-8")
+        (root / "ignored").mkdir()
+        (root / "ignored" / "hidden.txt").write_text("skip", encoding="utf-8")
+        for name in (".git", ".venv", "node_modules", "__pycache__"):
+            (root / name).mkdir()
+            (root / name / "hidden").write_text("skip", encoding="utf-8")
+        (root / "binary.bin").write_bytes(b"\x00\x01")
+        (root / "large.txt").write_bytes(b"x" * (200 * 1024 + 1))
+        (root / "outside").mkdir()
+        (root / "link").symlink_to(root / "outside", target_is_directory=True)
+        (root / "link-file").symlink_to(root / "visible.txt")
+
+        def project_workspace(project_id):
+            if project_id != "p":
+                raise ValueError("missing")
+            return root
+
+        state = SimpleNamespace(project_workspace=project_workspace)
+        app = FastAPI()
+        app.include_router(router(state))
+
+        async def check():
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                listing = await client.get("/api/projects/p/files", params={"limit": 1})
+                assert listing.status_code == 200
+                assert len(listing.json()["files"]) == 1
+                names = {
+                    item["name"]
+                    for item in (await client.get("/api/projects/p/files")).json()["files"]
+                }
+                assert {"visible.txt", "binary.bin", "large.txt", "outside"} <= names
+                assert (
+                    not {".git", ".venv", "node_modules", "__pycache__", "link", "link-file"}
+                    & names
+                )
+                content = await client.get(
+                    "/api/projects/p/files/content", params={"path": "visible.txt"}
+                )
+                assert content.status_code == 200 and content.json()["text"] == "你好"
+                assert content.json()["relative_path"] == "visible.txt"
+                assert (
+                    await client.get("/api/projects/p/files/content", params={"path": "binary.bin"})
+                ).status_code == 415
+                assert (
+                    await client.get("/api/projects/p/files/content", params={"path": "large.txt"})
+                ).status_code == 413
+                for path in ("../visible.txt", "/etc/passwd", "link", "link-file"):
+                    assert (
+                        await client.get("/api/projects/p/files/content", params={"path": path})
+                    ).status_code == 404
+                assert (await client.get("/api/projects/missing/files")).status_code == 404
+
+        asyncio.run(check())
+
+
 def test_skill_approval_and_mcp_cleanup_boundaries():
     from dongdong import skills
     from dongdong.approvals import Approvals

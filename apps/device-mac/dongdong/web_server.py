@@ -20,6 +20,7 @@ from . import (
     mcp_routes,
     meeting_routes,
     memory_routes,
+    project_files,
     projects,
     skills,
     story_store,
@@ -71,6 +72,7 @@ def create_app(cfg: dict) -> FastAPI:
     app.include_router(mcp_routes.router(cfg))
     app.include_router(approvals.router(state.approvals))
     app.include_router(projects.router(state))
+    app.include_router(project_files.router(state))
     app.include_router(story_store.router(state))
     app.include_router(memory_routes.router(state))
 
