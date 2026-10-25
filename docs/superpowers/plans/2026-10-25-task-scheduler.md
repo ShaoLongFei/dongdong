@@ -5,7 +5,7 @@
 ## 剩余事项
 
 1. **Goal 验收证据**：已完成。Run 收口前持久化 acceptance、Item 结果摘要和 `goal_verified` 事件；有约束但无 verifier 时进入 `needs_review`。
-2. **失败修复与重新规划**：根据失败 Item、工具输出或用户 steer 追加修复 Item、替换规划或重新规划。
+2. **失败修复与重新规划**：已完成受限 repair/replan。失败 Item 保留原 Attempt，追加最多 3 个修复 Item（每 Run 最多 8 个），复用 workspace/agent/cwd，记录 repair 事件并重新验收 Goal；修复成功后恢复可继续的下游依赖。完整的模型自动修复规划仍可继续增强。
 3. **文件范围冲突**：为 Item 增加读写范围，检测重叠并自动串行化或拒绝不安全并行。
 4. **完整 Monitor 与收口**：补齐自动监察循环、停摆检测、有限 drain、最终验收 Planner 和严格收口顺序。
 5. **调度配置化**：增加 `task_scheduler` 配置节，统一约束 worker、lease、poll、retry、deadline 和 drain。
