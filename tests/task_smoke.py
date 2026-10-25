@@ -399,6 +399,46 @@ def test_task_monitor_detects_stall_without_killing_dependency_wait():
         store.close()
 
 
+def test_task_lifecycle_releases_leases_and_preserves_blocked_items():
+    from dongdong.task_scheduler import TaskManager
+
+    with tempfile.TemporaryDirectory(prefix="dongdong-lifecycle-") as tmp:
+        store = Store(Path(tmp) / "lifecycle.db")
+        sid = store.create_session("lifecycle")
+        run_id = store.create_task_run(
+            sid, RunSpec(goal_text="lifecycle", deadline_at="2000-01-01T00:00:00+00:00")
+        )
+        store.add_items(
+            run_id,
+            [
+                ItemSpec(id="running", instruction="running"),
+                ItemSpec(id="blocked", instruction="blocked"),
+            ],
+        )
+        assert store.claim_item(run_id, "running", "worker")
+        with store._lock, store._conn:
+            store._conn.execute("UPDATE items SET status='blocked' WHERE id=?", ("blocked",))
+            store._conn.execute("UPDATE items SET lease_until=NULL WHERE id=?", ("running",))
+        manager = TaskManager(store, cfg={"workspace": tmp, "task_scheduler": {"drain_seconds": 0}})
+        # NULL lease 的旧 running Item 能回收，deadline 收口同时结束 Attempt。
+        assert store.requeue_expired(run_id, now_value="2999-01-01T00:00:00+00:00") == 1
+        assert manager.monitor_once(run_id)["run"]["status"] == "timeout"
+        view = store.task_view(run_id)
+        assert all(
+            item["status"] != "running" and item["lease_until"] is None for item in view["items"]
+        )
+        assert not any(attempt["status"] == "running" for attempt in view["attempts"])
+
+        resume_id = store.create_task_run(sid, RunSpec(goal_text="resume"))
+        store.add_items(resume_id, [ItemSpec(id="failed", instruction="failed")])
+        with store._lock, store._conn:
+            store._conn.execute("UPDATE runs SET status='failed' WHERE id=?", (resume_id,))
+            store._conn.execute("UPDATE items SET status='blocked' WHERE id=?", ("failed",))
+        assert manager.resume(resume_id)["items"][0]["status"] == "blocked"
+        manager.close()
+        store.close()
+
+
 def test_conversations_isolate_modes_runs_voice_and_cancellation():
     import httpx
     from smoke import ROOT, patch, work_gate
