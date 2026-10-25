@@ -4,7 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from . import birdview, builtin_tools, work_gate
+from . import birdview, builtin_tools
 from .meeting_store import Meetings
 from .meeting_tools import (
     GENERATION_PROMPT,
@@ -13,7 +13,6 @@ from .meeting_tools import (
     SUBMIT,
     MeetingTools,
 )
-from .projects import use_session
 from .store import now
 
 
@@ -21,8 +20,8 @@ class Meeting:
     def __init__(self, host):
         self.host = host
         self.db = Meetings(host.store)
-        self.pending = set()
-        self.notice = ""
+        self.pending = {}
+        self.notices = {}
 
     def view(self, sid: str) -> dict | None:
         meeting = self.db.get(sid)
@@ -36,15 +35,13 @@ class Meeting:
             "discussion": self.db.discussion(sid),
             "controls": self.db.controls(sid),
             "dirty": bool(proposal and proposal["cutoff"] != meeting["seq"]),
-            "notice": self.notice,
+            "notice": self.notices.get(sid, ""),
         }
 
     def open(self, sid: str, directory: str) -> dict:
-        active = self.db.active()
-        if (
-            self.host.busy
-            or work_gate.current()
-            or (active and active["phase"] in {"generating", "executing"})
+        active = self.db.active(sid)
+        if self.host.session_busy(sid) or (
+            active and active["phase"] in {"generating", "executing"}
         ):
             raise ValueError("请先结束活动任务")
         session = self.host.store.get_session(sid)
@@ -57,20 +54,20 @@ class Meeting:
         if not (path / ".git").exists():
             raise ValueError("请选择 Git 仓库根目录（支持 .git 文件的 worktree）")
         self.db.open(sid, str(path))
-        use_session(self.host, sid)
         return self.view(sid)
 
     def close(self, sid: str) -> None:
         if (
-            self.host.busy
-            or self.pending
+            self.host.session_busy(sid)
+            or any(owner == sid for owner in self.pending.values())
             or (self.db.get(sid) or {}).get("phase") in {"generating", "executing"}
         ):
             raise ValueError("请先停止或结束活动任务")
         self.db.close(sid)
 
     def voice(self, text: str) -> bool:
-        active = self.db.active()
+        sid = self.host.task_session
+        active = self.db.active(sid)
         if not active:
             return False
         sid = active["sid"]
@@ -85,14 +82,14 @@ class Meeting:
         async def run():
             try:
                 result = await self.action(sid, action, "voice", text, *expected)
-                self.notice = result.get("message", "操作已提交")
+                self.notices[sid] = result.get("message", "操作已提交")
             except Exception as exc:
-                self.notice = str(exc)
-                self.db.control(sid, action, text, "voice", self.notice)
+                self.notices[sid] = str(exc)
+                self.db.control(sid, action, text, "voice", self.notices[sid])
 
         task = asyncio.create_task(run())
-        self.pending.add(task)
-        task.add_done_callback(self.pending.discard)
+        self.pending[task] = sid
+        task.add_done_callback(lambda done: self.pending.pop(done, None))
         return True
 
     async def message(self, sid: str, text: str) -> dict:
@@ -129,9 +126,10 @@ class Meeting:
         return result
 
     async def generate(self, meeting: dict) -> dict:
+        sid = meeting["sid"]
         if meeting["phase"] == "executing":
             raise ValueError("方案正在领取或实施，请结束后再整理")
-        if self.host.busy or work_gate.current():
+        if self.host.session_busy(sid):
             raise ValueError("当前有活动任务，请结束后再整理")
         if not self.db.discussion(meeting["sid"]):
             raise ValueError("请先讨论或输入希望修改的内容")
@@ -199,7 +197,7 @@ class Meeting:
             rid = await self.host.start(
                 sid, instruction, str(workspace), meeting_options=options, finished=finish
             )
-            if self.host.busy:
+            if self.host.session_busy(sid):
                 self.db.update(sid, phase="generating", run_id=rid)
             return {"run_id": rid, "message": "正在整理方案与改动地图"}
         except BaseException:
@@ -207,6 +205,7 @@ class Meeting:
             raise
 
     async def confirm(self, meeting, pid, expected, source, text, resume=False) -> dict:
+        sid = meeting["sid"]
         proposal = self.db.proposal(pid)
         if not proposal or proposal["sid"] != meeting["sid"] or pid != meeting["current"]:
             raise ValueError("没有可确认的当前方案，请先整理并展示")
@@ -215,7 +214,7 @@ class Meeting:
                 "run_id": proposal["run_id"],
                 "message": "本方案已领取，不会重复启动；中断时可显式恢复",
             }
-        if self.host.busy or work_gate.current():
+        if self.host.session_busy(sid):
             raise ValueError("当前有活动任务，请结束后再实施")
         if resume:
             if source != "button":
@@ -258,7 +257,7 @@ class Meeting:
             raise
 
     def mcp_status(self) -> str | None:
-        meeting = self.db.active()
+        meeting = self.db.active(self.host.task_session)
         if not meeting:
             return None
         view = self.view(meeting["sid"])
@@ -271,7 +270,7 @@ class Meeting:
                 "phase": meeting["phase"],
                 "discussion_count": meeting["seq"],
                 "proposal": version,
-                "notice": self.notice or meeting["error"],
+                "notice": self.notices.get(meeting["sid"], "") or meeting["error"],
                 "run_id": meeting["run_id"],
                 "instruction": "项目目录已在工作台选择，不要再次询问路径。会议语音已本地保存；"
                 "普通讨论不启动调查，准备好后请用户说“咚咚，整理一下方案”；"

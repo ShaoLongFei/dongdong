@@ -4,8 +4,6 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from . import work_gate
-
 
 class WebAgent:
     """MCP 在工作线程同步等待；实际任务始终在 Web 的事件循环中执行。"""
@@ -14,7 +12,6 @@ class WebAgent:
         self.state = state
         self.loop = asyncio.get_running_loop()
         state.activate()
-        self.last = ""
 
     def start(self, instruction: str, cwd: str | None = None, wait_seconds: int = 8) -> str:
         text = (instruction or "").strip()
@@ -26,7 +23,7 @@ class WebAgent:
             meeting = self.state.meeting.mcp_status()
             if meeting:
                 return meeting
-            if work_gate.current():
+            if self.state.busy:
                 return "另一个任务还在跑，先停止或等它结束。"
             if self.state.model is None:
                 raise ValueError(self.state.error or "模型未配置")
@@ -39,7 +36,6 @@ class WebAgent:
             ):
                 sid = self.state.new_session(text[:24], "linx", self.state.current_project)
             rid = await self.state.start(sid, text, cwd)
-            self.last = rid
             task = self.state._task
             if task:
                 await asyncio.wait({task}, timeout=wait)
@@ -56,7 +52,7 @@ class WebAgent:
         meeting = self.meeting_status()
         if meeting and not job_id:
             return meeting
-        rid = job_id or self.state._run_id or self.state._last_run or self.last
+        rid = job_id or self.state._run_id or self.state._last_run
         run = self.state.store.get_run(rid) if rid else None
         if not run:
             return f"找不到任务 {rid}。" if rid else "还没有跑过任务。"
@@ -77,12 +73,12 @@ class WebAgent:
         return f"任务 {rid} {status.get(run['status'], run['status'])}：\n{run['error'] or text or '(还没有输出)'}"
 
     def stop(self, job_id: str = "") -> str:
-        rid = job_id or self.state._run_id or self.state._last_run or self.last
+        rid = job_id or self.state._run_id or self.state._last_run
 
         async def cancel():
-            if not self.state.cancel(rid):
+            if rid not in self.state._runs.values():
                 return f"任务 {rid} 已结束或不存在。"
-            await self.state.stop_active()
+            await self.state.stop_active(rid)
             return f"已停止任务 {rid}。"
 
         return asyncio.run_coroutine_threadsafe(cancel(), self.loop).result(timeout=3)
@@ -112,18 +108,20 @@ class WebAgent:
         rid = run_id or self.state._last_run
 
         async def resume():
-            if self.state.meeting.db.active():
+            target = self.state.store.get_run(rid)
+            if target and self.state.meeting.db.active(target["session_id"]):
                 raise ValueError("请通过会议入口恢复任务")
             self.state.manager.resume(rid)
             run = self.state.store.get_run(rid)
             if run and run["status"] == "running":
-                self.state._run_id = self.state._last_run = rid
+                self.state._runs[run["session_id"]] = rid
+                self.state._last_runs[run["session_id"]] = rid
             return self.task_status(rid)
 
         return asyncio.run_coroutine_threadsafe(resume(), self.loop).result(timeout=3)
 
     def snapshot(self) -> dict | None:
-        rid = self.state._run_id or self.state._last_run or self.last
+        rid = self.state._run_id or self.state._last_run
         run = self.state.store.get_run(rid) if rid else None
         if not run:
             return None

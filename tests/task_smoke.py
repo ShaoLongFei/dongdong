@@ -129,6 +129,118 @@ def test_task_manager_pause_resume_and_timeout_recovery():
         restored.close()
 
 
+def test_conversations_isolate_modes_runs_voice_and_cancellation():
+    import httpx
+    from smoke import ROOT, patch, work_gate
+    from dongdong.projects import use_session
+    from dongdong.task_model import AttemptResult
+    from dongdong.web_server import create_app
+
+    class WaitingRuntime:
+        def __init__(self, store, *args, **kwargs):
+            self.store = store
+
+        async def run(self, sid, text, on_event):
+            rid = self.store.create_run(sid)
+            on_event("run_start", {"run_id": rid})
+            try:
+                await asyncio.Event().wait()
+            finally:
+                self.store.finish_run(rid, "stopped")
+
+    async def check():
+        cfg = config.load()
+        cfg["workspace"], cfg["model"]["api_key"] = str(ROOT), "boundary-only"
+        app = create_app(cfg)
+        host = app.state.web_state
+
+        def wait_for_cancel(item, run, cancel):
+            assert cancel.wait(4), "停止应传递给目标 worker"
+            return AttemptResult("stopped")
+
+        host.manager.task_executor.runner = wait_for_cancel
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+            ) as client:
+
+                async def new():
+                    response = await client.post("/api/sessions", json={})
+                    assert response.status_code == 200, response.text
+                    return response.json()["id"]
+
+                a = await new()
+                assert (
+                    await client.put(f"/api/meetings/{a}", json={"enabled": True})
+                ).status_code == 200
+                with patch("dongdong.web_runtime.Runtime", WaitingRuntime):
+                    arun = await host.start(a, "整理 A", meeting_options={})
+                    host.meeting.db.update(a, phase="generating", run_id=arun)
+                    b = await new()
+                    health = (await client.get("/api/state")).json()
+                    assert health["task_session"] == b and not health["busy"]
+                    assert not health["meeting_session"] and health["active_runs"][a] == arun
+                    host.voice_text("mic", "user", "B 的语音")
+                    assert host.meeting.db.get(a)["seq"] == 0
+                    assert host.store.messages(b)[-1]["content"] == "B 的语音"
+                    reply = await client.post(
+                        f"/api/sessions/{b}/messages", json={"text": "B 任务"}
+                    )
+                    assert reply.status_code == 200, reply.text
+                    brun = reply.json()["run_id"]
+                    duplicate = await client.post(
+                        f"/api/sessions/{b}/messages", json={"text": "重入"}
+                    )
+                    assert duplicate.status_code == 409 and len(host.store.list_runs(b)) == 1
+                    c = await new()
+                    assert (
+                        await client.put(f"/api/meetings/{c}", json={"enabled": True})
+                    ).status_code == 200
+                    assert host.meeting.db.active(a) and host.meeting.db.active(c)
+                    assert host.task_session == c
+                    crun = await host.start(c, "整理 C", meeting_options={})
+                    assert host.task_session == c and len(host._runs) == 3
+                    assert (await client.put("/api/settings", json={})).status_code == 409
+                    host.meeting.notices[a] = "只属于 A"
+                    assert host.meeting.view(c)["notice"] == ""
+                    # 异步语音确认固定收到时的对话与方案，即使紧接着切换也不串台。
+                    seen = []
+
+                    async def action(sid, *args):
+                        seen.append(sid)
+                        return {"message": "已收到"}
+
+                    with patch.object(host.meeting, "action", action):
+                        host.voice_text("mic", "user", "按这个方案实施")
+                        use_session(host, a)
+                        await asyncio.gather(*host.meeting.pending)
+                    assert seen == [c] and host.meeting.view(a)["notice"] == "只属于 A"
+                    ctask = host._tasks[c]
+                    assert (await client.post(f"/api/runs/{crun}/cancel")).status_code == 200
+                    await asyncio.gather(ctask, return_exceptions=True)
+                    assert host._runs[a] == arun and host._runs[b] == brun
+                    assert (
+                        work_gate.current(a) and work_gate.current(b) and not work_gate.current(c)
+                    )
+                    assert host.task_session == a
+                    stream = await client.get(f"/api/runs/{crun}/events")
+                    assert "event: end" in stream.text, "其他对话运行不能阻止历史流结束"
+                    # 切换/归档空闲对话不会碰运行中的其他对话。
+                    d = await new()
+                    assert (
+                        await client.patch(f"/api/sessions/{d}", json={"archived": True})
+                    ).status_code == 200
+                    assert (
+                        await client.patch(f"/api/sessions/{a}", json={"archived": True})
+                    ).status_code == 409
+                    await host.stop_active(brun)
+                    assert host._runs.get(a) == arun and not work_gate.current(b)
+                    await host.stop_active(arun)
+        assert not work_gate.current()
+
+    asyncio.run(check())
+
+
 if __name__ == "__main__":
     for name, test in sorted(globals().copy().items()):
         if name.startswith("test_"):

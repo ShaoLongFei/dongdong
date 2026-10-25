@@ -85,15 +85,16 @@ def create_app(cfg: dict) -> FastAPI:
             active = None
         return {
             "version": cfg.get("version", ""),
-            "meeting_session": (state.meeting.db.active() or {}).get("sid", ""),
+            "meeting_session": (state.meeting.db.active(state.task_session) or {}).get("sid", ""),
             "workspace": str(state.project_workspace(state.current_project)),
             "current_project": state.current_project,
             "model_ready": state.model is not None,
             "error": state.error,
             "backend": cfg.get("code_backend", "cli"),
             "active_run": state._run_id if active else "",
-            "task_session": active["session_id"] if active else state.task_session,
-            "busy": bool(work_gate.current()),
+            "task_session": state.task_session,
+            "busy": state.busy,
+            "active_runs": dict(state._runs),
             "voice": device_state.snapshot(cfg),
             "voice_session": state.task_session,
             "voice_enabled": voice.enabled,
@@ -171,7 +172,12 @@ def create_app(cfg: dict) -> FastAPI:
                 if await request.is_disconnected():
                     return
                 run = state.store.get_run(rid)
-                if run and run["status"] != "running" and not events and state._run_id != rid:
+                if (
+                    run
+                    and run["status"] != "running"
+                    and not events
+                    and rid not in state._runs.values()
+                ):
                     yield "event: end\ndata: {}\n\n"
                     return
                 await asyncio.sleep(0.2)
@@ -212,8 +218,6 @@ def create_app(cfg: dict) -> FastAPI:
             work_gate.release("settings")
 
     def save_settings(body: SettingsIn):
-        if state.meeting.db.active():
-            raise HTTPException(409, "请先退出代码修改模式再更改设置")
         if body.workspace is not None:
             workspace = Path(body.workspace).expanduser().resolve()
             if not workspace.is_dir():

@@ -24,8 +24,7 @@ class Meetings:
                   seq INTEGER NOT NULL DEFAULT 0, current TEXT NOT NULL DEFAULT '',
                   run_id TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT ''
                 );
-                CREATE UNIQUE INDEX IF NOT EXISTS one_active_meeting ON meetings(enabled)
-                  WHERE enabled=1;
+                DROP INDEX IF EXISTS one_active_meeting;
                 CREATE TABLE IF NOT EXISTS meeting_discussion (
                   id INTEGER PRIMARY KEY AUTOINCREMENT, sid TEXT NOT NULL REFERENCES sessions(id),
                   seq INTEGER NOT NULL, text TEXT NOT NULL, source TEXT NOT NULL, created_at TEXT NOT NULL
@@ -48,9 +47,11 @@ class Meetings:
             )
             store._conn.execute("UPDATE proposals SET shown=''")
 
-    def active(self) -> dict | None:
+    def active(self, sid: str) -> dict | None:
         with self.store._lock:
-            row = self.store._conn.execute("SELECT * FROM meetings WHERE enabled=1").fetchone()
+            row = self.store._conn.execute(
+                "SELECT * FROM meetings WHERE enabled=1 AND sid=?", (sid,)
+            ).fetchone()
         return dict(row) if row else None
 
     def get(self, sid: str) -> dict | None:
@@ -60,9 +61,6 @@ class Meetings:
 
     def open(self, sid: str, workspace: str) -> None:
         with self.store._lock, self.store._conn:
-            active = self.store._conn.execute("SELECT sid FROM meetings WHERE enabled=1").fetchone()
-            if active and active[0] != sid:
-                raise ValueError("请先退出当前会议的代码修改模式")
             existing = self.store._conn.execute(
                 "SELECT workspace FROM meetings WHERE sid=?", (sid,)
             ).fetchone()

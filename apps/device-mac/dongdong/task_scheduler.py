@@ -57,8 +57,8 @@ class TaskManager:
         session = self.store.get_session(session_id)
         if not session or session.get("archived_at"):
             raise ValueError("会话不存在或已归档，请先恢复")
-        if work_gate.current():
-            raise RuntimeError("另一个任务还在跑")
+        if work_gate.current(session_id):
+            raise RuntimeError("本对话任务还在跑")
         workspace = cwd or self.cfg.get("workspace", "")
         user_id = self.store.append_message(session_id, "user", text)
         run_id = self.store.create_task_run(
@@ -87,11 +87,12 @@ class TaskManager:
         return run_id
 
     def _launch(self, run_id: str) -> None:
-        if work_gate.current():
-            raise RuntimeError("另一个任务还在跑")
         view = self.status(run_id)
+        session_id = view["run"]["session_id"]
+        if work_gate.current(session_id):
+            raise RuntimeError("本对话任务还在跑")
         owns_gate = all(item["agent"] == "builtin" for item in view["items"])
-        if owns_gate and not work_gate.acquire(run_id):
+        if owns_gate and not work_gate.acquire(run_id, session_id):
             raise RuntimeError("另一个任务还在跑")
         cancel = threading.Event()
         self._runs[run_id] = cancel
@@ -210,7 +211,9 @@ class TaskManager:
         session = self.store.get_session(run["session_id"])
         if not session or session.get("archived_at"):
             raise ValueError("会话已归档，请先恢复")
-        if work_gate.current() or (self._threads.get(run_id) and self._threads[run_id].is_alive()):
+        if work_gate.current(run["session_id"]) or (
+            self._threads.get(run_id) and self._threads[run_id].is_alive()
+        ):
             raise RuntimeError("另一个任务还在跑")
         project = (
             self.store.get_project(session.get("project_id")) if session.get("project_id") else None
