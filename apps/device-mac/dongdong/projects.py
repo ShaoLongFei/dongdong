@@ -45,6 +45,23 @@ class SessionPatch(BaseModel):
     archived: bool | None = None
 
 
+class CurrentSessionIn(BaseModel):
+    session_id: str
+
+
+def use_session(state, sid: str) -> None:
+    session = state.store.get_session(sid)
+    if not session or session["archived_at"]:
+        raise ValueError("会话不存在或已归档")
+    active = state.meeting.db.active()
+    if active and active["sid"] != sid:
+        raise ValueError("请先退出当前代码修改模式")
+    if state.busy and state.task_session != sid:
+        raise ValueError("任务运行中，请结束后再切换当前对话")
+    state.current_project = session["project_id"]
+    state.task_session = state._project_tasks[state.current_project] = sid
+
+
 def router(state) -> APIRouter:
     routes = APIRouter(prefix="/api")
     selecting = asyncio.Lock()
@@ -179,6 +196,7 @@ end tell"""
         gate("session-settings")
         try:
             sid = state.new_session((body.title if body else "新会话"), "web", pid)
+            use_session(state, sid)
         finally:
             work_gate.release("session-settings")
         return state.store.get_session(sid)
@@ -204,5 +222,13 @@ end tell"""
             return state.store.get_session(session_id)
         finally:
             work_gate.release("session-settings")
+
+    @routes.put("/sessions/current")
+    async def current_session(body: CurrentSessionIn):
+        try:
+            use_session(state, body.session_id)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+        return {"session_id": state.task_session}
 
     return routes

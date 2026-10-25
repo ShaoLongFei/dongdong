@@ -49,7 +49,11 @@ class Runtime:
         self.system_prompt = SYSTEM_PROMPT.format(workspace=workspace)
 
     def _messages(self, session_id: str, keep_id: int | None = None) -> list[dict]:
-        rows = _trim(self.store.messages(session_id), self.history_messages, keep_id)
+        rows = _trim(
+            [row for row in self.store.messages(session_id) if row["source"] == "agent"],
+            self.history_messages,
+            keep_id,
+        )
         if self.isolated and keep_id is not None:
             rows = [row for row in rows if row["id"] >= keep_id]
         out: list[dict] = [{"role": "system", "content": self.system_prompt}]

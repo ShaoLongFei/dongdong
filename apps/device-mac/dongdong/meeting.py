@@ -13,6 +13,7 @@ from .meeting_tools import (
     SUBMIT,
     MeetingTools,
 )
+from .projects import use_session
 from .store import now
 
 
@@ -56,7 +57,7 @@ class Meeting:
         if not (path / ".git").exists():
             raise ValueError("请选择 Git 仓库根目录（支持 .git 文件的 worktree）")
         self.db.open(sid, str(path))
-        self.host.task_session = sid
+        use_session(self.host, sid)
         return self.view(sid)
 
     def close(self, sid: str) -> None:
@@ -95,6 +96,7 @@ class Meeting:
         return True
 
     async def message(self, sid: str, text: str) -> dict:
+        self.host.store.append_message(sid, "user", text, source="discussion")
         action = birdview.control(text)
         if action:
             current = self.view(sid)["proposal"]

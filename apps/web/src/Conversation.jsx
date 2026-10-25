@@ -62,7 +62,7 @@ function RunMessage({ run, liveEvents, fallback }) {
   const answer = events.find(e => e.type === 'done')?.data.text || (!running ? fallback : '');
   const failure = terminal?.data.message || run.error;
   return <article className="message assistant">
-    <div className="message-label"><AudioLines size={14} />咚咚</div>
+    <div className="message-label"><Terminal size={14} />咚咚<span className="badge">任务执行</span></div>
     <details className="execution" open={open} onToggle={e => setOpen(e.currentTarget.open)}>
       <summary><ChevronRight size={14} className="execution-chevron" /><span className={`dot ${running ? 'working' : status === 'done' ? 'online' : ''}`} /><span role="status">{label}{plan.length ? ` · ${done}/${plan.length} 步` : ''}</span><span className="muted ml-auto">{elapsed} 秒</span></summary>
       <div className="execution-body">
@@ -87,18 +87,31 @@ export default function Conversation({ detail, watch, events }) {
   const messages = detail?.messages || [];
   const runs = [...(detail?.runs || [])].reverse();
   const groups = [];
-  for (const message of messages) {
+  for (const message of messages.filter(m => !m.source || m.source === 'agent')) {
     if (message.role === 'user' || !groups.length) groups.push([]);
     groups[groups.length - 1].push(message);
   }
   let legacyIndex = 0;
-  return groups.map(group => {
+  const hidden = new Set();
+  const attached = new Map();
+  for (const group of groups) {
     const user = group[0];
     const run = runs.find(r => r.user_message_id === user.id) || (detail.channel !== 'linx-voice' && user.role === 'user' ? runs.filter(r => !r.user_message_id)[legacyIndex++] : null);
     const fallback = [...group].reverse().find(m => m.role === 'assistant' && !m.tool_calls?.length)?.content || '';
-    return <React.Fragment key={user.id}>
-      {(run ? [user] : group).map(message => <article className={`message ${message.role}`} key={message.id}><div className="message-label">{message.role === 'user' ? '你' : <><AudioLines size={14} />咚咚</>}</div><div className="message-text">{message.content}</div></article>)}
-      {run && <RunMessage key={run.id} run={run} liveEvents={watch === run.id ? events : undefined} fallback={fallback} />}
+    if (run) {
+      attached.set(user.id, { run, fallback });
+      group.slice(1).forEach(message => hidden.add(message.id));
+    }
+  }
+  return messages.filter(message => !hidden.has(message.id)).map(message => {
+    const linked = attached.get(message.id);
+    const voice = message.source === 'voice';
+    return <React.Fragment key={message.id}>
+      <article className={`message ${message.role}${voice ? ' voice-message' : ''}`}>
+        <div className="message-label">{voice ? <AudioLines size={14} /> : null}{message.role === 'user' ? '你' : '咚咚'}<span className="badge">{voice ? (message.role === 'user' ? '语音转写' : '语音回复') : message.role === 'user' ? (linked ? '任务指令' : '文字') : '回复'}</span>{voice && <time className="muted ml-auto">{new Date(message.created_at).toLocaleTimeString()}</time>}</div>
+        <div className="message-text">{message.content}</div>
+      </article>
+      {linked && <RunMessage key={linked.run.id} run={linked.run} liveEvents={watch === linked.run.id ? events : undefined} fallback={linked.fallback} />}
     </React.Fragment>;
   });
 }

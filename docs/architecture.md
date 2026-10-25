@@ -157,7 +157,7 @@ sequenceDiagram
 | 身份 | 用途 | 生命周期 |
 | --- | --- | --- |
 | 灵矽 WS `session_id` | 平台当前连接上下文 | 可能每轮重连，不作为本地会话边界 |
-| `WebState.voice_session` | STT / TTS 文字，channel=`linx-voice` | 普通语音持续追加，不随重连/麦克风开关重建 |
+| `messages.source` | 同一会话内区分 `voice` 语音、`discussion` 会议文字和 `agent` 任务消息 | STT/TTS 写入当前对话，口播不进入编程模型上下文；历史独立语音会话不合并 |
 | `WebState.task_session` | Web 与 builtin 语音编程任务 | 后续任务复用会话和模型历史，每轮仍建新 run |
 | SQLite session / run ID | 可回看的消息、任务与事件 | 持久化保存；运行中的指针只在进程内 |
 

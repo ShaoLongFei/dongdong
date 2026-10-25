@@ -42,7 +42,7 @@ export function App() {
       if (health.meeting_session && !selection.current) { choose(health.meeting_session); return; }
       if (health.active_run && health.task_session && !selection.current) { choose(health.task_session); return; }
       if (health.voice_session && !selection.current) { choose(health.voice_session); return; }
-      if (selection.current && !watching.current) await load(selection.current);
+      if (selection.current) await load(selection.current, !watching.current);
     } catch (error) { report(error); }
   }
   async function load(id, resume = true) {
@@ -54,9 +54,12 @@ export function App() {
     const running = data.runs.find(run => run.status === 'running');
     if (running && resume) setWatch(running.id);
   }
-  function choose(id) {
+  function choose(id, activate = false) {
     selection.current = id; setSelected(id); setDetail(null); setEvents([]); setWatch(''); setRunDetail(null); setMeetingEnabled(false);
     load(id).catch(report);
+    if (activate && !state?.busy && (!state?.meeting_session || state.meeting_session === id)) {
+      api(`/sessions/${id}`).then(data => selection.current === id && !data.archived_at && api('/sessions/current', { method: 'PUT', body: { session_id: id } })).then(refresh).catch(report);
+    }
   }
   useEffect(() => {
     refresh();
@@ -117,7 +120,7 @@ export function App() {
     if (voicePending) return;
     setVoicePending(true);
     try {
-      const result = await api('/voice', { method: 'PUT', body: { enabled: !state?.voice_enabled } });
+      const result = await api('/voice', { method: 'PUT', body: { enabled: !state?.voice_enabled, session_id: selected || null } });
       setState(previous => ({ ...previous, voice_enabled: result.enabled }));
       await refresh();
     } catch (error) { report(error); }
@@ -159,7 +162,7 @@ export function App() {
   const busy = sending || editing || Boolean(watch) || state?.busy;
   const messages = detail?.messages || [];
   return <Tabs.Root value={tab} onValueChange={setTab} className="app">
-    <Sidebar selected={selected} onChoose={id => { choose(id); setTab('chat'); }} onNew={newSession} state={state} report={report} onChanged={changed} revision={revision}>
+    <Sidebar selected={selected} onChoose={id => { choose(id, true); setTab('chat'); }} onNew={newSession} state={state} report={report} onChanged={changed} revision={revision}>
       <Tabs.List className="navigation" aria-label="工作台页面">
         <Tabs.Trigger value="chat"><MessageSquare size={16} />对话</Tabs.Trigger>
         <Tabs.Trigger value="runs"><Workflow size={16} />运行记录</Tabs.Trigger>
@@ -176,7 +179,7 @@ export function App() {
       {notice && <div role="status" className="notice">{notice}<button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
       {state && !state.model_ready && tab !== 'settings' && <button className="setup-banner" onClick={() => setTab('settings')}>{state.error} · 前往设置 <ChevronRight size={14} /></button>}
       <Tabs.Content value="chat" className="chat-page">
-        <div className="voice-preview"><AudioLines size={14} /><span>语音 · {({ connected: '已连接', connecting: '连接中', disconnected: '重连中', disabled: '未开启', error: '启动失败', starting: '启动中' })[state?.voice?.connection] || '未开启'}</span>{state?.voice?.last_stt && <span>你说：{state.voice.last_stt}</span>}{state?.voice?.last_tts && <span className="muted">咚咚：{state.voice.last_tts}</span>}{state?.voice_session && <button className="voice-history" onClick={() => choose(state.voice_session)}>查看语音对话 →</button>}</div>
+        <div className="voice-preview"><AudioLines size={14} /><span>语音 · {({ connected: '已连接', connecting: '连接中', disconnected: '重连中', disabled: '未开启', error: '启动失败', starting: '启动中' })[state?.voice?.connection] || '未开启'}</span>{state?.voice?.last_stt && <span>你说：{state.voice.last_stt}</span>}{state?.voice?.last_tts && <span className="muted">咚咚：{state.voice.last_tts}</span>}{state?.task_session && <span className="muted">{state.task_session === selected ? '语音与任务记录在此对话' : <button className="voice-history" onClick={() => choose(state.task_session)}>查看当前对话 →</button>}</span>}</div>
         {state?.task_session && state.task_session !== selected && <button className="task-banner" onClick={() => choose(state.task_session)}><Workflow size={15} /><span className={`dot ${state.active_run ? 'working' : 'online'}`} />{state.active_run ? '任务正在执行 · 查看当前步骤和接下来的安排' : '查看最近任务的结果和执行过程'}<ChevronRight size={14} /></button>}
         {detail && <div className="session-toolbar"><span title={detail.project_path || '默认工作区'}>{detail.project_name || '未分类'} · {detail.project_path || '默认工作区'}</span><label>移动到<select aria-label="移动会话到项目" disabled={busy || Boolean(detail.archived_at)} value={detail.project_id || ''} onChange={e => updateSession({ project_id: e.target.value || null })}><option value="">未分类</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><button disabled={busy} onClick={() => updateSession({ archived: !detail.archived_at })}>{detail.archived_at ? '恢复对话' : '归档对话'}</button></div>}
         <div className="conversation">
