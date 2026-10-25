@@ -79,6 +79,18 @@ def list_skills(cfg: dict) -> list[dict]:
     return result
 
 
+def read_resource(name: str, resource: str, cfg: dict) -> str:
+    if name in cfg.get("disabled_skills", []):
+        raise ValueError(f"技能 {name} 已禁用")
+    root = _path(name).parent
+    path = (root / resource).resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        raise ValueError("技能资源越界或不存在")
+    if path.stat().st_size > _LIMIT:
+        raise ValueError("技能资源超过 32KB")
+    return path.read_text(encoding="utf-8")
+
+
 def read_skill(name: str, cfg: dict) -> str:
     _path(name)
     if name in cfg.get("disabled_skills", []):
