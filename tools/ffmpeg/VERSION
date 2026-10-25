@@ -1,5 +1,5 @@
-FFmpeg 6.1.1 static macOS arm64 build
+FFmpeg 6.0 static macOS arm64 build
 Source: https://github.com/eugeneware/ffmpeg-static/releases/tag/b6.1.1
 Asset: ffmpeg-darwin-arm64
 Asset SHA-256: a90e3db6a3fd35f6074b013f948b1aa45b31c6375489d39e572bea3f18336584
-License: LGPL-2.1-or-later with optional components; see LICENSE and README
+Build configuration enables GPL/version3/nonfree components; see LICENSE, README, and the upstream build metadata.

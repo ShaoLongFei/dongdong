@@ -4,7 +4,7 @@
 
 只记「为什么这么选」，不记过程。新决策往下加。
 
-- 2026-10-25：故事导出器只解析 `tools/ffmpeg/<platform>/ffmpeg`，不回退到系统 PATH；当前仓库未包含可核验的 FFmpeg 二进制，因此 MP4 在缺失时返回明确错误并保留 SVG/JSON。PNG/PDF 优先使用 CairoSVG，缺失时尝试 Playwright 无头浏览器，避免新增大型运行时依赖。
+- 2026-10-25：故事导出器只解析 `tools/ffmpeg/<platform>/ffmpeg`，不回退到系统 PATH；随项目分发已核验的 macOS arm64 FFmpeg 6.0 构建（来源、SHA-256、许可证说明见 `tools/ffmpeg/`）。该构建启用了 GPL/version3/nonfree 组件，后续公开再分发前必须复核对应许可义务。PNG/PDF 优先使用 CairoSVG，缺失时尝试 Playwright，再回退到 macOS Quick Look，避免新增大型运行时依赖。
 
 | # | 决策 | 理由 | 代价 |
 | --- | --- | --- | --- |
