@@ -289,17 +289,25 @@ def _interaction(element: dict, raw_elements: list[dict]) -> str:
         if not fruit or not fox or not hedgehog:
             return ""
         fx, fy = _box_center(fruit)
-        tx = fox["x"] + fox["width"]
-        ty = fox["y"] + fox["height"] // 2
-        sx = hedgehog["x"]
-        sy = hedgehog["y"] + hedgehog["height"] // 2
+        fox_hand_x = fox["x"] + fox["width"] - 18
+        fox_hand_y = fox["y"] + fox["height"] * 3 // 5
+        hedgehog_hand_x = hedgehog["x"] + 18
+        hedgehog_hand_y = hedgehog["y"] + hedgehog["height"] * 3 // 5
+        fruit_left = fruit["x"] - 8
+        fruit_right = fruit["x"] + fruit["width"] + 8
+        arrow_end_x = fox["x"] + fox["width"] - 4
+        arrow_end_y = fox_hand_y - 34
         return (
-            f'<path d="M{sx} {sy} Q{fx + 30} {fy - 80} {tx} {ty}" fill="none" '
-            'stroke="#D93636" stroke-width="7" stroke-dasharray="12 12" stroke-linecap="round"/>'
-            f'<path d="M{sx + 12} {sy + 8} Q{fx + 100} {fy - 10} {fx + 42} {fy + 2}" fill="none" stroke="#D9B38C" stroke-width="16" stroke-linecap="round"/>'
-            f'<circle cx="{fx + 35}" cy="{fy + 2}" r="10" fill="#D9B38C" stroke="#5B5550" stroke-width="3"/>'
-            f'<path d="M{tx + 2} {ty} l22 -12 M{tx + 2} {ty} l22 12" stroke="#D93636" '
-            'stroke-width="7" stroke-linecap="round"/>'
+            f'<path d="M{hedgehog_hand_x} {hedgehog_hand_y} Q{fruit_right + 28} {fy + 34} {fruit_right} {fy + 12}" '
+            'fill="none" stroke="#D9B38C" stroke-width="16" stroke-linecap="round"/>'
+            f'<circle cx="{fruit_right}" cy="{fy + 12}" r="10" fill="#D9B38C" stroke="#5B5550" stroke-width="3"/>'
+            f'<path d="M{fox_hand_x} {fox_hand_y} Q{fruit_left - 26} {fy + 42} {fruit_left} {fy + 22}" '
+            'fill="none" stroke="#E87824" stroke-width="14" stroke-linecap="round"/>'
+            f'<circle cx="{fruit_left}" cy="{fy + 22}" r="9" fill="#D9B38C" stroke="#5B5550" stroke-width="3"/>'
+            f'<path d="M{fruit_right + 4} {fy + 72} Q{(fruit_right + arrow_end_x) // 2} {fy + 120} {arrow_end_x} {arrow_end_y}" '
+            'fill="none" stroke="#D93636" stroke-width="6" stroke-dasharray="11 11" stroke-linecap="round"/>'
+            f'<path d="M{arrow_end_x} {arrow_end_y} l22 -10 M{arrow_end_x} {arrow_end_y} l18 14" '
+            'stroke="#D93636" stroke-width="6" stroke-linecap="round"/>'
         )
     if "约定" in label:
         fox = _find_element(raw_elements, "fox")
