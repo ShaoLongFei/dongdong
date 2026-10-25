@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as Tabs from '@radix-ui/react-tabs';
-import { ArrowUp, AudioLines, ChevronRight, Circle, MessageSquare, Mic, MicOff, Settings2, Square, Workflow, BookOpen, Plug, Sparkles } from 'lucide-react';
+import { ArrowUp, AudioLines, ChevronRight, Circle, FileText, MessageSquare, Mic, MicOff, Settings2, Square, Workflow, BookOpen, Plug, Sparkles } from 'lucide-react';
 import { api, statusText } from './api';
 import Settings from './Settings';
 import Conversation from './Conversation';
@@ -12,6 +12,7 @@ import Sidebar from './Sidebar';
 import Meeting from './Meeting';
 import Memories from './Memories';
 import StoryCanvas from './StoryCanvas';
+import Files from './Files';
 import './style.css';
 
 export function App() {
@@ -183,12 +184,13 @@ export function App() {
         <Tabs.Trigger value="skills"><BookOpen size={16} />技能</Tabs.Trigger>
         <Tabs.Trigger value="mcp"><Plug size={16} />MCP</Tabs.Trigger>
         <Tabs.Trigger value="memories"><BookOpen size={16} />记忆</Tabs.Trigger>
+        <Tabs.Trigger value="files"><FileText size={16} />文件</Tabs.Trigger>
         <Tabs.Trigger value="story"><Sparkles size={16} />讲故事</Tabs.Trigger>
         <Tabs.Trigger value="settings"><Settings2 size={16} />设置</Tabs.Trigger>
       </Tabs.List>
     </Sidebar>
     <main className="main">
-      <header className="topbar"><span className="muted">工作台</span><ChevronRight size={12} /><strong>{tab === 'chat' ? detail?.title || '新对话' : ({ runs: '运行记录', skills: '技能', mcp: 'MCP', memories: '记忆', settings: '设置' })[tab]}</strong><button className="voice-toggle ml-auto" aria-pressed={Boolean(state?.voice_enabled)} disabled={!state || voicePending} onClick={toggleVoice} title="关闭会停止麦克风、播报和语音连接">{state?.voice_enabled ? <Mic size={14} /> : <MicOff size={14} />}{voicePending ? '切换中…' : state?.voice_enabled ? '关闭语音' : '开启语音'}</button><span className="badge"><span className={`dot ${busy ? 'working' : 'online'}`} />{busy ? '任务执行中' : '就绪'}</span></header>
+      <header className="topbar"><span className="muted">工作台</span><ChevronRight size={12} /><strong>{tab === 'chat' ? detail?.title || '新对话' : ({ runs: '运行记录', skills: '技能', mcp: 'MCP', memories: '记忆', files: '文件', settings: '设置' })[tab]}</strong><button className="voice-toggle ml-auto" aria-pressed={Boolean(state?.voice_enabled)} disabled={!state || voicePending} onClick={toggleVoice} title="关闭会停止麦克风、播报和语音连接">{state?.voice_enabled ? <Mic size={14} /> : <MicOff size={14} />}{voicePending ? '切换中…' : state?.voice_enabled ? '关闭语音' : '开启语音'}</button><span className="badge"><span className={`dot ${busy ? 'working' : 'online'}`} />{busy ? '任务执行中' : '就绪'}</span></header>
       <Approvals report={report} onResolved={refresh} runIds={detail?.runs.map(run => run.id) || []} />
       {state?.voice_error && <div className="notice" role="alert">语音启动失败：{state.voice_error}</div>}
       {notice && <div role="status" className="notice">{notice}<button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
@@ -211,6 +213,7 @@ export function App() {
       <Tabs.Content value="skills" className="page-scroll"><Skills report={report} /></Tabs.Content>
       <Tabs.Content value="mcp" className="page-scroll"><MCP report={report} /></Tabs.Content>
       <Tabs.Content value="memories" className="page-scroll"><Memories report={report} /></Tabs.Content>
+      <Tabs.Content value="files" className="page-scroll"><Files projectId={detail?.project_id || ''} projects={projects} currentProject={state?.current_project || ''} report={report} /></Tabs.Content>
       <Tabs.Content value="story" className="page-scroll"><StoryCanvas key={selected} state={storyState} onModeChange={toggleStory} /></Tabs.Content>
       <Tabs.Content value="settings" className="page-scroll"><Settings onSaved={refresh} report={report} /></Tabs.Content>
     </main>
