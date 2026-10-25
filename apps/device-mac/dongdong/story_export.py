@@ -10,7 +10,9 @@ import subprocess
 import tempfile
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from re import search
 
 ROOT = Path(__file__).resolve().parents[3]
 FORMATS = {"png", "pdf", "mp4"}
@@ -30,13 +32,40 @@ def bundled_ffmpeg() -> Path:
     return path
 
 
+def _svg_dimensions(svg_path: Path) -> tuple[int, int]:
+    """读取 SVG 画布尺寸，长图导出需要保留原始高度。"""
+    source = svg_path.read_text(encoding="utf-8")
+    root = search(r"<svg\b([^>]*)>", source)
+    if not root:
+        raise RuntimeError(f"SVG 根元素不存在: {svg_path.name}")
+    attributes = root.group(1)
+
+    def dimension(name: str) -> float | None:
+        match = search(rf'\b{name}="([0-9]+(?:\.[0-9]+)?)', attributes)
+        return float(match.group(1)) if match else None
+
+    width = dimension("width")
+    height = dimension("height")
+    if width is None or height is None:
+        view_box = search(r'\bviewBox="([^\"]+)"', attributes)
+        if view_box:
+            values = view_box.group(1).replace(",", " ").split()
+            if len(values) == 4:
+                width = width or float(values[2])
+                height = height or float(values[3])
+    if not width or not height:
+        raise RuntimeError(f"SVG 画布尺寸无效: {svg_path.name}")
+    return max(1, round(width)), max(1, round(height))
+
+
 def _render(svg_path: Path, output: Path, kind: str) -> None:
+    width, height = _svg_dimensions(svg_path)
     errors = []
     try:
         import cairosvg
 
         converter = cairosvg.svg2png if kind == "png" else cairosvg.svg2pdf
-        converter(url=str(svg_path), write_to=str(output), output_width=1280, output_height=720)
+        converter(url=str(svg_path), write_to=str(output), output_width=width, output_height=height)
         return
     except ModuleNotFoundError as exc:
         errors.append(f"CairoSVG 不可用: {exc}")
@@ -47,12 +76,21 @@ def _render(svg_path: Path, output: Path, kind: str) -> None:
 
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
-            page = browser.new_page(viewport={"width": 1280, "height": 720}, device_scale_factor=1)
+            page = browser.new_page(
+                viewport={"width": width, "height": min(height, 720)}, device_scale_factor=1
+            )
             page.set_content(svg_path.read_text(encoding="utf-8"), wait_until="load")
+            page.add_style_tag(content="html, body { margin: 0; padding: 0; }")
             if kind == "png":
-                page.screenshot(path=str(output), type="png")
+                page.screenshot(path=str(output), type="png", full_page=True)
             else:
-                page.pdf(path=str(output), width="1280px", height="720px", print_background=True)
+                page.pdf(
+                    path=str(output),
+                    width=f"{width}px",
+                    height=f"{height}px",
+                    print_background=True,
+                    margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
+                )
             browser.close()
             return
     except ModuleNotFoundError as exc:
@@ -80,7 +118,15 @@ def _render(svg_path: Path, output: Path, kind: str) -> None:
             thumbnail_source = temp_dir / svg_path.name
             thumbnail_source.write_bytes(svg_path.read_bytes())
             result = subprocess.run(
-                [str(qlmanage), "-t", "-s", "1280", "-o", str(temp_dir), str(thumbnail_source)],
+                [
+                    str(qlmanage),
+                    "-t",
+                    "-s",
+                    str(max(width, height)),
+                    "-o",
+                    str(temp_dir),
+                    str(thumbnail_source),
+                ],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -92,7 +138,15 @@ def _render(svg_path: Path, output: Path, kind: str) -> None:
                 raise RuntimeError(f"Quick Look 生成缩略图失败: {' '.join(detail) or '未生成 PNG'}")
             png_path = output if kind == "png" else temp_dir / "scene.png"
             result = subprocess.run(
-                [str(sips), "-z", "720", "1280", str(thumbnail), "--out", str(png_path)],
+                [
+                    str(sips),
+                    "-z",
+                    str(height),
+                    str(width),
+                    str(thumbnail),
+                    "--out",
+                    str(png_path),
+                ],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -163,6 +217,37 @@ def _scene_duration_ms(story_dir: Path, scene: Path) -> int:
             if end_ms > 0:
                 return end_ms
     raise RuntimeError(f"场景缺少有效时长: {scene.name}")
+
+
+def _storyboard_svg(scenes: list[Path], output: Path) -> None:
+    """把所有幕拼成纵向长图，供 PNG/PDF 共用同一份完整内容。"""
+    panel_height = 776
+    total_height = panel_height * len(scenes)
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 {total_height}" '
+        f'width="1280" height="{total_height}">',
+        f'<rect width="1280" height="{total_height}" fill="#F8F5EF"/>',
+    ]
+    for index, scene in enumerate(scenes, start=1):
+        source = scene.read_text(encoding="utf-8")
+        start = source.find(">")
+        end = source.rfind("</svg>")
+        if start < 0 or end <= start:
+            raise RuntimeError(f"SVG 场景格式无效: {scene.name}")
+        y = (index - 1) * panel_height
+        parts.append(
+            f'<text x="40" y="{y + 32}" fill="#5B5550" font-family="sans-serif" '
+            f'font-size="22">Scene {index}</text>'
+        )
+        parts.append(
+            f'<svg x="0" y="{y + 56}" width="1280" height="720" viewBox="0 0 1280 720">'
+            f"{source[start + 1 : end]}</svg>"
+        )
+        if index < len(scenes):
+            parts.append(f'<path d="M40 {y + panel_height - 1} H1240" stroke="#DDD6CA"/>')
+    parts.append("</svg>")
+    output.write_text("".join(parts), encoding="utf-8")
+    output.chmod(0o600)
 
 
 def _export_mp4(story_dir: Path, output: Path, scenes: list[Path]) -> None:
@@ -243,7 +328,10 @@ def export_story(story_dir: Path, fmt: str) -> Path:
     if fmt == "mp4":
         _export_mp4(story_dir, output, scenes)
     else:
-        _render(scenes[0], output, fmt)
+        with tempfile.TemporaryDirectory(prefix="dongdong-storyboard-") as temp:
+            storyboard = Path(temp) / "storyboard.svg"
+            _storyboard_svg(scenes, storyboard)
+            _render(storyboard, output, fmt)
     output.chmod(0o600)
     return output
 
@@ -253,6 +341,8 @@ class ExportManager:
         self.store = store
         self.jobs = {}
         self.lock = threading.Lock()
+        # 导出可能涉及 SVG 渲染和 FFmpeg，限制并发避免每次请求创建无限线程。
+        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dongdong-export")
 
     def submit(self, story_id: str, fmt: str) -> str:
         if fmt not in FORMATS:
@@ -269,7 +359,7 @@ class ExportManager:
                 "status": "running",
                 "progress": 0,
             }
-        threading.Thread(target=self._run, args=(job_id,), daemon=True).start()
+        self.executor.submit(self._run, job_id)
         return job_id
 
     def _run(self, job_id: str) -> None:

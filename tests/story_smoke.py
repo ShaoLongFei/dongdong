@@ -36,7 +36,92 @@ def _probe_mp4(ffmpeg: Path, path: Path) -> tuple[float, bool]:
     )
 
 
+def _api_integration_smoke() -> None:
+    """通过 ASGI 走一遍故事路由，并确认故事结束后普通会话仍可提交。"""
+    import httpx
+    from dongdong import config as app_config
+    from dongdong.web_server import create_app
+
+    old_home, old_path = app_config.HOME, app_config.PATH
+    with tempfile.TemporaryDirectory(prefix="dongdong-web-story-") as tmp:
+        home = Path(tmp) / "home"
+        workspace = Path(tmp) / "workspace"
+        home.mkdir()
+        workspace.mkdir()
+        app_config.HOME = home
+        app_config.PATH = home / "config.json"
+        cfg = app_config.load()
+        cfg["workspace"] = str(workspace)
+        cfg["model"]["api_key"] = "story-smoke-only"
+        app = create_app(cfg)
+
+        async def check() -> None:
+            async with app.router.lifespan_context(app):
+                state = app.state.web_state
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+                ) as client:
+                    created = await client.post("/api/sessions", json={"title": "故事接口"})
+                    assert created.status_code == 200, created.text
+                    sid = created.json()["id"]
+
+                    listed = await client.get("/api/stories")
+                    assert listed.status_code == 200 and listed.json()["stories"] == []
+
+                    started = await client.put("/api/story/mode", json={"enabled": True})
+                    assert started.status_code == 200, started.text
+                    story_id = started.json()["storyId"]
+                    assert started.json()["status"] == "recording"
+                    state_view = await client.get("/api/story/state")
+                    assert state_view.status_code == 200
+                    assert state_view.json()["storyId"] == story_id
+
+                    # 直接写入一幕，避免集成 smoke 依赖模型网络请求。
+                    state.story.store.save_scene(
+                        story_id,
+                        normalize_scene(
+                            {"elements": [{"kind": "tree"}, {"kind": "sun"}]},
+                            "接口场景",
+                            "scene-001",
+                        ),
+                    )
+                    stopped = await client.put("/api/story/mode", json={"enabled": False})
+                    assert stopped.status_code == 200, stopped.text
+                    assert stopped.json()["status"] == "done"
+
+                    listed = await client.get("/api/stories")
+                    assert listed.status_code == 200
+                    assert any(item["storyId"] == story_id for item in listed.json()["stories"])
+
+                    export = await client.post(
+                        f"/api/stories/{story_id}/exports", json={"format": "png"}
+                    )
+                    assert export.status_code == 200, export.text
+                    job_id = export.json()["job_id"]
+                    for _ in range(300):
+                        job = await client.get(f"/api/stories/{story_id}/exports/{job_id}")
+                        assert job.status_code == 200, job.text
+                        if job.json()["status"] != "running":
+                            break
+                        await asyncio.sleep(0.01)
+                    assert job.json()["status"] in {"done", "error"}
+
+                    # 故事停止后普通消息仍走普通任务入口；这里不触发模型执行。
+                    state.manager.submit = lambda *_args, **_kwargs: "normal-smoke-run"
+                    message = await client.post(
+                        f"/api/sessions/{sid}/messages", json={"text": "普通消息"}
+                    )
+                    assert message.status_code == 200, message.text
+                    assert message.json()["run_id"] == "normal-smoke-run"
+
+        try:
+            asyncio.run(check())
+        finally:
+            app_config.HOME, app_config.PATH = old_home, old_path
+
+
 def main() -> None:
+    _api_integration_smoke()
     scene = normalize_scene(
         {
             "elements": [{"kind": "tree"}, {"kind": "rabbit"}, {"kind": "sun"}],
@@ -118,21 +203,28 @@ def main() -> None:
             png = export_story(Path(tmp) / "stories" / story_id, "png")
             pdf = export_story(Path(tmp) / "stories" / story_id, "pdf")
             assert png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
-            assert struct.unpack(">II", png.read_bytes()[16:24]) == (1280, 720)
+            assert struct.unpack(">II", png.read_bytes()[16:24]) == (1280, 776)
             assert pdf.read_bytes()[:5] == b"%PDF-"
+            store.save_scene(story_id, {**scene, "sceneId": "scene-002"})
+            storyboard_png = export_story(Path(tmp) / "stories" / story_id, "png")
+            storyboard_pdf = export_story(Path(tmp) / "stories" / story_id, "pdf")
+            assert struct.unpack(">II", storyboard_png.read_bytes()[16:24]) == (1280, 1552)
+            assert storyboard_pdf.read_bytes()[:5] == b"%PDF-"
         else:
             print("story export smoke skipped: macOS qlmanage/sips unavailable")
         if has_ffmpeg:
             mp4 = export_story(Path(tmp) / "stories" / story_id, "mp4")
             assert mp4.read_bytes()[4:8] == b"ftyp"
             duration, has_audio = _probe_mp4(bundled_ffmpeg(), mp4)
-            assert 2.5 <= duration <= 3.0
+            scene_count = len(store.load(story_id)["scenes"])
+            assert scene_count * 2.5 <= duration <= scene_count * 3.2
             assert has_audio
         for scene_id in ("scene-10", "scene-2", "scene-1"):
             store.save_scene(story_id, {**scene, "sceneId": scene_id})
         assert [item["sceneId"] for item in store.load(story_id)["scenes"]] == [
             "scene-001",
             "scene-1",
+            "scene-002",
             "scene-2",
             "scene-10",
         ]
