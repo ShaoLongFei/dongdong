@@ -12,6 +12,7 @@ from dongdong.story import StorySession  # noqa: E402
 from dongdong.story_schema import normalize_scene  # noqa: E402
 from dongdong.story_store import StoryStore  # noqa: E402
 from dongdong.story_svg import scene_to_svg  # noqa: E402
+from dongdong.web_runtime import WebState  # noqa: E402
 
 
 def main() -> None:
@@ -130,8 +131,30 @@ def main() -> None:
             assert any(event["type"] == "export" for event in events)
             await session.close()
 
-        asyncio.run(session_smoke())
+        async def buffering_smoke() -> None:
+            event_word = StorySession(BrokenModel(), store=store, flush_seconds=60)
+            event_word.start()
+            event_word.accept_text("小兔子于是")
+            await asyncio.sleep(0.01)
+            assert event_word.state()["bufferedText"] == ""
+            assert event_word.state()["sceneCount"] == 1
+            await event_word.close()
 
+            fixed_buffer = StorySession(BrokenModel(), store=store, flush_seconds=60)
+            fixed_buffer.start()
+            fixed_buffer.accept_text("甲" * 40)
+            assert fixed_buffer.state()["bufferedText"] == ""
+            assert fixed_buffer.state()["sceneCount"] == 1
+            await fixed_buffer.close()
+
+        asyncio.run(session_smoke())
+        asyncio.run(buffering_smoke())
+
+    assert WebState._story_command("请开始讲故事") == "start"
+    assert WebState._story_command("进入故事模式吧") == "start"
+    assert WebState._story_command("请停止讲故事") == "stop"
+    assert WebState._story_command("退出故事模式") == "stop"
+    assert WebState._story_command("讲个故事") is None
 
 if __name__ == "__main__":
     main()
