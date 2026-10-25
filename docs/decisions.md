@@ -4,6 +4,8 @@
 
 只记「为什么这么选」，不记过程。新决策往下加。
 
+- 2026-10-25：故事导出器只解析 `tools/ffmpeg/<platform>/ffmpeg`，不回退到系统 PATH；当前仓库未包含可核验的 FFmpeg 二进制，因此 MP4 在缺失时返回明确错误并保留 SVG/JSON。PNG/PDF 优先使用 CairoSVG，缺失时尝试 Playwright 无头浏览器，避免新增大型运行时依赖。
+
 | # | 决策 | 理由 | 代价 |
 | --- | --- | --- | --- |
 | 1 | Mac 端用 Python，不用 C++ | 和 CLI agent 交互就是子进程；音频/Opus/mDNS 都有现成库 | 不能直接复用到 ESP32，但 ESP32 本来也不需要这些 |

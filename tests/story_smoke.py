@@ -4,11 +4,12 @@ import asyncio
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
 
-from dongdong.story import StorySession  # noqa: E402
+from dongdong.story import StorySession, story_for  # noqa: E402
 from dongdong.story_schema import normalize_scene  # noqa: E402
 from dongdong.story_store import StoryStore  # noqa: E402
 from dongdong.story_svg import scene_to_svg  # noqa: E402
@@ -42,7 +43,9 @@ def main() -> None:
         "scene-003",
     )
     svg = scene_to_svg(hostile)
-    assert "<script" not in svg and "&lt;&amp;&quot;" in svg and "javascript:" not in svg
+    assert (
+        "<script" not in svg and "&lt;&amp;&quot;" in svg and "javascript:" not in svg
+    )
     direct = scene_to_svg(
         {
             "elements": [
@@ -72,7 +75,11 @@ def main() -> None:
             "<g onclick",
         )
     )
-    assert 'x="0"' in direct and 'width="1280"' in direct and 'data-duration-ms="30000"' in direct
+    assert (
+        'x="0"' in direct
+        and 'width="1280"' in direct
+        and 'data-duration-ms="30000"' in direct
+    )
     assert direct.count("<g ") == 1
     hostile_types = scene_to_svg({"elements": [{"kind": [], "color": []}]})
     assert "<script" not in hostile_types and "url(" not in hostile_types
@@ -90,11 +97,17 @@ def main() -> None:
             "scene-2",
             "scene-10",
         ]
-        assert (Path(tmp) / "stories" / story_id / "scene-1.json").stat().st_mode & 0o777 == 0o600
-        (Path(tmp) / "stories" / story_id / "manifest.json").write_text("broken", encoding="utf-8")
+        assert (
+            Path(tmp) / "stories" / story_id / "scene-1.json"
+        ).stat().st_mode & 0o777 == 0o600
+        (Path(tmp) / "stories" / story_id / "manifest.json").write_text(
+            "broken", encoding="utf-8"
+        )
         assert store.load(story_id)["manifest"]["status"] == "error"
         (Path(tmp) / "stories" / story_id / "manifest.json").unlink()
-        (Path(tmp) / "stories" / story_id / "manifest.json").symlink_to(Path(tmp) / "outside.json")
+        (Path(tmp) / "stories" / story_id / "manifest.json").symlink_to(
+            Path(tmp) / "outside.json"
+        )
         try:
             store.load(story_id)
         except ValueError:
@@ -113,6 +126,29 @@ def main() -> None:
             pass
         else:
             raise AssertionError("path traversal accepted")
+
+        assert store.exports.submit
+        try:
+            store.exports.submit(story_id, "gif")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid export format accepted")
+        missing_job = store.exports.status("missing")
+        assert missing_job["status"] == "missing"
+        job_id = store.exports.submit(story_id, "mp4")
+        for _ in range(100):
+            job = store.exports.status(job_id)
+            if job["status"] != "running":
+                break
+            import time
+
+            time.sleep(0.01)
+        assert job["status"] == "error"
+        assert (
+            job.get("error")
+            and not (Path(tmp) / "stories" / story_id / "scene-1.svg").is_symlink()
+        )
 
         class BrokenModel:
             async def generate_scene(self, _prompt):
@@ -147,8 +183,36 @@ def main() -> None:
             assert fixed_buffer.state()["sceneCount"] == 1
             await fixed_buffer.close()
 
+        async def lifecycle_smoke() -> None:
+            pending = StorySession(BrokenModel(), store=store, flush_seconds=60)
+            pending_id = pending.start()
+            pending._pending["scene-001"] = "停止时仍未完成"
+            result = await pending.stop()
+            assert result["status"] == "done"
+            assert pending._pending == {}
+            assert store.load(pending_id)["scenes"]
+
+            restored_id = store.create("story-restored")
+            store.save_scene(restored_id, {**scene, "sceneId": "scene-004"})
+            manifest = store.load(restored_id)["manifest"]
+            manifest.update({"status": "recording", "sessionId": "chat-history"})
+            store.save_manifest(restored_id, manifest)
+            host = SimpleNamespace(
+                model=None,
+                stories={},
+                story=SimpleNamespace(store=store),
+            )
+            restored = story_for(host, restored_id)
+            assert restored.status == "done"
+            assert restored.state()["sceneCount"] == 4
+            events = restored.events(0)
+            assert events[0]["data"]["scene"]["sceneId"] == "scene-004"
+            assert events[0]["data"]["replay"] is True
+            assert story_for(host, restored_id) is restored
+
         asyncio.run(session_smoke())
         asyncio.run(buffering_smoke())
+        asyncio.run(lifecycle_smoke())
 
     assert WebState._story_command("请开始讲故事") == "start"
     assert WebState._story_command("进入故事模式吧") == "start"

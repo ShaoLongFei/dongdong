@@ -10,7 +10,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -74,6 +74,24 @@ def create_app(cfg: dict) -> FastAPI:
     app.include_router(story_store.router(state))
     app.include_router(memory_routes.router(state))
 
+    @app.get("/api/stories/{story_id}/exports/{job_id}/download")
+    async def story_export_download(story_id: str, job_id: str):
+        result = state.story.store.exports.status(job_id)
+        if result.get("storyId") != story_id or result.get("status") != "done":
+            raise HTTPException(404, "导出文件不存在")
+        try:
+            story_dir = state.story.store._validate(story_id).resolve()
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from None
+        output = Path(result.get("outputPath", "")).resolve()
+        if (
+            output.parent != (story_dir / "exports").resolve()
+            or output.is_symlink()
+            or not output.is_file()
+        ):
+            raise HTTPException(404, "导出文件不存在")
+        return FileResponse(output, filename=output.name)
+
     @app.middleware("http")
     async def check_origin(request: Request, call_next):
         origin = request.headers.get("origin")
@@ -117,7 +135,10 @@ def create_app(cfg: dict) -> FastAPI:
 
     @app.get("/api/story/events")
     async def api_story_events(request: Request, story_id: str = "", since: int = 0):
-        story = story_for(state, story_id) if story_id else state.story
+        try:
+            story = story_for(state, story_id) if story_id else state.story
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from None
 
         async def stream():
             cursor = max(0, since)
