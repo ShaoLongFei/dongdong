@@ -24,3 +24,9 @@
 - Changed manifest and recovery scene ordering to numeric `scene-N` order, while retaining insertion order for other valid IDs; symlinked manifest and scene files are rejected or skipped.
 - Expanded smoke coverage for direct renderer hostility, coordinate/color/timing limits, file permissions, manifest and scene symlink traversal, and `scene-2` versus `scene-10` ordering.
 - Commit: `921012b0180c58bb76a11a94e7c0cafa00db6ec4` (`fix: harden story svg and persistence boundaries`).
+
+## Re-review Fix Report (2026-10-25)
+
+- Guarded SVG kind and color allowlist membership with string checks so unhashable hostile values such as lists are sanitized without raising `TypeError`.
+- Added a smoke regression for list-valued `kind` and `color`; restored the story smoke import `# noqa: E402` markers required by the repository Ruff configuration.
+- Verification: `.venv/bin/python tests/story_smoke.py`, full Ruff check and format check for `apps tests`, and `git diff --check` all passed.
