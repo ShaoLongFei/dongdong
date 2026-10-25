@@ -83,7 +83,9 @@ export DEEPSEEK_API_KEY=...
 open dist/Dongdong.app
 ```
 
-如果前端已经构建好，可使用 `./scripts/build-macos-app.sh --skip-frontend`。配置、SQLite、记忆和故事数据仍保存到用户目录 `~/.dongdong` 及项目工作区，不写入 App 包。当前独立包面向 Apple Silicon；模型 API key、Git 以及可选的 `codex`/`claude` CLI 仍需在用户环境中配置。
+构建产物位于 `dist/Dongdong.app`，默认不提交到 Git。前端已经构建好时，可使用 `./scripts/build-macos-app.sh --skip-frontend` 跳过 Vite 构建。打开 App 后会自动启动内置 Web 服务并选择 8766–8866 中的空闲本机端口；日志写入 `~/Library/Logs/dongdong-app.log`。
+
+配置、SQLite、记忆和故事数据仍保存到用户目录 `~/.dongdong` 及项目工作区，不写入 App 包。当前独立包面向 Apple Silicon；模型 API key、Git 以及可选的 `codex`/`claude` CLI 仍需在用户环境中配置。首次运行如果被 macOS Gatekeeper 拦截，请在“系统设置 → 隐私与安全性”中允许打开；公开分发前还需要 Developer ID 签名和 Apple 公证。
 
 关闭语音会停止采音、播报并断开连接，已派发的编程任务继续执行；停止任务使用对话内的停止按钮。刷新页面保留语音开关状态，重启服务后回到关闭。
 
