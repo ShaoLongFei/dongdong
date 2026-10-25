@@ -12,6 +12,20 @@ from pathlib import Path
 from .story_svg import scene_to_svg
 
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_SCENE_NUMBER = re.compile(r"^scene-(\d+)$")
+
+
+def _ordered_scene_ids(ids: list[object]) -> list[str]:
+    valid = [item for item in ids if isinstance(item, str) and _ID.fullmatch(item)]
+    numeric = []
+    other = []
+    for index, scene_id in enumerate(valid):
+        match = _SCENE_NUMBER.fullmatch(scene_id)
+        (numeric if match else other).append(
+            (int(match.group(1)), index, scene_id) if match else (index, scene_id)
+        )
+    numeric.sort(key=lambda item: (item[0], item[1]))
+    return [item[2] for item in numeric] + [item[1] for item in other]
 
 
 class StoryStore:
@@ -84,20 +98,23 @@ class StoryStore:
         manifest = self.load(story_id)["manifest"]
         ids = [item for item in manifest.get("scenes", []) if item != scene_id]
         ids.append(scene_id)
-        manifest["scenes"] = sorted(ids)
+        manifest["scenes"] = _ordered_scene_ids(ids)
         self.save_manifest(story_id, manifest)
 
     def load(self, story_id: str) -> dict:
         directory = self._validate(story_id)
         if not directory.is_dir():
             raise ValueError("故事不存在")
+        manifest_path = directory / "manifest.json"
+        if manifest_path.is_symlink():
+            raise ValueError("manifest 不能是符号链接")
         try:
-            manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if not isinstance(manifest, dict):
                 raise ValueError
         except (FileNotFoundError, json.JSONDecodeError, ValueError):
-            scene_ids = sorted(
-                path.stem for path in directory.glob("scene-*.json") if _ID.fullmatch(path.stem)
+            scene_ids = _ordered_scene_ids(
+                [path.stem for path in directory.glob("scene-*.json") if not path.is_symlink()]
             )
             manifest = {
                 "storyId": story_id,
@@ -108,12 +125,12 @@ class StoryStore:
                 "scenes": scene_ids,
             }
         scenes = []
-        for scene_id in manifest.get("scenes", []):
+        for scene_id in _ordered_scene_ids(manifest.get("scenes", [])):
             if isinstance(scene_id, str) and _ID.fullmatch(scene_id):
                 try:
-                    scenes.append(
-                        json.loads((directory / f"{scene_id}.json").read_text(encoding="utf-8"))
-                    )
+                    scene_path = directory / f"{scene_id}.json"
+                    if not scene_path.is_symlink():
+                        scenes.append(json.loads(scene_path.read_text(encoding="utf-8")))
                 except (FileNotFoundError, json.JSONDecodeError):
                     continue
         return {"manifest": manifest, "scenes": scenes}
