@@ -359,6 +359,38 @@ def test_task_scope_conflicts_and_planner_boundaries():
     assert result[0].scope == {"write": ["x.py"]}
 
 
+def test_task_monitor_detects_stall_without_killing_dependency_wait():
+    from dongdong.task_scheduler import TaskManager
+
+    with tempfile.TemporaryDirectory(prefix="dongdong-stall-") as tmp:
+        store = Store(Path(tmp) / "stall.db")
+        sid = store.create_session("stall")
+        waiting = store.create_task_run(sid, RunSpec(goal_text="waiting"))
+        store.add_items(
+            waiting,
+            [
+                ItemSpec(id="parent", instruction="parent"),
+                ItemSpec(id="child", instruction="child", depends_on=("parent",)),
+            ],
+        )
+        manager = TaskManager(
+            store,
+            cfg={"workspace": tmp, "task_scheduler": {"stall_limit": 2}},
+        )
+        assert manager.monitor_once(waiting)["run"]["status"] == "running"
+        assert not any(event["type"] == "stall_detected" for event in store.events(waiting))
+
+        stalled = store.create_task_run(sid, RunSpec(goal_text="stalled"))
+        store.add_items(stalled, [ItemSpec(id="blocked", instruction="blocked")])
+        with store._lock, store._conn:
+            store._conn.execute("UPDATE items SET status='blocked' WHERE id=?", ("blocked",))
+        assert manager.monitor_once(stalled)["run"]["status"] == "running"
+        assert manager.monitor_once(stalled)["run"]["status"] == "failed"
+        assert any(event["type"] == "stall_detected" for event in store.events(stalled))
+        manager.close()
+        store.close()
+
+
 def test_conversations_isolate_modes_runs_voice_and_cancellation():
     import httpx
     from smoke import ROOT, patch, work_gate
