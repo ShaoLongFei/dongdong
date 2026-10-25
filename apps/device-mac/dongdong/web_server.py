@@ -10,7 +10,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -36,6 +36,8 @@ STATIC = Path(__file__).with_name("static")
 
 class MessageIn(BaseModel):
     text: str
+
+
 class SettingsIn(BaseModel):
     code_backend: str | None = Field(default=None, pattern="^(builtin|cli)$")
     workspace: str | None = None
@@ -45,9 +47,12 @@ class SettingsIn(BaseModel):
     temperature: float | None = Field(default=None, ge=0, le=2)
     max_tokens: int | None = Field(default=None, ge=1, le=65536)
     tool_policy: str | None = Field(default=None, pattern="^(auto|ask)$")
+
+
 def create_app(cfg: dict) -> FastAPI:
     state = WebState(cfg)
     voice = Voice(cfg, state.voice_text)
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         tools.bind_service(WebAgent(state))
@@ -57,6 +62,7 @@ def create_app(cfg: dict) -> FastAPI:
             await voice.set_enabled(False)
             await asyncio.to_thread(tools.close_service)
             await state.close()
+
     app = FastAPI(title="咚咚", lifespan=lifespan)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]"])
     app.include_router(meeting_routes.router(state.meeting))
@@ -67,29 +73,14 @@ def create_app(cfg: dict) -> FastAPI:
     app.include_router(projects.router(state))
     app.include_router(story_store.router(state))
     app.include_router(memory_routes.router(state))
-    @app.get("/api/stories/{story_id}/exports/{job_id}/download")
-    async def story_export_download(story_id: str, job_id: str):
-        result = state.story.store.exports.status(job_id)
-        if result.get("storyId") != story_id or result.get("status") != "done":
-            raise HTTPException(404, "导出文件不存在")
-        try:
-            story_dir = state.story.store._validate(story_id).resolve()
-        except ValueError as exc:
-            raise HTTPException(404, str(exc)) from None
-        output = Path(result.get("outputPath", "")).resolve()
-        if (
-            output.parent != (story_dir / "exports").resolve()
-            or output.is_symlink()
-            or not output.is_file()
-        ):
-            raise HTTPException(404, "导出文件不存在")
-        return FileResponse(output, filename=output.name)
+
     @app.middleware("http")
     async def check_origin(request: Request, call_next):
         origin = request.headers.get("origin")
         if origin and origin != str(request.base_url).rstrip("/"):
             return JSONResponse({"detail": "只接受同源请求"}, status_code=403)
         return await call_next(request)
+
     @app.get("/api/state")
     async def api_state():
         active = state.store.get_run(state._run_id)
@@ -113,6 +104,7 @@ def create_app(cfg: dict) -> FastAPI:
             "voice_error": voice.error,
             "story": state.story.state(),
         }
+
     @app.put("/api/voice")
     async def api_voice(body: VoiceIn):
         if body.enabled and body.session_id:
@@ -122,6 +114,7 @@ def create_app(cfg: dict) -> FastAPI:
                 raise HTTPException(409, str(exc)) from None
         await voice.set_enabled(body.enabled)
         return {"enabled": voice.enabled}
+
     @app.get("/api/story/events")
     async def api_story_events(request: Request, story_id: str = "", since: int = 0):
         try:
@@ -146,6 +139,7 @@ def create_app(cfg: dict) -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
     @app.get("/api/sessions/{sid}")
     async def api_session(sid: str):
         session = state.store.get_session(sid)
@@ -161,6 +155,7 @@ def create_app(cfg: dict) -> FastAPI:
             "messages": state.store.messages(sid),
             "runs": runs,
         }
+
     @app.post("/api/sessions/{sid}/messages")
     async def api_message(sid: str, body: MessageIn):
         session = state.store.get_session(sid)
@@ -181,6 +176,7 @@ def create_app(cfg: dict) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from None
         return {"run_id": run_id}
+
     @app.get("/api/runs/{rid}")
     async def api_run(rid: str, include_events: bool = False):
         run = state.store.get_run(rid)
@@ -188,6 +184,7 @@ def create_app(cfg: dict) -> FastAPI:
             raise HTTPException(404, "run 不存在")
         view = state.manager.status(rid)
         return {**view, "events": state.store.events(rid)} if include_events else {**run, **view}
+
     @app.get("/api/runs/{rid}/events")
     async def api_events(rid: str, request: Request, since: int = 0):
         if not state.store.get_run(rid):
@@ -219,11 +216,13 @@ def create_app(cfg: dict) -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
     @app.post("/api/runs/{rid}/cancel")
     async def api_cancel(rid: str):
         if not state.cancel(rid):
             raise HTTPException(409, "任务不在运行")
         return {"ok": True}
+
     @app.get("/api/settings")
     async def api_settings():
         model = cfg["model"]
@@ -237,6 +236,7 @@ def create_app(cfg: dict) -> FastAPI:
             "code_backend": cfg.get("code_backend", "cli"),
             "tool_policy": cfg.get("tool_policy", "auto"),
         }
+
     @app.put("/api/settings")
     async def api_save_settings(body: SettingsIn):
         if not work_gate.acquire("settings"):
@@ -245,6 +245,7 @@ def create_app(cfg: dict) -> FastAPI:
             return save_settings(body)
         finally:
             work_gate.release("settings")
+
     def save_settings(body: SettingsIn):
         if body.workspace is not None:
             workspace = Path(body.workspace).expanduser().resolve()
@@ -270,6 +271,7 @@ def create_app(cfg: dict) -> FastAPI:
         config.save(cfg)
         state.reload()
         return {"ok": True, "error": state.error}
+
     if (STATIC / "index.html").exists():
         app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")
     else:
@@ -279,6 +281,7 @@ def create_app(cfg: dict) -> FastAPI:
             return JSONResponse(
                 {"detail": "请先在 apps/web 运行 npm ci && npm run build"}, status_code=503
             )
+
     return app
 
 

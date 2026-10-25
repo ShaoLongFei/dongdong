@@ -208,4 +208,25 @@ def router(state):
             raise HTTPException(404, "导出任务不存在")
         return result
 
+    @routes.get("/stories/{story_id}/exports/{job_id}/download")
+    async def export_download(story_id: str, job_id: str):
+        from fastapi import HTTPException
+        from fastapi.responses import FileResponse
+
+        result = state.story.store.exports.status(job_id)
+        if result.get("storyId") != story_id or result.get("status") != "done":
+            raise HTTPException(404, "导出文件不存在")
+        try:
+            story_dir = state.story.store._validate(story_id).resolve()
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from None
+        output = Path(result.get("outputPath", "")).resolve()
+        if (
+            output.parent != (story_dir / "exports").resolve()
+            or output.is_symlink()
+            or not output.is_file()
+        ):
+            raise HTTPException(404, "导出文件不存在")
+        return FileResponse(output, filename=output.name)
+
     return routes
