@@ -100,7 +100,9 @@ def _is_model_unavailable(body: str) -> bool:
     if not isinstance(value, dict):
         return False
     error = value.get("error")
-    if isinstance(error, dict) and error.get("code") == "model_unavailable":
+    if isinstance(error, dict) and (
+        error.get("code") == "model_unavailable" or error.get("type") == "model_unavailable"
+    ):
         return True
     return value.get("code") == "model_unavailable"
 
@@ -163,6 +165,9 @@ async def stream_chat(
                 if resp.status_code == 400 and _is_model_unavailable(body):
                     fallback_payload = dict(payload)
                     fallback_payload["stream"] = False
+                    # 部分兼容网关会把不支持的 extra_body（例如 thinking）
+                    # 误报为模型不可用；兼容回退时去掉该扩展参数。
+                    fallback_payload.pop("thinking", None)
                     fallback = await client.post(url, json=fallback_payload, headers=headers)
                     if fallback.status_code >= 400:
                         fallback_body = (await fallback.aread()).decode("utf-8", "replace")[:2000]

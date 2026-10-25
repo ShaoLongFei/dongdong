@@ -119,7 +119,7 @@ def test_stream_chat_model_unavailable_falls_back_to_non_stream():
                     400,
                     json={
                         "error": {
-                            "code": "model_unavailable",
+                            "type": "model_unavailable",
                             "message": "stream unavailable",
                         }
                     },
@@ -147,7 +147,9 @@ def test_stream_chat_model_unavailable_falls_back_to_non_stream():
                 },
             )
 
-        cfg = ModelConfig("http://fake", "k", "gpt-6.1-sol")
+        cfg = ModelConfig(
+            "http://fake", "k", "gpt-6.1-sol", extra_body={"thinking": {"type": "disabled"}}
+        )
         events = [
             event
             async for event in llm.stream_chat(
@@ -159,6 +161,8 @@ def test_stream_chat_model_unavailable_falls_back_to_non_stream():
         ]
         assert requests[0]["stream"] is True
         assert requests[1]["stream"] is False
+        assert requests[0]["thinking"] == {"type": "disabled"}
+        assert "thinking" not in requests[1]
         assert events[0].text == "已切换到兼容模式"
         assert events[1].tool_calls[0].name == "draw_scene"
         assert events[1].tool_calls[0].arguments == '{"title": "开场"}'
