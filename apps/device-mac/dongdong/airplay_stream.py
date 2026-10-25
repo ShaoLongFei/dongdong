@@ -139,6 +139,8 @@ class _Session:
                         "error",
                     )
                 ):
+                    if "configuration of video device failed" in lowered:
+                        continue
                     detail = line
                     break
         except (OSError, IndexError):
