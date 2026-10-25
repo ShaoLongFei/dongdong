@@ -25,7 +25,7 @@
 当前实现与后续事项：
 
 - **已完成**：首次结构化规划、Item 数量/ID/依赖/环/cwd/Agent 校验、规划失败回退、规划事件、独立 Item 执行、依赖等待、统一 Web/MCP 投影。
-- **未完成**：更完整的模型驱动自动修复规划（当前仅支持单条受限修复建议）和更完整的跨进程 worker 协调与唤醒。Goal verifier 可由调用方注入；在未注入 verifier 且显式开启 `task_scheduler.model_final_verifier=true`、并配置模型时，才启用只读模型最终验收。默认 Web 入口仍只持久化证据，并对无约束任务自动通过。
+- **未完成**：更完整的跨进程 worker 协调与唤醒。当前模型驱动 repair/replan 允许每次针对一个失败 Item 生成最多 3 条仅含 `instruction` 的修复 Item；非法或超限响应安全回退单条，执行上下文由原 Item 继承。Goal verifier 可由调用方注入；在未注入 verifier 且显式开启 `task_scheduler.model_final_verifier=true`、并配置模型时，才启用只读模型最终验收。默认 Web 入口仍只持久化证据，并对无约束任务自动通过。
 - **暂不纳入**：多机共享工作区、分布式锁、自动合并并行修改，以及故事模式事项。
 
 ## 2. 范围与约束
