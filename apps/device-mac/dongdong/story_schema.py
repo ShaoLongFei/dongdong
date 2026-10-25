@@ -82,16 +82,16 @@ def _kind(item: dict) -> str:
 
 def _scene_title(text: str) -> str:
     text = str(text or "").strip()
-    rules = (
-        (("缠住", "困"), "发现被困的朋友"),
-        (("啄木鸟", "剪断", "帮忙"), "啄木鸟来帮忙"),
-        (("红果子", "获救", "感谢"), "红果子和感谢"),
-        (("蒲公英", "约定", "办法"), "蒲公英草坡的约定"),
-        (("哭声", "寻找"), "溪边传来的哭声"),
-    )
-    for words, title in rules:
-        if all(word in text for word in words):
-            return title
+    if ("缠住" in text or "被困" in text) and ("发现" in text or "哭声" in text):
+        return "发现被困的团团"
+    if "啄木鸟" in text and ("剪断" in text or "帮忙" in text):
+        return "啄木鸟来帮忙"
+    if ("红果子" in text or "果子" in text) and ("获救" in text or "断开" in text):
+        return "红果子和感谢"
+    if ("蒲公英" in text or "草坡" in text) and ("约定" in text or "办法" in text):
+        return "蒲公英草坡的约定"
+    if "哭声" in text and ("寻找" in text or "听见" in text):
+        return "溪边传来的哭声"
     return text[:14] or "故事这一幕"
 
 
@@ -109,6 +109,10 @@ def _element(raw: object, index: int, start_ms: int) -> dict:
     color = _visual_color(item)
     width = _safe_int(item.get("width"), 180, 1, WIDTH)
     height = _safe_int(item.get("height"), 160, 1, HEIGHT)
+    if kind in {"fox", "rabbit", "hedgehog", "person"}:
+        width, height = max(width, 150), max(height, 175)
+    elif kind == "bird":
+        width, height = max(width, 130), max(height, 110)
     x = _safe_int(item.get("x"), 40 + (index * 150) % (WIDTH - width + 1), 0, WIDTH - width)
     y = _safe_int(item.get("y"), 80 + (index * 70) % (HEIGHT - height + 1), 0, HEIGHT - height)
     duration = _safe_int(item.get("durationMs"), 900, 100, 12_000)
