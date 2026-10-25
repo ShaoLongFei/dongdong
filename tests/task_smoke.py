@@ -147,6 +147,9 @@ def test_automatic_planning_populates_events_and_runs_dependencies():
         assert {event["type"] for event in view["events"]} >= {
             "planning_started",
             "planning_done",
+            "final_verification_started",
+            "final_verification_done",
+            "goal_verified",
         }
         assert [attempt["item_id"] for attempt in view["attempts"]][-1].endswith("-c")
         manager.close()

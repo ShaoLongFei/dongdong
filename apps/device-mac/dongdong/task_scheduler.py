@@ -242,8 +242,17 @@ class TaskManager:
         if status == "done" and not self.store.begin_settle(run_id):
             return
         if status == "done":
+            self.store.add_event(run_id, "final_verification_started", {})
             view = self.store.task_view(run_id)
             verification = self.store.verify_goal(run_id, self.verifier)
+            self.store.add_event(
+                run_id,
+                "final_verification_done",
+                {
+                    "status": verification["status"],
+                    "reason": verification.get("reason", ""),
+                },
+            )
             if verification["status"] != "met":
                 reason = verification.get("reason") or "Goal 未通过验收"
                 self.store.set_task_status(
@@ -429,14 +438,28 @@ class TaskManager:
 
     def pause(self, run_id: str) -> dict:
         with self.store._lock, self.store._conn:
-            self.store._conn.execute(
+            changed = self.store._conn.execute(
                 "UPDATE runs SET status='paused' WHERE id=? AND status IN ('running','planning')",
                 (run_id,),
-            )
-            self.store._conn.execute(
-                "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
-                (run_id, "run_paused", "{}", datetime.now(UTC).isoformat(timespec="seconds")),
-            )
+            ).rowcount
+            if changed:
+                stamp = datetime.now(UTC).isoformat(timespec="seconds")
+                # 暂停也必须释放租约，否则进程重启前会留下永远 running 的 Item。
+                self.store._conn.execute(
+                    "UPDATE items SET status='stopped', lease_owner=NULL, lease_until=NULL, "
+                    "updated_at=? WHERE run_id=? AND status IN ('open','running')",
+                    (stamp, run_id),
+                )
+                self.store._conn.execute(
+                    "UPDATE attempts SET status='stopped', ended_at=?, error_kind='paused', "
+                    "error='任务已暂停' WHERE item_id IN "
+                    "(SELECT id FROM items WHERE run_id=?) AND status='running'",
+                    (stamp, run_id),
+                )
+                self.store._conn.execute(
+                    "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
+                    (run_id, "run_paused", "{}", stamp),
+                )
         event = self._runs.get(run_id)
         if event:
             event.set()
