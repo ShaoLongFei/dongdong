@@ -74,6 +74,8 @@ C++ 参考实现（[linx-linux](https://github.com/sunqirui1987/linx-linux)）�
 
 `dongdong web` 使用 FastAPI/uvicorn，服务 `apps/web` 的 React/Vite/Tailwind 构建产物和 `/api/*`。`run/web` 通过 `voice.py` 在同一事件循环按用户选择启停灵矽 Device，启动默认关闭。关闭接口等待 Device 取消与音频清理后才返回，锁避免重复连接。`web_runtime.py` 的 WebAgent 将 MCP 工作线程的同步调用投递到该事件循环，复用 WebState、Runtime 和 SQLite；builtin 语音与 Web 用同一 run ID 查询、停止。文本、工具调用和结果以持久化 SSE 事件回放。关闭时取消 Device 并等待接收/录音协程退出，再清理 agent，最后关数据库。
 
+`Runtime` 向模型提供 `update_plan`（1–8 步、至多一个进行中），计划通过既有 events 表持久化并经 SSE 推送，不另起规划请求或调度器。`run_start.user_message_id` 关联会话中的执行卡，旧记录按用户轮次兼容；`model_start` 标识响应等待，工具结果携带调用 ID 与成功状态。React 对每次运行显示可折叠执行卡，终态自动收起、交付结果单独呈现；停止/失败保留尚未完成的计划。`/api/runs/{id}?include_events=true` 提供历史回放快照，`/api/state.task_session` 提供语音任务跳转入口。
+
 `work_gate.py` 只做进程内跨入口互斥，取消完成后才释放；设置保存也持有互斥，新配置在下一任务生效。不承担跨进程调度。显式 CLI 后端仍由 `agent.py` 执行。Web 仅监听 loopback，校验 Host 和 Origin；尚未实现远程鉴权，因此拒绝 `0.0.0.0`。灵矽自定义模型端点、Skills/MCP 页面仍是后续阶段。
 - 边界测试在 `tests/agent_smoke.py`、`tests/agent_transport.py` 和 `tests/agent_mcp.py`，由 `scripts/check.sh` 统一跑。
 

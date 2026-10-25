@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as Tabs from '@radix-ui/react-tabs';
-import { ArrowUp, AudioLines, Check, ChevronRight, Circle, MessageSquare, Mic, MicOff, Plus, Settings2, Square, Terminal, Workflow } from 'lucide-react';
+import { ArrowUp, AudioLines, ChevronRight, Circle, MessageSquare, Mic, MicOff, Plus, Settings2, Square, Workflow } from 'lucide-react';
 import { api, statusText } from './api';
 import Settings from './Settings';
+import Conversation from './Conversation';
 import './style.css';
 
 function App() {
@@ -28,6 +29,7 @@ function App() {
     try {
       const [health, list] = await Promise.all([api('/state'), api('/sessions')]);
       setState(health); setSessions(list.sessions);
+      if (health.active_run && health.task_session && !selection.current) { choose(health.task_session); return; }
       if (health.voice_session && !selection.current) { choose(health.voice_session); return; }
       if (!selection.current && list.sessions.length) choose(list.sessions[0].id);
       else if (selection.current && !watching.current) await load(selection.current);
@@ -124,8 +126,6 @@ function App() {
     } catch (error) { report(error); }
   }
   const busy = sending || Boolean(watch) || state?.busy;
-  const live = events.filter(e => e.type === 'text').map(e => e.data.delta).join('');
-  const calls = events.filter(e => ['tool_call', 'tool_result', 'error'].includes(e.type));
   const messages = detail?.messages || [];
   return <Tabs.Root value={tab} onValueChange={setTab} className="app">
     <aside className="sidebar">
@@ -147,10 +147,10 @@ function App() {
       {state && !state.model_ready && tab !== 'settings' && <button className="setup-banner" onClick={() => setTab('settings')}>{state.error} · 前往设置 <ChevronRight size={14} /></button>}
       <Tabs.Content value="chat" className="chat-page">
         <div className="voice-preview"><AudioLines size={14} /><span>语音 · {({ connected: '已连接', connecting: '连接中', disconnected: '重连中', disabled: '未开启', error: '启动失败', starting: '启动中' })[state?.voice?.connection] || '未开启'}</span>{state?.voice?.last_stt && <span>你说：{state.voice.last_stt}</span>}{state?.voice?.last_tts && <span className="muted">咚咚：{state.voice.last_tts}</span>}{state?.voice_session && <button className="voice-history" onClick={() => choose(state.voice_session)}>查看语音对话 →</button>}</div>
+        {state?.task_session && state.task_session !== selected && <button className="task-banner" onClick={() => choose(state.task_session)}><Workflow size={15} /><span className={`dot ${state.active_run ? 'working' : 'online'}`} />{state.active_run ? '任务正在执行 · 查看当前步骤和接下来的安排' : '查看最近任务的结果和执行过程'}<ChevronRight size={14} /></button>}
         <div className="conversation">
           {!messages.length && !watch ? <div className="welcome"><span className="welcome-icon"><AudioLines size={34} /></span><p className="eyebrow">YOUR LOCAL COMPANION</p><h1>想做什么，交给咚咚。</h1><p className="muted">读代码、改文件、跑命令。一起把想法变成进展。</p><div className="suggestions">{['读一下工作区的 README，概括项目现状', '列出项目文件，帮我理解代码结构', '检查当前 git 状态，给出下一步建议'].map((text, i) => <button key={text} onClick={() => setInput(text)}><span className="muted">0{i + 1}</span>{text}<ArrowUp size={14} /></button>)}</div></div> : <div className="messages">
-            {messages.map(message => <article className={`message ${message.role}`} key={message.id}><div className="message-label">{message.role === 'user' ? '你' : message.role === 'tool' ? <><Terminal size={13} />工具结果</> : <><AudioLines size={14} />咚咚</>}</div><div className="message-text">{message.content}</div>{message.tool_calls?.map(call => <details className="tool-card" key={call.id}><summary><Terminal size={13} />{call.function.name}</summary><pre>{call.function.arguments}</pre></details>)}</article>)}
-            {watch && <article className="message assistant"><div className="message-label"><AudioLines size={14} />咚咚<span className="dot working" /></div><div className="message-text">{live || '正在处理…'}</div>{calls.map(event => <details className="tool-card" key={event.id}><summary><Terminal size={13} />{event.data.name || '运行错误'}{event.type === 'tool_result' && <Check size={13} />}</summary><pre>{event.data.arguments || event.data.result || event.data.message}</pre></details>)}</article>}
+            <Conversation detail={detail} watch={watch} events={events} />
           </div>}
           <div ref={end} />
         </div>

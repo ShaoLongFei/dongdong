@@ -117,7 +117,9 @@ class Store:
     def list_runs(self, session_id: str, limit: int = 20) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT * FROM runs WHERE session_id=? ORDER BY started_at DESC, rowid DESC LIMIT ?",
+                "SELECT runs.*, (SELECT json_extract(data, '$.user_message_id') FROM events"
+                " WHERE run_id=runs.id AND type='run_start' ORDER BY id LIMIT 1) AS user_message_id"
+                " FROM runs WHERE session_id=? ORDER BY started_at DESC, rowid DESC LIMIT ?",
                 (session_id, limit),
             ).fetchall()
         out = []

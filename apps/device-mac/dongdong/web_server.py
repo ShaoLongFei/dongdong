@@ -70,6 +70,7 @@ def create_app(cfg: dict) -> FastAPI:
 
     @app.get("/api/state")
     async def api_state():
+        latest = state.store.get_run(state._run_id or state._last_run)
         return {
             "version": cfg.get("version", ""),
             "workspace": str(state.workspace),
@@ -77,6 +78,7 @@ def create_app(cfg: dict) -> FastAPI:
             "error": state.error,
             "backend": cfg.get("code_backend", "cli"),
             "active_run": state._run_id,
+            "task_session": latest["session_id"] if latest else "",
             "busy": bool(work_gate.current()),
             "voice": device_state.snapshot(cfg),
             "voice_session": state.voice_session,
@@ -106,7 +108,7 @@ def create_app(cfg: dict) -> FastAPI:
         return {
             **session,
             "messages": state.store.messages(sid),
-            "runs": state.store.list_runs(sid),
+            "runs": state.store.list_runs(sid, limit=-1),
         }
 
     @app.post("/api/sessions/{sid}/messages")
@@ -125,11 +127,11 @@ def create_app(cfg: dict) -> FastAPI:
         return {"run_id": run_id}
 
     @app.get("/api/runs/{rid}")
-    async def api_run(rid: str):
+    async def api_run(rid: str, include_events: bool = False):
         run = state.store.get_run(rid)
         if not run:
             raise HTTPException(404, "run 不存在")
-        return run
+        return {**run, "events": state.store.events(rid)} if include_events else run
 
     @app.get("/api/runs/{rid}/events")
     async def api_events(rid: str, request: Request, since: int = 0):

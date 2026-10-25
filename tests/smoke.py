@@ -22,8 +22,18 @@ def test_hello_declares_mcp_and_opus():
     hello = _hello()
     assert hello["features"]["mcp"] is True
     params = hello["audio_params"]
-    assert params["format"] == "opus" and params["sample_rate"] == 16000
-    assert params["frame_duration"] == 60
+    assert {"format": "opus", "sample_rate": 16000, "frame_duration": 60}.items() <= params.items()
+
+
+def test_plan_protocol():
+    from dongdong.runtime import _plan
+
+    step = {"step": " 检查 ", "status": "in_progress"}
+    assert _plan({"steps": [step]})["steps"][0]["step"] == "检查"
+    for steps in ([], ["bad"], [{**step, "status": "done"}], [step, step]):
+        with contextlib.suppress(ValueError):
+            _plan({"steps": steps})
+            raise AssertionError("无效计划必须拒绝")
 
 
 def test_tool_registry_shape():
@@ -33,17 +43,14 @@ def test_tool_registry_shape():
         described = tool.describe()
         assert described["inputSchema"]["type"] == "object"
         assert described["type"] == 0
-        assert set(described["inputSchema"]["required"]) <= set(
-            described["inputSchema"]["properties"]
-        ), f"{name} 的 required 里有没声明的参数"
+        schema = described["inputSchema"]
+        assert set(schema["required"]) <= set(schema["properties"]), name
 
 
 def test_mcp_dispatch():
     assert mcp.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
-
     init = mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
     assert init["result"]["protocolVersion"] == "2024-11-05"
-
     listed = mcp.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     assert {t["name"] for t in listed["result"]["tools"]} == set(tools.TOOLS)
     assert {
@@ -52,19 +59,12 @@ def test_mcp_dispatch():
         "self.memory.list",
         "self.memory.delete",
     } <= {t["name"] for t in listed["result"]["tools"]}
-
-    assert (
-        mcp.handle(
-            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "self.nope"}}
-        )["error"]["code"]
-        == -32601
-    )
-
+    missing = {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "self.nope"}}
+    assert mcp.handle(missing)["error"]["code"] == -32601
     bad = mcp.handle(
         {
-            "jsonrpc": "2.0",
+            **missing,
             "id": 4,
-            "method": "tools/call",
             "params": {"name": "self.code.run", "arguments": {"instruction": "  "}},
         }
     )
