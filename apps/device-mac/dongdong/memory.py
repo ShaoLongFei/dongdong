@@ -2,7 +2,10 @@ import os
 from pathlib import Path
 from threading import RLock
 
-DATA_DIR = Path(__file__).resolve().parents[3] / ".memory"
+# App 包只读，独立包把 Mem0 数据放到用户目录；开发环境仍沿用仓库内路径。
+DATA_DIR = Path(
+    os.environ.get("DONGDONG_MEMORY_DIR") or Path(__file__).resolve().parents[3] / ".memory"
+)
 _memory = None
 _lock = RLock()
 
