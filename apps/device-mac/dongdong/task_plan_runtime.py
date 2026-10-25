@@ -25,7 +25,15 @@ def plan_run(manager, run_id: str, text: str, cwd: str, cancel) -> None:
     if cancel.is_set() or (store.get_run(run_id) or {}).get("status") != "planning":
         return
     try:
-        store.add_items(run_id, namespace_items(run_id, result.items))
+        planned_items = namespace_items(run_id, result.items)
+        store.add_items(run_id, planned_items)
+        criteria = [
+            {"item_id": item.id, "criteria": item.acceptance.strip()}
+            for item in planned_items
+            if item.acceptance.strip()
+        ]
+        if criteria:
+            store.set_goal_acceptance(run_id, criteria)
     except Exception as exc:  # noqa: BLE001
         if cancel.is_set() or (store.get_run(run_id) or {}).get("status") != "planning":
             return

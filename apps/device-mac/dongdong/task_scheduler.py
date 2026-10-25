@@ -193,6 +193,8 @@ class TaskManager:
             )
 
     def _finish(self, run_id: str, status: str, error: str = "") -> None:
+        if status == "done" and not self.store.begin_settle(run_id):
+            return
         if status == "done":
             view = self.store.task_view(run_id)
             verification = self.store.verify_goal(run_id, self.verifier)
@@ -200,7 +202,7 @@ class TaskManager:
                 reason = verification.get("reason") or "Goal 未通过验收"
                 self.store.set_task_status(
                     run_id,
-                    "failed",
+                    "needs_review" if verification["status"] == "needs_review" else "failed",
                     error=reason,
                     event_type="run_finished",
                     data={"goal_status": verification["status"]},
@@ -233,14 +235,21 @@ class TaskManager:
         if cancel:
             cancel.set()
         with self.store._lock, self.store._conn:
-            self.store._conn.execute(
+            changed = self.store._conn.execute(
                 "UPDATE runs SET status='canceled', error='用户停止', ended_at=? "
                 "WHERE id=? AND status IN ('running','planning','paused')",
                 (datetime.now(UTC).isoformat(timespec="seconds"), run_id),
-            )
+            ).rowcount
+            if changed != 1:
+                return self.status(run_id)
             self.store._conn.execute(
                 "UPDATE items SET status='stopped', lease_owner=NULL, lease_until=NULL WHERE run_id=? AND status IN ('open','running')",
                 (run_id,),
+            )
+            self.store._conn.execute(
+                "UPDATE attempts SET status='stopped', ended_at=?, error_kind='canceled', error='用户停止' "
+                "WHERE item_id IN (SELECT id FROM items WHERE run_id=?) AND status='running'",
+                (datetime.now(UTC).isoformat(timespec="seconds"), run_id),
             )
             self.store._conn.execute(
                 "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
@@ -255,7 +264,7 @@ class TaskManager:
 
     def resume(self, run_id: str) -> dict:
         run = self.store.get_run(run_id)
-        if not run or run["status"] not in {"paused", "failed", "canceled"}:
+        if not run or run["status"] not in {"paused", "failed", "needs_review", "canceled"}:
             return self.status(run_id)
         session = self.store.get_session(run["session_id"])
         if not session or session.get("archived_at"):
@@ -280,7 +289,7 @@ class TaskManager:
             row = self.store._conn.execute(
                 "SELECT status FROM runs WHERE id=?", (run_id,)
             ).fetchone()
-            if not row or row[0] not in {"paused", "failed", "canceled"}:
+            if not row or row[0] not in {"paused", "failed", "needs_review", "canceled"}:
                 return self.status(run_id)
             self.store._conn.execute(
                 "UPDATE runs SET status='running', error='' WHERE id=?", (run_id,)

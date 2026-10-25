@@ -12,6 +12,9 @@ def monitor(manager, run_id: str) -> dict:
         and run.get("deadline_at")
         and run["deadline_at"] <= datetime.now(UTC).isoformat(timespec="seconds")
     ):
+        cancel = manager._runs.get(run_id)
+        if cancel:
+            cancel.set()
         manager._finish(run_id, "timeout", "超过任务截止时间")
         view = manager.status(run_id)
     return view

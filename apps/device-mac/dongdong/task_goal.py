@@ -2,8 +2,6 @@
 
 import json
 
-from .task_model import acceptance_value
-
 
 class GoalVerification:
     def _ensure_goal_columns(self) -> None:
@@ -15,7 +13,9 @@ class GoalVerification:
             if name not in columns:
                 self._conn.execute(f"ALTER TABLE goals ADD COLUMN {name} {definition}")
 
-    def record_goal_verification(self, run_id: str, status: str, evidence: dict, summary: str = "") -> bool:
+    def record_goal_verification(
+        self, run_id: str, status: str, evidence: dict, summary: str = ""
+    ) -> bool:
         if status not in {"met", "failed", "needs_review", "abandoned"}:
             raise ValueError("无效的 Goal 验收状态")
         ts = self._goal_now()
@@ -28,11 +28,30 @@ class GoalVerification:
                 return False
             self._conn.execute(
                 "UPDATE goals SET status=?, evidence=?, summary=?, met_at=? WHERE id=?",
-                (status, json.dumps(evidence or {}, ensure_ascii=False), summary[:4000], ts if status == "met" else None, goal[0]),
+                (
+                    status,
+                    json.dumps(evidence or {}, ensure_ascii=False),
+                    summary[:4000],
+                    ts if status == "met" else None,
+                    goal[0],
+                ),
             )
             self._conn.execute(
                 "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
-                (run_id, "goal_verified", json.dumps({"goal_id": goal[0], "status": status, "evidence": evidence or {}, "summary": summary}, ensure_ascii=False), ts),
+                (
+                    run_id,
+                    "goal_verified",
+                    json.dumps(
+                        {
+                            "goal_id": goal[0],
+                            "status": status,
+                            "evidence": evidence or {},
+                            "summary": summary,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    ts,
+                ),
             )
         return True
 
@@ -44,7 +63,12 @@ class GoalVerification:
             return {"status": "failed", "summary": "缺少 Goal", "evidence": {}}
         goal, items = view["goals"][0], view["items"]
         evidence_items = [
-            {"item_id": item["id"], "attempt": item.get("attempts", 0), "status": item.get("status"), "output": (item.get("result") or "")[-2000:]}
+            {
+                "item_id": item["id"],
+                "attempt": item.get("attempts", 0),
+                "status": item.get("status"),
+                "output": (item.get("result") or "")[-2000:],
+            }
             for item in items
         ]
         summary = "\n\n".join(item["output"] for item in evidence_items if item["output"])[:4000]
@@ -59,8 +83,15 @@ class GoalVerification:
                 result = verifier(goal, items, evidence)
                 if isinstance(result, bool):
                     status, reason = ("met" if result else "failed"), "verifier 返回布尔结论"
-                elif isinstance(result, dict) and result.get("status") in {"met", "failed", "needs_review"}:
-                    status, reason = result["status"], str(result.get("summary") or "verifier 返回结构化结论")
+                elif isinstance(result, dict) and result.get("status") in {
+                    "met",
+                    "failed",
+                    "needs_review",
+                }:
+                    status, reason = (
+                        result["status"],
+                        str(result.get("summary") or "verifier 返回结构化结论"),
+                    )
                     evidence.update(result.get("evidence") or {})
                     summary = str(result.get("summary") or summary)[:4000]
                 else:

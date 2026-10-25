@@ -14,6 +14,23 @@ def now() -> str:
 
 
 class TaskStore(GoalVerification, TaskProjection):
+    def begin_settle(self, run_id: str) -> bool:
+        """原子地占用运行收口，避免 stop/timeout/worker 重复收口。"""
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "UPDATE runs SET status='verifying' WHERE id=? AND status='running'", (run_id,)
+            )
+            return cur.rowcount == 1
+
+    def set_goal_acceptance(self, run_id: str, criteria: list[dict]) -> bool:
+        with self._lock, self._conn:
+            self._ensure_goal_columns()
+            cur = self._conn.execute(
+                "UPDATE goals SET acceptance=? WHERE run_id=? AND COALESCE(acceptance,'')=''",
+                (json.dumps(criteria, ensure_ascii=False), run_id),
+            )
+            return cur.rowcount == 1
+
     def set_task_status(
         self, run_id: str, status: str, error: str = "", event_type: str = "run_status", data=None
     ) -> bool:
@@ -28,11 +45,42 @@ class TaskStore(GoalVerification, TaskProjection):
             row = self._conn.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
             if not row:
                 return False
-            if row[0] in {"done", "failed", "error", "timeout", "canceled", "stopped"}:
+            current = row[0]
+            if status == "done" and current != "verifying":
+                return False
+            if status in {"timeout", "canceled", "stopped"} and current not in {
+                "running",
+                "planning",
+                "paused",
+            }:
+                return False
+            if status in {"failed", "needs_review"} and current not in {
+                "running",
+                "verifying",
+            }:
+                return False
+            if current in {
+                "done",
+                "failed",
+                "error",
+                "timeout",
+                "canceled",
+                "stopped",
+                "needs_review",
+            }:
                 return False
             ended = (
                 ts
-                if status in {"done", "failed", "error", "timeout", "canceled", "stopped"}
+                if status
+                in {
+                    "done",
+                    "failed",
+                    "error",
+                    "timeout",
+                    "canceled",
+                    "stopped",
+                    "needs_review",
+                }
                 else None
             )
             self._conn.execute(
@@ -146,6 +194,21 @@ class TaskStore(GoalVerification, TaskProjection):
                     self._conn.execute(
                         "INSERT INTO item_deps(item_id, depends_on_id) VALUES (?,?)",
                         (item_id, dependency),
+                    )
+            criteria = [
+                {"item_id": item_id, "criteria": item.acceptance.strip()}
+                for item, item_id in resolved
+                if item.acceptance.strip()
+            ]
+            if criteria:
+                goal = self._conn.execute(
+                    "SELECT id, acceptance FROM goals WHERE run_id=? ORDER BY rowid LIMIT 1",
+                    (run_id,),
+                ).fetchone()
+                if goal and not goal[1]:
+                    self._conn.execute(
+                        "UPDATE goals SET acceptance=? WHERE id=?",
+                        (json.dumps(criteria, ensure_ascii=False), goal[0]),
                     )
             return [item_id for _, item_id in resolved]
 
@@ -289,16 +352,20 @@ class TaskStore(GoalVerification, TaskProjection):
     def requeue_expired(self, run_id: str | None = None, now_value: str | None = None) -> int:
         stamp = now_value or now()
         with self._lock, self._conn:
-            query = "SELECT id, run_id FROM items WHERE status='running' AND lease_until < ?"
+            query = (
+                "SELECT id, run_id, attempts, max_attempts FROM items "
+                "WHERE status='running' AND lease_until < ?"
+            )
             args: tuple = (stamp,)
             if run_id:
                 query += " AND run_id=?"
                 args += (run_id,)
             rows = self._conn.execute(query, args).fetchall()
             for row in rows:
+                next_status = "exhausted" if row[2] >= row[3] else "open"
                 self._conn.execute(
-                    "UPDATE items SET status='open', lease_owner=NULL, lease_until=NULL, updated_at=? WHERE id=?",
-                    (stamp, row[0]),
+                    "UPDATE items SET status=?, lease_owner=NULL, lease_until=NULL, updated_at=? WHERE id=?",
+                    (next_status, stamp, row[0]),
                 )
                 self._conn.execute(
                     "UPDATE attempts SET status='retryable_error', ended_at=?, error_kind='lease_expired',"
