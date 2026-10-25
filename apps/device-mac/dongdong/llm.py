@@ -91,6 +91,49 @@ def finish_tool_calls(acc: dict[int, dict]) -> list[ToolCall]:
     ]
 
 
+def _is_model_unavailable(body: str) -> bool:
+    """只对服务端明确声明 model_unavailable 的响应启用兼容回退。"""
+    try:
+        value = json.loads(body)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(value, dict):
+        return False
+    error = value.get("error")
+    if isinstance(error, dict) and error.get("code") == "model_unavailable":
+        return True
+    return value.get("code") == "model_unavailable"
+
+
+def _parse_non_stream_completion(value: dict) -> list[StreamEvent]:
+    choices = value.get("choices") or []
+    if not choices:
+        return []
+    message = choices[0].get("message") or {}
+    events: list[StreamEvent] = []
+    content = message.get("content")
+    if content:
+        events.append(StreamEvent(text=content))
+    calls: list[ToolCall] = []
+    for item in message.get("tool_calls") or []:
+        function = item.get("function") or {}
+        arguments = function.get("arguments", "{}")
+        if not isinstance(arguments, str):
+            arguments = json.dumps(arguments, ensure_ascii=False)
+        calls.append(
+            ToolCall(
+                id=item.get("id") or f"call_{len(calls)}",
+                name=function.get("name", ""),
+                arguments=arguments,
+            )
+        )
+    if calls:
+        events.append(StreamEvent(tool_calls=calls))
+    if value.get("usage"):
+        events.append(StreamEvent(usage=value["usage"]))
+    return events
+
+
 async def stream_chat(
     cfg: ModelConfig, messages: list[dict], tools: list[dict], transport=None
 ) -> AsyncIterator[StreamEvent]:
@@ -117,6 +160,24 @@ async def stream_chat(
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             if resp.status_code >= 400:
                 body = (await resp.aread()).decode("utf-8", "replace")[:2000]
+                if resp.status_code == 400 and _is_model_unavailable(body):
+                    fallback_payload = dict(payload)
+                    fallback_payload["stream"] = False
+                    fallback = await client.post(url, json=fallback_payload, headers=headers)
+                    if fallback.status_code >= 400:
+                        fallback_body = (await fallback.aread()).decode("utf-8", "replace")[:2000]
+                        raise RuntimeError(
+                            f"模型请求失败 HTTP {fallback.status_code}: {fallback_body}"
+                        )
+                    try:
+                        completion = fallback.json()
+                    except ValueError as exc:
+                        raise RuntimeError("模型请求失败：非流式响应不是 JSON") from exc
+                    if not isinstance(completion, dict):
+                        raise RuntimeError("模型请求失败：非流式响应格式无效")
+                    for event in _parse_non_stream_completion(completion):
+                        yield event
+                    return
                 raise RuntimeError(f"模型请求失败 HTTP {resp.status_code}: {body}")
             async for line in resp.aiter_lines():
                 if line.startswith("data:") and line[5:].strip() == "[DONE]":

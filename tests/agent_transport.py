@@ -107,6 +107,66 @@ def test_stream_chat_http_error():
     asyncio.run(run())
 
 
+def test_stream_chat_model_unavailable_falls_back_to_non_stream():
+    async def run():
+        requests: list[dict] = []
+
+        def handler(request):
+            payload = json.loads(request.content)
+            requests.append(payload)
+            if len(requests) == 1:
+                return httpx.Response(
+                    400,
+                    json={
+                        "error": {
+                            "code": "model_unavailable",
+                            "message": "stream unavailable",
+                        }
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "已切换到兼容模式",
+                                "tool_calls": [
+                                    {
+                                        "id": "call_2",
+                                        "function": {
+                                            "name": "draw_scene",
+                                            "arguments": {"title": "开场"},
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 4},
+                },
+            )
+
+        cfg = ModelConfig("http://fake", "k", "gpt-6.1-sol")
+        events = [
+            event
+            async for event in llm.stream_chat(
+                cfg,
+                [{"role": "user", "content": "讲故事"}],
+                [],
+                transport=httpx.MockTransport(handler),
+            )
+        ]
+        assert requests[0]["stream"] is True
+        assert requests[1]["stream"] is False
+        assert events[0].text == "已切换到兼容模式"
+        assert events[1].tool_calls[0].name == "draw_scene"
+        assert events[1].tool_calls[0].arguments == '{"title": "开场"}'
+        assert events[2].usage == {"prompt_tokens": 3, "completion_tokens": 4}
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
