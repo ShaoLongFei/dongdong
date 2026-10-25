@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AudioLines, Archive, ChevronRight, Folder, MessageSquare, Plus } from 'lucide-react';
 import { api } from './api';
+import FolderPicker from './FolderPicker';
 
 export default function Sidebar({ selected, onChoose, onNew, state, report, onChanged, revision, children }) {
   const [projects, setProjects] = useState([]);
@@ -10,6 +11,7 @@ export default function Sidebar({ selected, onChoose, onNew, state, report, onCh
   const [name, setName] = useState('');
   const [path, setPath] = useState('');
   const [pending, setPending] = useState(false);
+  const [picking, setPicking] = useState(false);
   const [loading, setLoading] = useState({});
   const inFlight = useRef(new Set());
   const generation = useRef(0);
@@ -45,7 +47,8 @@ export default function Sidebar({ selected, onChoose, onNew, state, report, onCh
   }
   async function create(event) {
     event.preventDefault();
-    if (await mutate('/projects', 'POST', { name: name.trim(), path: path.trim() })) {
+    if (!path || picking) return;
+    if (await mutate('/projects', 'POST', { name: name.trim(), path })) {
       setCreating(false); setName(''); setPath('');
     }
   }
@@ -55,7 +58,7 @@ export default function Sidebar({ selected, onChoose, onNew, state, report, onCh
     <button className="new-session" disabled={busy} onClick={() => onNew(state?.current_project || null)}><Plus size={17} /><span>开启新对话</span></button>
     {children}
     <div className="session-label"><span>{archived ? '已归档' : '项目对话'}</span><button aria-label="创建项目" disabled={busy} onClick={() => setCreating(!creating)}><Plus size={14} /></button></div>
-    {creating && <form className="project-form" onSubmit={create}><input aria-label="项目名称" placeholder="项目名称" value={name} onChange={e => setName(e.target.value)} required /><input aria-label="项目绝对路径" placeholder="本机目录绝对路径" value={path} onChange={e => setPath(e.target.value)} required /><button className="primary" disabled={busy}>创建项目</button></form>}
+    {creating && <form className="project-form" onSubmit={create}><input aria-label="项目名称" placeholder="项目名称" value={name} onChange={e => setName(e.target.value)} required /><FolderPicker value={path} onChange={next => { setPath(next); if (!name.trim()) setName(next.split('/').filter(Boolean).at(-1) || '项目'); }} disabled={busy} report={report} onPending={setPicking} /><button className="primary" disabled={busy || picking || !path}>创建项目</button></form>}
     <div className="sessions project-groups">{[{ id: '', name: '未分类' }, ...projects].map(project => <section key={project.id} className="project-group">
       <details open><summary><Folder size={13} /><span title={project.path}>{project.name}</span>{(state?.current_project || '') === project.id && <span className="project-current">语音</span>}</summary>
         <div className="project-actions">

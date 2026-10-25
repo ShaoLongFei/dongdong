@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException, Query
@@ -45,6 +47,48 @@ class SessionPatch(BaseModel):
 
 def router(state) -> APIRouter:
     routes = APIRouter(prefix="/api")
+    selecting = asyncio.Lock()
+
+    @routes.post("/folders/select")
+    async def select_folder():
+        if sys.platform != "darwin":
+            raise HTTPException(503, "系统文件夹选择目前仅支持 macOS")
+        if selecting.locked():
+            raise HTTPException(409, "文件夹选择窗口已经打开")
+        async with selecting:
+            # 固定脚本直接调用系统选择器，不将路径或请求参数拼入 AppleScript。
+            script = """tell current application
+activate
+try
+return POSIX path of (choose folder with prompt "选择项目文件夹" multiple selections allowed false)
+on error number -128
+return ""
+end try
+end tell"""
+            process = await asyncio.create_subprocess_exec(
+                "/usr/bin/osascript",
+                "-e",
+                script,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                output, _ = await asyncio.wait_for(process.communicate(), timeout=120)
+            except TimeoutError:
+                raise HTTPException(408, "选择文件夹超时，请重新打开") from None
+            finally:
+                if process.returncode is None:
+                    process.kill()
+                    await process.wait()
+            if process.returncode:
+                raise HTTPException(502, "无法打开系统文件夹选择窗口，请重试")
+            selected = output.decode().rstrip("\r\n")
+            if not selected:
+                return {"path": None}
+            path = Path(selected).resolve()
+            if not path.is_dir():
+                raise HTTPException(400, "请选择已存在的文件夹")
+            return {"path": str(path)}
 
     def gate(owner: str):
         if state.meeting.db.active():

@@ -7,9 +7,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
 
-from dongdong.story_schema import normalize_scene
-from dongdong.story_store import StoryStore
-from dongdong.story_svg import scene_to_svg
+from dongdong.story_schema import normalize_scene  # noqa: E402
+from dongdong.story_store import StoryStore  # noqa: E402
+from dongdong.story_svg import scene_to_svg  # noqa: E402
 
 
 def main() -> None:
@@ -39,9 +39,7 @@ def main() -> None:
         "scene-003",
     )
     svg = scene_to_svg(hostile)
-    assert (
-        "<script" not in svg and "&lt;&amp;&quot;" in svg and "javascript:" not in svg
-    )
+    assert "<script" not in svg and "&lt;&amp;&quot;" in svg and "javascript:" not in svg
     direct = scene_to_svg(
         {
             "elements": [
@@ -71,11 +69,7 @@ def main() -> None:
             "<g onclick",
         )
     )
-    assert (
-        'x="0"' in direct
-        and 'width="1280"' in direct
-        and 'data-duration-ms="30000"' in direct
-    )
+    assert 'x="0"' in direct and 'width="1280"' in direct and 'data-duration-ms="30000"' in direct
     assert direct.count("<g ") == 1
     with tempfile.TemporaryDirectory() as tmp:
         store = StoryStore(Path(tmp) / "stories")
@@ -91,17 +85,11 @@ def main() -> None:
             "scene-2",
             "scene-10",
         ]
-        assert (
-            Path(tmp) / "stories" / story_id / "scene-1.json"
-        ).stat().st_mode & 0o777 == 0o600
-        (Path(tmp) / "stories" / story_id / "manifest.json").write_text(
-            "broken", encoding="utf-8"
-        )
+        assert (Path(tmp) / "stories" / story_id / "scene-1.json").stat().st_mode & 0o777 == 0o600
+        (Path(tmp) / "stories" / story_id / "manifest.json").write_text("broken", encoding="utf-8")
         assert store.load(story_id)["manifest"]["status"] == "error"
         (Path(tmp) / "stories" / story_id / "manifest.json").unlink()
-        (Path(tmp) / "stories" / story_id / "manifest.json").symlink_to(
-            Path(tmp) / "outside.json"
-        )
+        (Path(tmp) / "stories" / story_id / "manifest.json").symlink_to(Path(tmp) / "outside.json")
         try:
             store.load(story_id)
         except ValueError:

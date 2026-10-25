@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+.folder-picker { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.folder-picker button { display: inline-flex; align-items: center; gap: 6px; }
+.folder-picker span { overflow-wrap: anywhere; max-width: 100%; }
+
 @theme { --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
 :root { color-scheme: dark; font-family: var(--font-sans); font-size: 14px; color: #e6e8e4; background: #111313; }
 * { box-sizing: border-box; }

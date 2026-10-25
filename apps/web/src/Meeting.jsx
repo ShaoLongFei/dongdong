@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, Code2, FileText, LoaderCircle, Map, RefreshCw, Square, X } from 'lucide-react';
 import { api } from './api';
+import FolderPicker from './FolderPicker';
 
 const phases = { discussion: '讨论中', generating: '整理方案中', ready: '待确认', executing: '实施中', result: '实施结果', interrupted: '已中断' };
 
@@ -8,6 +9,7 @@ export default function Meeting({ sid, workspace, report, onRun, onChange, reado
   const [meeting, setMeeting] = useState(null);
   const [directory, setDirectory] = useState(workspace || '.');
   const [pending, setPending] = useState(false);
+  const [picking, setPicking] = useState(false);
   const [historical, setHistorical] = useState(null);
   const [loaded, setLoaded] = useState('');
   const [result, setResult] = useState(null);
@@ -82,8 +84,8 @@ export default function Meeting({ sid, workspace, report, onRun, onChange, reado
 
   if (!meeting?.enabled) return <section className="meeting-entry">
     <div><Code2 size={17} /><strong>代码修改模式</strong><span className="muted">讨论 → 方案与地图 → 确认 → 实施</span></div>
-    <label>项目目录<input aria-label="会议项目目录" disabled={readonly} value={directory} onChange={e => setDirectory(e.target.value)} placeholder="工作区内的项目目录" /></label>
-    <button disabled={pending || !sid || readonly} onClick={() => mode(true)}>进入代码修改模式</button>
+    <label>项目目录<FolderPicker value={directory} onChange={setDirectory} disabled={readonly || pending} report={report} onPending={setPicking} /></label>
+    <button disabled={pending || picking || !sid || readonly} onClick={() => mode(true)}>进入代码修改模式</button>
     {meeting?.history?.length > 0 && <span className="muted">重新进入可回看 {meeting.history.length} 版方案</span>}
   </section>;
   const running = ['generating', 'executing'].includes(meeting.phase);
