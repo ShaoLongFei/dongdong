@@ -283,7 +283,7 @@ Web 仅监听 loopback，并校验 Host/Origin；没有远程账号鉴权，因�
 | ESP32 固件转发 | 仅有规划与 Mac bridge，未烧录/联调 |
 | 灵矽自定义模型 `/v1/chat/completions` 入站接口 | 早期备选方案，当前未实现；实际语音走设备 MCP |
 
-当前Web共享4个worker，不同对话的普通任务可并行（超过线程数等待空闲worker），由TaskManager管理Run/Goal/Item/Attempt；自动任务先规划再落 Item，规划失败回退单 Item。过期 lease 会重新开放 Item，重启暂停遗留调度任务并要求显式恢复，前端以 SQLite run 投影为准，避免过期 worker 事件继续显示为运行中。Goal 验收证据、修复规划、文件范围冲突、多机调度尚未实现。后续实现依据先查本页和 [决策记录](decisions.md)，历史设计/计划的差异见 [文档导航](README.md)。
+当前Web共享4个worker，不同对话的普通任务可并行（超过线程数等待空闲worker），由TaskManager管理Run/Goal/Item/Attempt；自动任务先规划再落 Item，规划失败回退单 Item。过期 lease 会重新开放 Item，重启暂停遗留调度任务并要求显式恢复，前端以 SQLite run 投影为准，避免过期 worker 事件继续显示为运行中。Goal 验收证据、受限修复规划、文件范围冲突和停摆检测已实现；多机调度、跨进程自动接管及最终验收 Planner 仍未实现。后续实现依据先查本页和 [决策记录](decisions.md)，历史设计/计划的差异见 [文档导航](README.md)。
 
 ## 会议代码修改模式（2026-10-25）
 
