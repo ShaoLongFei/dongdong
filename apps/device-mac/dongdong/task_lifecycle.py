@@ -44,7 +44,8 @@ def recover(manager) -> int:
                 "SELECT COUNT(*) FROM items WHERE run_id=? AND status='running'", (run_id,)
             ).fetchone()[0]
             manager.store._conn.execute(
-                "UPDATE runs SET status='paused', error='进程重启，请确认后恢复' WHERE id=?", (run_id,)
+                "UPDATE runs SET status='paused', error='进程重启，请确认后恢复' WHERE id=?",
+                (run_id,),
             )
             manager.store._conn.execute(
                 "UPDATE items SET status='stopped', lease_owner=NULL, lease_until=NULL "

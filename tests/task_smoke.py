@@ -99,7 +99,10 @@ def test_task_manager_runs_items_with_retry_and_stop():
         run_id = manager.submit(
             sid,
             "完成",
-            items=[ItemSpec(id="ok", instruction="ok"), ItemSpec(id="retry", instruction="retry")],
+            items=[
+                ItemSpec(id="ok", instruction="ok"),
+                ItemSpec(id="retry", instruction="retry"),
+            ],
         )
         assert manager.wait(run_id, 3)["run"]["status"] == "done"
         assert calls.count("retry") == 2
@@ -154,7 +157,10 @@ def test_task_tools_and_web_projection_use_task_manager():
 
     async def check():
         cfg = config.load()
-        cfg["workspace"], cfg["model"]["api_key"] = tempfile.gettempdir(), "boundary-only"
+        cfg["workspace"], cfg["model"]["api_key"] = (
+            tempfile.gettempdir(),
+            "boundary-only",
+        )
         state = WebState(cfg)
         state.manager.task_executor.runner = lambda *_: AttemptResult("done", output="ok")
         state.manager.runner = state.manager.task_executor.runner
@@ -198,6 +204,74 @@ def test_task_manager_pause_resume_and_timeout_recovery():
         assert not restored.claim_item(run_id, "recover-item", "late")
         manager.close()
         store.close()
+        restored.close()
+
+
+def test_task_scheduler_config_and_startup_recovery():
+    from dongdong.task_scheduler import TaskManager
+
+    with tempfile.TemporaryDirectory(prefix="dongdong-scheduler-config-") as tmp:
+        path = Path(tmp) / "tasks.db"
+        workspace = Path(tmp).resolve()
+        first = Store(path)
+        sid = first.create_session("recover")
+        run_id = first.create_task_run(sid, RunSpec(goal_text="recover"))
+        first.add_items(
+            run_id,
+            [
+                ItemSpec(id="expired", instruction="expired"),
+                ItemSpec(id="active", instruction="active"),
+            ],
+        )
+        assert first.claim_item(run_id, "expired", "old", lease_seconds=1)
+        assert first.claim_item(run_id, "active", "new", lease_seconds=60)
+        with first._lock, first._conn:
+            first._conn.execute(
+                "UPDATE items SET lease_until=? WHERE id=?",
+                ("2000-01-01T00:00:00+00:00", "expired"),
+            )
+        first.close()
+
+        cfg = {
+            "workspace": str(workspace),
+            "task_scheduler": {
+                "max_workers": 3,
+                "poll_seconds": 0.02,
+                "lease_seconds": 7,
+            },
+        }
+        restored = Store(path)
+        manager = TaskManager(restored, cfg=cfg)
+        assert (manager.max_workers, manager.poll_seconds, manager.lease_seconds) == (
+            3,
+            0.02,
+            7,
+        )
+        explicit = TaskManager(
+            restored,
+            cfg=cfg,
+            max_workers=2,
+            poll_seconds=0.03,
+            lease_seconds=9,
+        )
+        assert (
+            explicit.max_workers,
+            explicit.poll_seconds,
+            explicit.lease_seconds,
+        ) == (
+            2,
+            0.03,
+            9,
+        )
+        assert manager.recover_runs() == 1
+        view = restored.task_view(run_id)
+        statuses = {item["id"]: item["status"] for item in view["items"]}
+        assert view["run"]["status"] == "paused"
+        assert statuses == {"expired": "open", "active": "stopped"}
+        assert any(event["type"] == "lease_expired" for event in view["events"])
+        assert any(event["type"] == "run_recovered" for event in view["events"])
+        explicit.close()
+        manager.close()
         restored.close()
 
 
