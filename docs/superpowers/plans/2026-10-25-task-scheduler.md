@@ -7,7 +7,7 @@
 1. **Goal 验收证据**：已完成。Run 收口前持久化 acceptance、Item 结果摘要和 `goal_verified` 事件；有约束但无 verifier 时进入 `needs_review`。
 2. **失败修复与重新规划**：已完成受限 repair/replan。失败 Item 保留原 Attempt，追加最多 3 个修复 Item（每 Run 最多 8 个），复用 workspace/agent/cwd/scope，记录 repair 事件并重新验收 Goal；未提供手动指令时可生成单条模型修复建议，异常时安全回退。修复成功后恢复可继续的下游依赖。
 3. **文件范围冲突**：已完成。Item 支持工作区相对读写范围；SQLite 事务内按绝对路径和嵌套工作区检测重叠，读读可并行，读写/写写和未声明范围默认串行等待。
-4. **完整 Monitor 与收口**：停摆检测、有限 drain、最终验收阶段和严格终态 CAS 已完成；最终验收 Planner 仍可继续增强。
+4. **完整 Monitor 与收口**：停摆检测、有限 drain、最终验收阶段、严格终态 CAS 和可选的模型最终验收 Planner 已完成；模型验收默认关闭，证据不足时保持 `needs_review`。
 5. **调度配置化**：增加 `task_scheduler` 配置节，统一约束 worker、lease、poll、retry、deadline 和 drain。
 6. **跨进程恢复**：已完成安全的可选自动接管。默认仍暂停遗留 Run；`task_scheduler.auto_recover=true` 时启动恢复并在异常时退回暂停。更完整的多进程协调与唤醒仍可继续增强。
 

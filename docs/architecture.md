@@ -59,7 +59,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | `web` / Web 工作台 | React 19 / Vite / Tailwind；会话、任务 SSE、审批、会议地图与故事 SVG。 | [apps/web/src/main.jsx](../apps/web/src/main.jsx#L17) | 本轮静态源码证据支持；未作真实服务联调 |
 | `host` / 本机 API 与会话宿主 | FastAPI 同源静态站点、REST/SSE、项目归档及语音开关；WebState 路由任务与模式。 | [web_server.py](../apps/device-mac/dongdong/web_server.py#L52) | 本轮静态源码证据支持；未作真实服务联调 |
-| `scheduler` / SQLite 任务调度 | Planner → DAG Item → claim/lease → 默认 4 worker；重试、暂停恢复、修复与 Goal 验收。 | [task_scheduler.py](../apps/device-mac/dongdong/task_scheduler.py#L23) | 跨进程自动接管和多机调度尚未实现；当前为单主机设计。 |
+| `scheduler` / SQLite 任务调度 | Planner → DAG Item → claim/lease → 默认 4 worker；重试、暂停恢复、修复与 Goal 验收。 | [task_scheduler.py](../apps/device-mac/dongdong/task_scheduler.py#L23) | 支持显式开启的跨进程自动接管和可选模型最终验收；更完整跨进程协调、多机调度尚未实现，当前仍为单主机设计。 |
 | `runtime` / 内置 Agent 循环 | 消费模型流、执行工具并记录事件；调度 Item 在 worker 独立事件循环执行，会议在主循环执行。 | [runtime.py](../apps/device-mac/dongdong/runtime.py#L21) | 本轮静态源码证据支持；未作真实服务联调 |
 | `models` / 编程与场景模型 API | OpenAI 兼容 chat/completions；编程 Runtime、无工具 Planner 和故事场景各有调用路径。 | [llm.py](../apps/device-mac/dongdong/llm.py#L94) | 本轮静态源码证据支持；未作真实服务联调 |
 | `voice` / Mac 语音设备 | Voice 管启停；Device 主动 WSS 连接灵矽，Opus 录放，STT/TTS 文字分流回宿主。 | [voice.py](../apps/device-mac/dongdong/voice.py#L15) | 本轮未验证真实收音、TTS、断线重连和平台限流。 |
@@ -92,7 +92,7 @@ flowchart LR
 
 调度 Item 的工作区相对 `scope.read/write` 在 Store 中解析成绝对路径；SQLite `BEGIN IMMEDIATE` 中原子 claim 检查同一/嵌套目录的运行 Item，读读可并行，读写/写写重叠及未声明范围按冲突等待。这是已声明范围的调度协调，不限制 shell 实际访问路径。每个 Run 有管理线程，共用有界 worker 池；lease 续租、过期回收、重试/停摆检测和有限 drain 均由同一调度实现处理。
 
-重启时遗留调度 Run 默认 `paused`，需显式恢复；只有布尔 `task_scheduler.auto_recover=true` 才自动恢复，失败回到暂停。旧无 Item 的 orphan run 按 Store 规则停止。没有多机协调、可靠的跨进程自动接管或操作系统沙箱。
+重启时遗留调度 Run 默认 `paused`，需显式恢复；只有布尔 `task_scheduler.auto_recover=true` 才自动恢复，失败回到暂停。旧无 Item 的 orphan run 按 Store 规则停止。当前没有多机协调、完整的跨进程唤醒编排或操作系统沙箱；自动接管失败会退回暂停。
 
 `call` 是一次性进程，其 daemon AgentService 在主进程退出后不能保证长任务继续；长任务用持续运行的 `run/web`。CLI `timeout_s` 表示同步等待超时，任务可能继续；builtin 设备工具最多等待 8 秒，超时返回 job/run 标识供查询。
 
@@ -125,7 +125,7 @@ sequenceDiagram
     S-->>U: 数据库增量 SSE / 最终状态
 ```
 
-Planner 的 DAG 与 Runtime `update_plan` 不同：前者控制 Item 调度，后者仅提供模型可见进度（1–8 步、至多一项进行中）。Run/Goal/Item/Attempt 结果、验收证据和错误摘要持久化；有验收约束但没有 verifier 时为 `needs_review`，不会把模型说完成当成通过验收。最终验收 Planner 尚未实现。
+Planner 的 DAG 与 Runtime `update_plan` 不同：前者控制 Item 调度，后者仅提供模型可见进度（1–8 步、至多一项进行中）。Run/Goal/Item/Attempt 结果、验收证据和错误摘要持久化；有验收约束但没有 verifier 时为 `needs_review`，不会把模型说完成当成通过验收。配置 `task_scheduler.model_final_verifier=true` 且提供模型时，可启用严格 JSON 的只读模型最终验收；异常、格式错误或证据不足仍为 `needs_review`，默认关闭。
 
 当前 `runtime.max_steps=1000`，历史软窗口为 30 条；非隔离 Runtime 保留任务起始及完整工具消息对，并自动检索全局/项目记忆。**普通调度 Item 传 `isolated=True`，实际只接父目标、当前 Item、验收与前置结果，跳过会话历史及自动记忆注入；不能据会话连续 ID 宣称所有入口都复用模型上下文。** 显式 `memory_search/save` 工具仍在普通 Item 工具集中。会议生成同样隔离且只开放专用工具集。
 
@@ -205,7 +205,7 @@ Mem0 命名空间为 `device_id`（全局）或 `device_id:project:<id>`；Qdran
 | 不控制用户浏览器 | 本次用户操作约定 | 本次命令行生成 HTML；未做浏览器视觉验收 |
 | 远端前端部署同步 Caddy/首页风格 | 用户操作约定；仅部署时适用 | 本轮无部署；当前仅本机服务，不添加服务器配置 |
 | 语音/平台未知项 | decisions 平台记录、linx/screen 实现 | 真实会议收音、TTS 采样率和平台行为未复测；AirPlay 发现与脚本存在不等于自动镜像可用 |
-| 未来能力 | firmware/README、当前入口 | ESP32、长任务主动语音通知、通用文件浏览器、跨进程自动接管、多机调度、最终验收 Planner 未交付；不能把已有故事/会议专用产物预览误写为完全没有预览 |
+| 未来能力 | firmware/README、当前入口 | ESP32、长任务主动语音通知、通用文件浏览器、更完整跨进程协调、多机调度；不能把已有故事/会议专用产物预览误写为完全没有预览 |
 
 复现本页交互产物（使用项目已固定的 Birdview 分发；无业务源码变更）：
 
