@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .llm import stream_chat
-from .task_model import ItemSpec
+from .task_model import ItemSpec, normalize_scope
 
 
 @dataclass(frozen=True)
@@ -59,7 +59,7 @@ class TaskPlanner:
                     "你是任务规划器。只返回 JSON，不要 Markdown、解释或工具调用。"
                     '格式为 {"items":[{"id":"...","instruction":"...",'
                     '"acceptance":"...","agent":"builtin","cwd":"...",'
-                    '"depends_on":["其他 item id"]}]}。'
+                    '"depends_on":["其他 item id"],"scope":{"read":[],"write":[]}}]}。'
                     f"最多生成 {self.max_items} 个 Item；所有 cwd 必须在工作区内。"
                 ),
             },
@@ -185,6 +185,13 @@ class TaskPlanner:
             ):
                 raise ValueError(f"Item {item_id} 的 depends_on 无效")
             deps = tuple(dep.strip() for dep in dependencies)
+            raw_scope = entry.get("scope", {})
+            if "read_paths" in entry or "write_paths" in entry:
+                raw_scope = {
+                    "read": entry.get("read_paths", []),
+                    "write": entry.get("write_paths", []),
+                }
+            scope = self._scope_for_item(raw_scope, item_cwd, item_id)
             if item_id in deps:
                 raise ValueError(f"Item {item_id} 不能依赖自身")
             normalized.append(
@@ -197,6 +204,7 @@ class TaskPlanner:
                     priority=self._integer(entry, "priority", 0),
                     max_attempts=self._integer(entry, "max_attempts", 2),
                     depends_on=deps,
+                    scope=scope,
                 )
             )
         for item in normalized:
@@ -218,6 +226,30 @@ class TaskPlanner:
         if not any(path == root or path.is_relative_to(root) for root in roots):
             raise ValueError(f"cwd 越出工作区: {raw}")
         return str(path)
+
+    @staticmethod
+    def _scope_for_item(value: Any, item_cwd: str, item_id: str) -> dict[str, list[str]]:
+        """校验声明并存成绝对路径，跨 cwd 的冲突判断才不会失真。"""
+        scope = normalize_scope(value)
+        root = Path(item_cwd).resolve()
+        result: dict[str, list[str]] = {}
+        seen: set[str] = set()
+        for mode, paths in scope.items():
+            absolute: list[str] = []
+            for relative in paths:
+                path = (root / relative).resolve()
+                if not (path == root or path.is_relative_to(root)):
+                    raise ValueError(f"Item {item_id} 的 scope 越出 cwd")
+                canonical = str(path)
+                if canonical in seen:
+                    raise ValueError(f"Item {item_id} 的 scope 存在重复或读写交叠")
+                seen.add(canonical)
+                absolute.append(canonical)
+            if absolute:
+                result[mode] = absolute
+        if set(result.get("read", ())) & set(result.get("write", ())):
+            raise ValueError(f"Item {item_id} 的 scope 读写交叠")
+        return result
 
     @staticmethod
     def _required_string(entry: dict, key: str) -> str:

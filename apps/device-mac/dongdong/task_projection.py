@@ -28,7 +28,14 @@ class TaskProjection:
         by_item = {}
         for row in deps:
             by_item.setdefault(row[0], []).append(row[1])
-        projected = [dict(item, depends_on=by_item.get(item["id"], [])) for item in items]
+        projected = []
+        for item in items:
+            value = dict(item, depends_on=by_item.get(item["id"], []))
+            try:
+                value["scope"] = json.loads(value.pop("scope_json") or "{}")
+            except (TypeError, json.JSONDecodeError):
+                value["scope"] = {}
+            projected.append(value)
         goal_view = []
         for goal in goals:
             value = dict(goal)

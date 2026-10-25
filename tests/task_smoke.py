@@ -219,8 +219,8 @@ def test_task_scheduler_config_and_startup_recovery():
         first.add_items(
             run_id,
             [
-                ItemSpec(id="expired", instruction="expired"),
-                ItemSpec(id="active", instruction="active"),
+                ItemSpec(id="expired", instruction="expired", scope={"write": ["expired.txt"]}),
+                ItemSpec(id="active", instruction="active", scope={"write": ["active.txt"]}),
             ],
         )
         assert first.claim_item(run_id, "expired", "old", lease_seconds=1)
@@ -273,6 +273,74 @@ def test_task_scheduler_config_and_startup_recovery():
         explicit.close()
         manager.close()
         restored.close()
+
+
+def test_task_scope_conflicts_and_planner_boundaries():
+    from dongdong.task_model import normalize_scope
+    from dongdong.task_planner import TaskPlanner
+
+    assert normalize_scope({"read": ["src/a.txt"]}) == {"read": ["src/a.txt"]}
+    for value in (
+        {"write": ["/tmp/out"]},
+        {"write": ["../out"]},
+        {"write": ["bad\\path"]},
+        {"other": ["out"]},
+        {"write": ["bad\x00path"]},
+    ):
+        with contextlib.suppress(ValueError):
+            normalize_scope(value)
+            raise AssertionError("非法 scope 必须拒绝")
+
+    with tempfile.TemporaryDirectory(prefix="dongdong-scope-") as tmp:
+        root = Path(tmp).resolve()
+        store = Store(root / "scope.db")
+        sid = store.create_session("scope")
+
+        def run_with_items(items, workspace=str(root)):
+            run = store.create_task_run(sid, RunSpec(goal_text="scope", workspace=workspace))
+            store.add_items(run, items)
+            return run
+
+        parallel = run_with_items(
+            [
+                ItemSpec(id="write-a", instruction="a", scope={"write": ["a.txt"]}),
+                ItemSpec(id="write-b", instruction="b", scope={"write": ["b.txt"]}),
+                ItemSpec(id="read-a", instruction="r", scope={"read": ["a.txt"]}),
+            ]
+        )
+        assert store.claim_item(parallel, "write-a", "one")
+        assert store.claim_item(parallel, "write-b", "two")
+        assert not store.claim_item(parallel, "read-a", "three")
+        conflict = run_with_items(
+            [
+                ItemSpec(id="first", instruction="first", scope={"write": ["same.txt"]}),
+                ItemSpec(id="second", instruction="second", scope={"write": ["same.txt"]}),
+            ]
+        )
+        assert store.claim_item(conflict, "first", "one")
+        assert not store.claim_item(conflict, "second", "two")
+        assert any(event["type"] == "scope_conflict" for event in store.events(conflict))
+        readers = run_with_items(
+            [
+                ItemSpec(id="reader-a", instruction="a", scope={"read": ["same.txt"]}),
+                ItemSpec(id="reader-b", instruction="b", scope={"read": ["same.txt"]}),
+            ]
+        )
+        assert store.claim_item(readers, "reader-a", "one")
+        assert store.claim_item(readers, "reader-b", "two")
+        other = run_with_items(
+            [ItemSpec(id="other", instruction="other", scope={"write": ["same.txt"]})],
+            workspace=str(root / "other"),
+        )
+        assert store.claim_item(other, "other", "three")
+        store.close()
+
+    planner = TaskPlanner("model", {"workspace": str(root)})
+    result = planner._validate(
+        {"items": [{"id": "x", "instruction": "x", "scope": {"write": ["x.py"]}}]},
+        str(root),
+    )
+    assert result[0].scope == {"write": ["x.py"]}
 
 
 def test_conversations_isolate_modes_runs_voice_and_cancellation():

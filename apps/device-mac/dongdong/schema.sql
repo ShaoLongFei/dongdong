@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS items (
   status TEXT NOT NULL DEFAULT 'open',
   attempts INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 2,
+  scope_json TEXT NOT NULL DEFAULT '{}',
   lease_owner TEXT,
   lease_until TEXT,
   result TEXT NOT NULL DEFAULT '',

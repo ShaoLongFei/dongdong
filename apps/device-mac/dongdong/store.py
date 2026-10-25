@@ -40,6 +40,9 @@ class Store(TaskStore):
                 "CREATE INDEX IF NOT EXISTS sessions_project_archive"
                 " ON sessions(project_id, archived_at, updated_at DESC)"
             )
+            columns = {row[1] for row in self._conn.execute("PRAGMA table_info(items)")}
+            if "scope_json" not in columns:
+                self._conn.execute("ALTER TABLE items ADD COLUMN scope_json TEXT NOT NULL DEFAULT '{}'")
 
     def _migrate_columns(self) -> None:
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(messages)")}

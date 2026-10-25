@@ -3,9 +3,10 @@
 import json
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 from .task_goal import GoalVerification
-from .task_model import ItemSpec, RunSpec, acceptance_value
+from .task_model import ItemSpec, RunSpec, acceptance_value, normalize_scope
 from .task_projection import TaskProjection
 
 
@@ -175,9 +176,10 @@ class TaskStore(GoalVerification, TaskProjection):
                 "SELECT id FROM goals WHERE run_id=? ORDER BY rowid LIMIT 1", (run_id,)
             ).fetchone()
             for item, item_id in resolved:
+                scope = self._absolute_scope(item)
                 self._conn.execute(
                     "INSERT INTO items(id, run_id, goal_id, parent_id, instruction, acceptance, agent, cwd,"
-                    " priority, max_attempts, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " priority, max_attempts, scope_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         item_id,
                         run_id,
@@ -189,6 +191,7 @@ class TaskStore(GoalVerification, TaskProjection):
                         item.cwd,
                         item.priority,
                         max(1, min(item.max_attempts, 5)),
+                        json.dumps(scope, ensure_ascii=False),
                         ts,
                         ts,
                     ),
@@ -214,6 +217,29 @@ class TaskStore(GoalVerification, TaskProjection):
                         (json.dumps(criteria, ensure_ascii=False), goal[0]),
                     )
             return [item_id for _, item_id in resolved]
+
+    @staticmethod
+    def _absolute_scope(item: ItemSpec) -> dict[str, list[str]]:
+        scope = normalize_scope(item.scope)
+        root = Path(item.cwd or ".").expanduser().resolve()
+        result: dict[str, list[str]] = {}
+        seen: set[str] = set()
+        for mode, paths in scope.items():
+            values = []
+            for relative in paths:
+                path = Path(relative)
+                absolute = path if path.is_absolute() else root / relative
+                absolute = absolute.resolve()
+                if not (absolute == root or absolute.is_relative_to(root)):
+                    raise ValueError("scope 路径必须位于 Item cwd 内")
+                canonical = str(absolute)
+                if canonical in seen:
+                    raise ValueError("scope 存在重复或读写交叠")
+                seen.add(canonical)
+                values.append(canonical)
+            if values:
+                result[mode] = values
+        return result
 
     def add_repair_item(
         self, run_id: str, failed_item_id: str, instruction: str | None = None
@@ -247,7 +273,7 @@ class TaskStore(GoalVerification, TaskProjection):
             ).fetchone()
             self._conn.execute(
                 "INSERT INTO items(id, run_id, goal_id, parent_id, instruction, acceptance, agent, cwd,"
-                " priority, max_attempts, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                " priority, max_attempts, scope_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     item_id,
                     run_id,
@@ -260,6 +286,7 @@ class TaskStore(GoalVerification, TaskProjection):
                     failed["cwd"],
                     failed["priority"],
                     failed["max_attempts"],
+                    failed["scope_json"] or "{}",
                     ts,
                     ts,
                 ),
@@ -330,6 +357,48 @@ class TaskStore(GoalVerification, TaskProjection):
                 if cur.rowcount != 1:
                     self._conn.rollback()
                     return False
+                candidate = self._conn.execute(
+                    "SELECT i.scope_json, r.workspace FROM items i JOIN runs r ON r.id=i.run_id "
+                    "WHERE i.id=? AND i.run_id=?",
+                    (item_id, run_id),
+                ).fetchone()
+                running = self._conn.execute(
+                    "SELECT i.id, i.scope_json FROM items i JOIN runs r ON r.id=i.run_id "
+                    "WHERE i.run_id=? AND r.status='running' AND i.status='running' AND i.id!=?",
+                    (run_id, item_id),
+                ).fetchall()
+                if candidate and any(
+                    self._scope_conflicts(candidate[0], row[1], candidate[1], run_id) for row in running
+                ):
+                    self._conn.execute(
+                        "UPDATE items SET status='open', lease_owner=NULL, lease_until=NULL, "
+                        "attempts=attempts-1, updated_at=? WHERE id=?",
+                        (stamp, item_id),
+                    )
+                    self._conn.execute(
+                        "UPDATE attempts SET status='stopped', ended_at=?, error_kind='scope_conflict',"
+                        " error='范围与运行中 Item 冲突' WHERE item_id=? AND worker_id=? AND status='running'",
+                        (stamp, item_id, worker_id),
+                    )
+                    recent = self._conn.execute(
+                        "SELECT 1 FROM events WHERE run_id=? AND type='scope_wait' "
+                        "AND json_extract(data, '$.item_id')=? AND created_at>? LIMIT 1",
+                        (run_id, item_id, (ts - timedelta(seconds=2)).isoformat(timespec="seconds")),
+                    ).fetchone()
+                    if not recent:
+                        self._conn.execute(
+                            "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
+                            (
+                                run_id,
+                                "scope_wait",
+                                json.dumps(
+                                    {"item_id": item_id, "worker_id": worker_id}, ensure_ascii=False
+                                ),
+                                stamp,
+                            ),
+                        )
+                    self._conn.commit()
+                    return False
                 self._conn.execute(
                     "INSERT INTO attempts(item_id, worker_id, status, started_at) VALUES (?,?,?,?)",
                     (item_id, worker_id, "running", stamp),
@@ -348,6 +417,39 @@ class TaskStore(GoalVerification, TaskProjection):
             except Exception:
                 self._conn.rollback()
                 raise
+
+    @staticmethod
+    def _scope_conflicts(left_json: str, right_json: str, left_cwd: str = "", run_id: str = "") -> bool:
+        """保守判断范围冲突；空、损坏或目录范围都按独占处理。"""
+        try:
+            left = json.loads(left_json or "{}")
+            right = json.loads(right_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return True
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            return True
+        if not left or not right:
+            return True
+        reads_left = set(left.get("read", []))
+        writes_left = set(left.get("write", []))
+        reads_right = set(right.get("read", []))
+        writes_right = set(right.get("write", []))
+        all_paths = (*reads_left, *writes_left, *reads_right, *writes_right)
+        if not all(isinstance(path, str) and path for path in all_paths):
+            return True
+
+        def overlaps(paths_a: set[str], paths_b: set[str]) -> bool:
+            return any(
+                first == second
+                or first.startswith(second + "/")
+                or second.startswith(first + "/")
+                for first in paths_a
+                for second in paths_b
+            )
+
+        return overlaps(writes_left, writes_right | reads_right) or overlaps(
+            reads_left, writes_right
+        )
 
     def complete_item(self, item_id: str, worker_id: str, result: str = "") -> bool:
         return self._finish_item(item_id, worker_id, "done", result=result)
