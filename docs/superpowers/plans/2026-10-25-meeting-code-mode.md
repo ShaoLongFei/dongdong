@@ -49,3 +49,4 @@ Files: Meeting.jsx、main.jsx、style.css、README.md、docs/runbook.md、docs/a
 - Fresh reviewer 发现并修复：疑问句误确认；新增/暂存文件 diff 缺失；活动地图无法即时读取；失败 iframe load 被当作展示；非 Git 根目录迟报错；取消收尾导致互斥锁残留。
 - Ruling: 单独 `runtime_context.py` 承载原有提示与裁剪以保持 Runtime ≤300 行；自有新增模块均≤300行；第三方分发与既有唯一边界 smoke 的长度例外在 decisions.md 记明。
 - 交付限制：模型工具流程用可控流完成，不等于真实模型质量评估；页面视觉和灵矽会议实录需真机验收。shell 维持既有本机权限，无操作系统沙箱。
+- 审查追加修复：领取预检期间禁止并发生成；shell 前后核对源码变化，范围外修改停止并在实际结果列出。`~/tmp/dongdong-meeting/scope.py` 真实命令写 outside.txt，确认流程终止、错误及结果保留范围外文件；通过。

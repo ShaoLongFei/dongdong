@@ -91,6 +91,30 @@ async def fingerprint(workspace: Path, extra: list[str] = ()) -> str:
     return await asyncio.to_thread(compute)
 
 
+async def file_hashes(workspace: Path, extra=()) -> dict:
+    names = set(
+        (await git(workspace, "ls-files", "-co", "--exclude-standard", "-z")).split("\0")
+    ) | set(extra)
+    names.discard("")
+
+    def read():
+        out = {}
+        for name in names:
+            path = workspace / name
+            if not path.parent.resolve().is_relative_to(workspace):
+                raise ValueError("源码路径越界")
+            if path.is_symlink():
+                out[name] = hashlib.sha256(os.readlink(path).encode()).hexdigest()
+            elif path.is_file():
+                with path.open("rb") as source:
+                    out[name] = hashlib.file_digest(source, "sha256").hexdigest()
+            else:
+                out[name] = "missing"
+        return out
+
+    return await asyncio.to_thread(read)
+
+
 def directory(pid: str) -> Path:
     if not re.fullmatch(r"[a-f0-9]{32}", pid):
         raise ValueError("产物 ID 无效")
