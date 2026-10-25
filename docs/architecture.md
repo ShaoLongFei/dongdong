@@ -275,7 +275,7 @@ Web 仅监听 loopback，并校验 Host/Origin；没有远程账号鉴权，因�
 | 能力 | 状态 |
 | --- | --- |
 | Web / builtin 编程 / 进度回放 / 连续会话 / 麦克风开关 | 已实现，用户已体验基础语音任务；异常与边界有 smoke 验证 |
-| SQLite 调度与自动任务规划 | 已实现规划状态、结构化 Item DAG、Goal 验收证据、失败回退、重试/租约和历史事件展示；修复规划、文件范围冲突、多机调度待后续 |
+| SQLite 调度与自动任务规划 | 已实现规划状态、结构化 Item DAG、Goal 验收证据、失败回退、重试/租约和历史事件展示；受限修复规划、文件范围冲突、停摆检测、有限 drain 和最终验收阶段已实现；跨进程自动接管、多机调度和最终验收 Planner 待后续 |
 | Skills / 外部 MCP / 一次性审批 | 已实现，本地 SDK 三传输及完整链路验证；用户自有服务与页面体验待验收 |
 | 项目 / 归档 / 分层记忆 | 已实施固定目录、增量迁移、恢复与Runtime自动检索；本地隔离验证，真实页面/云端记忆待用户验收 |
 | AirPlay | 设备发现可用；默认脚本在已记录的 MenuBarAgent 环境受阻，支持用户自定义命令 |
@@ -297,6 +297,6 @@ Web 仅监听 loopback，并校验 Host/Origin；没有远程账号鉴权，因�
 
 `vendor/birdview` 是固定 MIT 上游分发，渲染依赖锁与图标许可随包保存。HTML 保存在 `~/.dongdong/meetings/<id>/`，仅按已注册 ID 读取，CSP sandbox + iframe 只允许脚本、不允许同源权限。显示回执在 iframe load 后复查 HTML 读取成功，并检查服务器产物存在，不证明人已阅读；真实浏览器视觉验收另行执行。前端 Meeting.jsx 提供讨论、历史方案、地图、确认、恢复和检查回看。
 
-调度数据库操作位于task_store.py，Store复用同一连接/锁；TaskExecutor复用既有run与用户消息，不重复创建记录。Planner 的 Item acceptance 会汇总到 Goal，收口前写入 `goal_verified` 和证据摘要；有约束但无 verifier 的 Run 进入 `needs_review`。web_agent.py桥接设备同步调用；task_tools.py注册任务查询/停止/恢复。故事模式由 StorySession、StoryStore、StoryCanvas 和 ExportManager 组成：语音最终文本先进入受控场景协议，再持久化 JSON/SVG；故事结束后通过项目内 FFmpeg 和 macOS 原生 SVG 渲染回退导出 PNG/PDF/MP4。历史故事只恢复元数据和画布，不自动开启麦克风。前端切换历史故事时为选中 ID 建立独立 SSE 游标，新故事开始后清空旧幕并切回实时故事；导出与重播始终绑定当前选中 ID。
+调度数据库操作位于task_store.py，Store复用同一连接/锁；TaskExecutor复用既有run与用户消息，不重复创建记录。Planner 的 Item acceptance 会汇总到 Goal，收口前写入 `goal_verified` 和证据摘要；有约束但无 verifier 的 Run 进入 `needs_review`。web_agent.py桥接设备同步调用；task_tools.py注册任务查询、Goal 验收预览、停止、恢复。故事模式由 StorySession、StoryStore、StoryCanvas 和 ExportManager 组成：语音最终文本先进入受控场景协议，再持久化 JSON/SVG；故事结束后通过项目内 FFmpeg 和 macOS 原生 SVG 渲染回退导出 PNG/PDF/MP4。历史故事只恢复元数据和画布，不自动开启麦克风。前端切换历史故事时为选中 ID 建立独立 SSE 游标，新故事开始后清空旧幕并切回实时故事；导出与重播始终绑定当前选中 ID。
 
 故事目录位于 `~/.dongdong/stories/<story_id>/`，每个目录保存 `manifest.json`、`scene-*.json`、`scene-*.svg` 和导出产物。`PUT /api/story/mode` 控制录音，`GET /api/story/state` 读取当前状态，`GET /api/story/events` 以 `story_id`/`since` 增量读取场景；历史列表、详情、重播和后台导出由 `/api/stories` 路由提供。PNG/PDF 采用可用的 SVG 渲染器（CairoSVG、Playwright 或 macOS Quick Look）生成首幕画面，MP4 则按全部场景的 `durationMs` 合成并写入静音 AAC 音轨。导出器按 CPU 架构选择并校验仓库内 `tools/ffmpeg/darwin-arm64/ffmpeg` 或 `darwin-x86_64/ffmpeg`，不回退到系统 PATH；当前 FFmpeg 构建包含 GPL/version3/nonfree 组件，公开分发前需复核许可证义务。

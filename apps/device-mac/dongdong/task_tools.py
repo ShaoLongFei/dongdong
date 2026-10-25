@@ -16,6 +16,18 @@ def _task_status(args: dict) -> str:
 
 
 @tool(
+    "self.task.goal_preview",
+    "只读预览任务 Goal 验收结果，不改变任务状态。",
+    props={"run_id": {"type": "string", "description": "任务号，不填就是最近一次"}},
+)
+def _task_goal_preview(args: dict) -> str:
+    service = _peek_service()
+    if service and hasattr(service, "task_goal_preview"):
+        return service.task_goal_preview(args.get("run_id") or "")
+    return "Goal 验收预览只在 Web/内置 Runtime 服务中可用。"
+
+
+@tool(
     "self.task.stop",
     "停止任务并有序收口。",
     props={"run_id": {"type": "string", "description": "任务号，不填就是最近一次"}},

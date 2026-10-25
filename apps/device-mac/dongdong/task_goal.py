@@ -55,12 +55,16 @@ class GoalVerification:
             )
         return True
 
-    def verify_goal(self, run_id: str, verifier=None) -> dict:
-        with self._lock, self._conn:
-            self._ensure_goal_columns()
+    def preview_goal_verification(self, run_id: str, verifier=None) -> dict:
+        """只读计算 Goal 验收结果，不更新 Goal 或写入事件。"""
         view = self.task_view(run_id)
         if not view or not view["goals"]:
-            return {"status": "failed", "summary": "缺少 Goal", "evidence": {}}
+            return {
+                "status": "failed",
+                "summary": "缺少 Goal",
+                "evidence": {},
+                "reason": "缺少 Goal",
+            }
         goal, items = view["goals"][0], view["items"]
         evidence_items = [
             {
@@ -99,8 +103,16 @@ class GoalVerification:
             except Exception as exc:  # noqa: BLE001
                 status, reason = "needs_review", f"验收 verifier 异常: {exc}"
         evidence["reason"] = reason
-        self.record_goal_verification(run_id, status, evidence, summary)
         return {"status": status, "summary": summary, "evidence": evidence, "reason": reason}
+
+    def verify_goal(self, run_id: str, verifier=None) -> dict:
+        with self._lock, self._conn:
+            self._ensure_goal_columns()
+        result = self.preview_goal_verification(run_id, verifier)
+        self.record_goal_verification(
+            run_id, result["status"], result["evidence"], result.get("summary", "")
+        )
+        return result
 
     @staticmethod
     def _goal_now() -> str:

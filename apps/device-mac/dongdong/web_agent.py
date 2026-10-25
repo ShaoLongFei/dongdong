@@ -101,6 +101,18 @@ class WebAgent:
             else "还没有任务。"
         )
 
+    def task_goal_preview(self, run_id: str = "") -> str:
+        rid = run_id or self.state._run_id or self.state._last_run
+        if not rid:
+            return json.dumps(
+                {"status": "failed", "summary": "缺少 run_id", "evidence": {}},
+                ensure_ascii=False,
+            )
+        result = self.state.manager.store.preview_goal_verification(
+            rid, self.state.manager.verifier
+        )
+        return json.dumps(result, ensure_ascii=False)
+
     def task_stop(self, run_id: str = "") -> str:
         return self.stop(run_id)
 

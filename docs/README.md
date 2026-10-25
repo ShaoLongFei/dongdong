@@ -13,7 +13,7 @@
 | 配置灵矽智能体 | [语音提示词](linx-voice-prompt.md) | 工具选择、8 秒等待、连续任务与审批 |
 | 设备协议字段 | [灵矽协议摘要](linx-protocol.md) | OTA、WSS、音频与设备 MCP |
 | 设计取舍与平台限制 | [决策记录](decisions.md) | 按时间记录的选择；后续记录可替代早期方案 |
-| 任务调度设计与计划 | [设计](superpowers/specs/2026-10-25-task-scheduler-design.md) / [计划](superpowers/plans/2026-10-25-task-scheduler.md) | 已交付 SQLite DAG、自动规划、Goal 验收证据、worker、重试、恢复与统一状态；修复规划、文件范围冲突等增强项仍在计划中 |
+| 任务调度设计与计划 | [设计](superpowers/specs/2026-10-25-task-scheduler-design.md) / [计划](superpowers/plans/2026-10-25-task-scheduler.md) | 已交付 SQLite DAG、自动规划、Goal 验收证据、worker、重试、恢复与统一状态；受限修复规划、文件范围冲突、停摆检测和有限 drain 已交付；跨进程自动接管与最终验收 Planner 仍在计划中 |
 | 开发规范 | [AGENTS.md](../AGENTS.md) | 简化设计、依赖、测试与提交要求 |
 | ESP32 路线 | [固件规划](../firmware/README.md) | 尚未实施的固件转发路线 |
 

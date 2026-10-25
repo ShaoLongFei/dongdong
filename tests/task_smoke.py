@@ -157,7 +157,12 @@ def test_automatic_planning_populates_events_and_runs_dependencies():
 
 
 def test_task_tools_and_web_projection_use_task_manager():
-    assert {"self.task.status", "self.task.stop", "self.task.resume"} <= set(tools.TOOLS)
+    assert {
+        "self.task.status",
+        "self.task.stop",
+        "self.task.resume",
+        "self.task.goal_preview",
+    } <= set(tools.TOOLS)
     from dongdong.web_runtime import WebState
     from dongdong.task_model import AttemptResult
 
@@ -188,6 +193,33 @@ def test_task_tools_and_web_projection_use_task_manager():
         await state.close()
 
     asyncio.run(check())
+
+
+def test_goal_preview_is_read_only_and_handles_missing_acceptance():
+    with tempfile.TemporaryDirectory(prefix="dongdong-goal-preview-") as tmp:
+        store = Store(Path(tmp) / "goals.db")
+        sid = store.create_session("preview")
+        run_id = store.create_task_run(sid, RunSpec(goal_text="验收"))
+        store.add_items(run_id, [ItemSpec(id="item", instruction="完成", acceptance="通过")])
+        assert store.claim_item(run_id, "item", "smoke")
+        store.complete_item("item", "smoke", "完成输出")
+        before = store.task_view(run_id)
+        result = store.preview_goal_verification(
+            run_id, lambda _goal, _items, _evidence: {"status": "met", "summary": "可见结论"}
+        )
+        after = store.task_view(run_id)
+        assert result["status"] == "met" and result["summary"] == "可见结论"
+        assert (len(before["goals"]), len(before["items"]), len(before["events"])) == (
+            len(after["goals"]),
+            len(after["items"]),
+            len(after["events"]),
+        )
+        assert before["goals"][0]["status"] == after["goals"][0]["status"] == "open"
+        assert store.preview_goal_verification("missing")["summary"] == "缺少 Goal"
+        assert store.preview_goal_verification(run_id)["status"] == "needs_review"
+        no_acceptance = store.create_task_run(sid, RunSpec(goal_text="无约束"))
+        assert store.preview_goal_verification(no_acceptance)["status"] == "met"
+        store.close()
 
 
 def test_task_manager_pause_resume_and_timeout_recovery():
