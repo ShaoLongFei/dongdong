@@ -22,12 +22,11 @@ def bundled_ffmpeg() -> Path:
     if not path.is_file() or not os.access(path, os.X_OK):
         raise RuntimeError(f"项目内 FFmpeg 不可用: {path}；未找到可执行文件，不能导出 MP4")
     expected = path.with_name("SHA256")
-    if (
-        expected.exists()
-        and hashlib.sha256(path.read_bytes()).hexdigest()
-        != expected.read_text(encoding="utf-8").strip()
-    ):
-        raise RuntimeError("项目内 FFmpeg SHA-256 校验失败")
+    if expected.exists():
+        fields = expected.read_text(encoding="utf-8").split()
+        expected_digest = fields[0] if fields else ""
+        if hashlib.sha256(path.read_bytes()).hexdigest() != expected_digest:
+            raise RuntimeError("项目内 FFmpeg SHA-256 校验失败")
     return path
 
 

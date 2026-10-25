@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
 
 from dongdong.story import StorySession, story_for  # noqa: E402
-from dongdong.story_export import export_story  # noqa: E402
+from dongdong.story_export import bundled_ffmpeg, export_story  # noqa: E402
 from dongdong.story_schema import normalize_scene  # noqa: E402
 from dongdong.story_store import StoryStore  # noqa: E402
 from dongdong.story_svg import scene_to_svg  # noqa: E402
@@ -86,6 +86,15 @@ def main() -> None:
         assert (Path(tmp) / "stories" / story_id).stat().st_mode & 0o777 == 0o700
         store.save_scene(story_id, scene)
         assert store.load(story_id)["scenes"][0]["sceneId"] == "scene-001"
+        has_ffmpeg = False
+        if platform.system() == "Darwin":
+            try:
+                bundled_ffmpeg()
+            except RuntimeError as exc:
+                if "不可用" not in str(exc):
+                    raise
+            else:
+                has_ffmpeg = True
         if platform.system() == "Darwin" and all(
             Path(tool).is_file() for tool in ("/usr/bin/qlmanage", "/usr/bin/sips")
         ):
@@ -96,6 +105,9 @@ def main() -> None:
             assert pdf.read_bytes()[:5] == b"%PDF-"
         else:
             print("story export smoke skipped: macOS qlmanage/sips unavailable")
+        if has_ffmpeg:
+            mp4 = export_story(Path(tmp) / "stories" / story_id, "mp4")
+            assert mp4.read_bytes()[4:8] == b"ftyp"
         for scene_id in ("scene-10", "scene-2", "scene-1"):
             store.save_scene(story_id, {**scene, "sceneId": scene_id})
         assert [item["sceneId"] for item in store.load(story_id)["scenes"]] == [
@@ -138,17 +150,20 @@ def main() -> None:
         missing_job = store.exports.status("missing")
         assert missing_job["status"] == "missing"
         job_id = store.exports.submit(story_id, "mp4")
-        for _ in range(100):
+        for _ in range(600):
             job = store.exports.status(job_id)
             if job["status"] != "running":
                 break
             import time
 
             time.sleep(0.01)
-        assert job["status"] == "error"
-        assert (
-            job.get("error") and not (Path(tmp) / "stories" / story_id / "scene-1.svg").is_symlink()
-        )
+        if has_ffmpeg:
+            assert job["status"] == "done"
+            assert Path(job["outputPath"]).read_bytes()[4:8] == b"ftyp"
+        else:
+            assert job["status"] == "error"
+            assert job.get("error")
+        assert not (Path(tmp) / "stories" / story_id / "scene-1.svg").is_symlink()
 
         class BrokenModel:
             async def generate_scene(self, _prompt):
