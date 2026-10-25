@@ -42,6 +42,7 @@ DEFAULTS: dict = {
         "poll_seconds": 0.1,
         "lease_seconds": 60,
         "stall_limit": 3,
+        "drain_seconds": 2,
     },
     "disabled_skills": [],
     "mcp_servers": {},

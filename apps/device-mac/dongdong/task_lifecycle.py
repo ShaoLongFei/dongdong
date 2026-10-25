@@ -43,7 +43,10 @@ def monitor(manager, run_id: str) -> dict:
         cancel = manager._runs.get(run_id)
         if cancel:
             cancel.set()
-        manager._finish(run_id, "timeout", "超过任务截止时间")
+        manager._request_stop(run_id, "timeout", "超过任务截止时间")
+        thread = manager._threads.get(run_id)
+        if not thread or not thread.is_alive():
+            manager._finalize_stop(run_id)
         view = manager.status(run_id)
     return view
 

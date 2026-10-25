@@ -108,6 +108,9 @@ def test_task_manager_runs_items_with_retry_and_stop():
         assert calls.count("retry") == 2
         stopped = manager.submit(sid, "停止", items=[ItemSpec(id="later", instruction="later")])
         assert manager.stop(stopped)["run"]["status"] == "canceled"
+        stopped_view = store.task_view(stopped)
+        assert stopped_view["items"][0]["status"] == "stopped"
+        assert all(attempt["status"] == "stopped" for attempt in stopped_view["attempts"])
         assert not store.claim_item(stopped, "later", "late")
         manager.close()
         store.close()

@@ -51,6 +51,8 @@ class TaskManager:
             lease_seconds if lease_seconds is not None else scheduler_cfg.get("lease_seconds", 60)
         )
         self.lease_seconds = max(1, min(int(lease_limit), 3600))
+        drain_limit = scheduler_cfg.get("drain_seconds", 2)
+        self.drain_seconds = max(0.0, min(float(drain_limit), 30.0))
         self.executor = ThreadPoolExecutor(
             max_workers=self.max_workers, thread_name_prefix="dongdong-task"
         )
@@ -184,8 +186,14 @@ class TaskManager:
                 time.sleep(self.poll_seconds)
         finally:
             try:
+                deadline = time.monotonic() + self.drain_seconds
                 for future in futures:
-                    future.result()
+                    remaining = max(0.0, deadline - time.monotonic())
+                    try:
+                        future.result(timeout=remaining)
+                    except Exception:  # noqa: BLE001 worker 收口不应阻塞 Run 终态
+                        pass
+                self._finalize_stop(run_id)
             finally:
                 if owns_gate:
                     work_gate.release(run_id)
@@ -269,36 +277,69 @@ class TaskManager:
         }
 
     def stop(self, run_id: str) -> dict:
+        if not self._request_stop(run_id, "canceled", "用户停止"):
+            return self.status(run_id)
+        thread = self._threads.get(run_id)
+        if thread and thread is not threading.current_thread():
+            thread.join(timeout=self.drain_seconds)
+        self._finalize_stop(run_id)
+        return self.status(run_id)
+
+    def _request_stop(self, run_id: str, status: str, error: str) -> bool:
         cancel = self._runs.get(run_id)
         if cancel:
             cancel.set()
         with self.store._lock, self.store._conn:
             changed = self.store._conn.execute(
-                "UPDATE runs SET status='canceled', error='用户停止', ended_at=? "
+                "UPDATE runs SET status='stopping', error=? "
                 "WHERE id=? AND status IN ('running','planning','paused')",
-                (datetime.now(UTC).isoformat(timespec="seconds"), run_id),
+                (error[:4000], run_id),
             ).rowcount
-            if changed != 1:
-                return self.status(run_id)
+            if changed:
+                self.store._conn.execute(
+                    "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
+                    (
+                        run_id,
+                        "run_stopping",
+                        json.dumps({"status": status, "error": error}, ensure_ascii=False),
+                        datetime.now(UTC).isoformat(timespec="seconds"),
+                    ),
+                )
+            return changed == 1
+
+    def _finalize_stop(self, run_id: str) -> None:
+        with self.store._lock, self.store._conn:
+            row = self.store._conn.execute(
+                "SELECT status, error FROM runs WHERE id=?", (run_id,)
+            ).fetchone()
+            if not row or row[0] != "stopping":
+                return
+            error = row[1] or "任务已停止"
+            target = "timeout" if error == "超过任务截止时间" else "canceled"
+            stamp = datetime.now(UTC).isoformat(timespec="seconds")
             self.store._conn.execute(
-                "UPDATE items SET status='stopped', lease_owner=NULL, lease_until=NULL WHERE run_id=? AND status IN ('open','running')",
+                "UPDATE items SET status='stopped', lease_owner=NULL, lease_until=NULL "
+                "WHERE run_id=? AND status IN ('open','running')",
                 (run_id,),
             )
             self.store._conn.execute(
-                "UPDATE attempts SET status='stopped', ended_at=?, error_kind='canceled', error='用户停止' "
+                "UPDATE attempts SET status='stopped', ended_at=?, error_kind=?, error=? "
                 "WHERE item_id IN (SELECT id FROM items WHERE run_id=?) AND status='running'",
-                (datetime.now(UTC).isoformat(timespec="seconds"), run_id),
+                (stamp, target, error[:4000], run_id),
+            )
+            self.store._conn.execute(
+                "UPDATE runs SET status=?, ended_at=? WHERE id=? AND status='stopping'",
+                (target, stamp, run_id),
             )
             self.store._conn.execute(
                 "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
                 (
                     run_id,
-                    "run_canceled",
-                    json.dumps({"message": "用户停止"}, ensure_ascii=False),
-                    datetime.now(UTC).isoformat(timespec="seconds"),
+                    "run_finished",
+                    json.dumps({"status": target, "error": error}, ensure_ascii=False),
+                    stamp,
                 ),
             )
-        return self.status(run_id)
 
     def resume(self, run_id: str) -> dict:
         run = self.store.get_run(run_id)
