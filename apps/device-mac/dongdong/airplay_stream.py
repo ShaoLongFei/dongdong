@@ -101,7 +101,7 @@ class _Session:
             "-hls_list_size",
             "3",
             "-hls_flags",
-            "delete_segments+append_list+independent_segments",
+            "delete_segments+append_list",
             "-hls_segment_type",
             "mpegts",
             str(playlist),
@@ -112,6 +112,15 @@ class _Session:
             deadline = time.monotonic() + 15
             playlist = self.root / "screen.m3u8"
             while not playlist.exists() and time.monotonic() < deadline:
+                if self.stop_event.wait(0.2):
+                    return
+            # 老款 Apple TV 读取 live HLS 时需要清单里先有可连续播放的分片。
+            while time.monotonic() < deadline and playlist.exists():
+                try:
+                    if len(playlist.read_text(errors="replace").splitlines()) >= 8:
+                        break
+                except OSError:
+                    pass
                 if self.stop_event.wait(0.2):
                     return
             if not playlist.exists():
