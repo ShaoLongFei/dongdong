@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as Tabs from '@radix-ui/react-tabs';
-import { ArrowUp, AudioLines, Check, ChevronRight, Circle, MessageSquare, Plus, Settings2, Square, Terminal, Workflow } from 'lucide-react';
+import { ArrowUp, AudioLines, Check, ChevronRight, Circle, MessageSquare, Mic, MicOff, Plus, Settings2, Square, Terminal, Workflow } from 'lucide-react';
 import { api, statusText } from './api';
 import Settings from './Settings';
 import './style.css';
@@ -15,6 +15,7 @@ function App() {
   const [input, setInput] = useState('');
   const [notice, setNotice] = useState('');
   const [sending, setSending] = useState(false);
+  const [voicePending, setVoicePending] = useState(false);
   const [events, setEvents] = useState([]);
   const [watch, setWatch] = useState('');
   const [runDetail, setRunDetail] = useState(null);
@@ -80,6 +81,16 @@ function App() {
       choose(session.id); setTab('chat'); refresh();
     } catch (error) { report(error); }
   }
+  async function toggleVoice() {
+    if (voicePending) return;
+    setVoicePending(true);
+    try {
+      const result = await api('/voice', { method: 'PUT', body: { enabled: !state?.voice_enabled } });
+      setState(previous => ({ ...previous, voice_enabled: result.enabled }));
+      await refresh();
+    } catch (error) { report(error); }
+    finally { setVoicePending(false); }
+  }
   async function send(event) {
     event.preventDefault();
     if (!input.trim() || sending) return;
@@ -130,7 +141,8 @@ function App() {
       <div className="sidebar-footer"><span className={`dot ${state ? 'online' : ''}`} /><span>本机工作区</span><span className="ml-auto text-xs muted">v{state?.version || '0.1.0'}</span></div>
     </aside>
     <main className="main">
-      <header className="topbar"><span className="muted">工作台</span><ChevronRight size={12} /><strong>{tab === 'chat' ? detail?.title || '新对话' : tab === 'runs' ? '运行记录' : '设置'}</strong><span className="badge ml-auto"><span className={`dot ${busy ? 'working' : 'online'}`} />{busy ? '任务执行中' : '就绪'}</span></header>
+      <header className="topbar"><span className="muted">工作台</span><ChevronRight size={12} /><strong>{tab === 'chat' ? detail?.title || '新对话' : tab === 'runs' ? '运行记录' : '设置'}</strong><button className="voice-toggle ml-auto" aria-pressed={Boolean(state?.voice_enabled)} disabled={!state || voicePending} onClick={toggleVoice} title="关闭会停止麦克风、播报和语音连接">{state?.voice_enabled ? <Mic size={14} /> : <MicOff size={14} />}{voicePending ? '切换中…' : state?.voice_enabled ? '关闭语音' : '开启语音'}</button><span className="badge"><span className={`dot ${busy ? 'working' : 'online'}`} />{busy ? '任务执行中' : '就绪'}</span></header>
+      {state?.voice_error && <div className="notice" role="alert">语音启动失败：{state.voice_error}</div>}
       {notice && <div role="status" className="notice">{notice}<button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
       {state && !state.model_ready && tab !== 'settings' && <button className="setup-banner" onClick={() => setTab('settings')}>{state.error} · 前往设置 <ChevronRight size={14} /></button>}
       <Tabs.Content value="chat" className="chat-page">

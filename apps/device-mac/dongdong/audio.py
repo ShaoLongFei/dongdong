@@ -53,6 +53,11 @@ class Recorder:
             self.stream.close()
             self.stream = None
             log.info("麦克风已关")
+        while True:
+            try:
+                self.queue.get_nowait()
+            except queue.Empty:
+                break
 
 
 class Player:
@@ -112,3 +117,4 @@ class Player:
             self.stream.stop()
             self.stream.close()
             self.stream = None
+        self.clear()

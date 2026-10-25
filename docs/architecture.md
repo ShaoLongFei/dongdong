@@ -72,7 +72,7 @@ C++ 参考实现（[linx-linux](https://github.com/sunqirui1987/linx-linux)）�
 
 ### Web 工作台
 
-`dongdong web` 使用 FastAPI/uvicorn，服务 `apps/web` 的 React/Vite/Tailwind 构建产物和 `/api/*`。`run` 额外在同一事件循环启动灵矽 Device，替代旧面板。`web_runtime.py` 的 WebAgent 将 MCP 工作线程的同步调用投递到该事件循环，复用 WebState、Runtime 和 SQLite；builtin 语音与 Web 用同一 run ID 查询、停止。文本、工具调用和结果以持久化 SSE 事件回放。关闭时取消 Device 并等待接收/录音协程退出，再清理 agent，最后关数据库。
+`dongdong web` 使用 FastAPI/uvicorn，服务 `apps/web` 的 React/Vite/Tailwind 构建产物和 `/api/*`。`run/web` 通过 `voice.py` 在同一事件循环按用户选择启停灵矽 Device，启动默认关闭。关闭接口等待 Device 取消与音频清理后才返回，锁避免重复连接。`web_runtime.py` 的 WebAgent 将 MCP 工作线程的同步调用投递到该事件循环，复用 WebState、Runtime 和 SQLite；builtin 语音与 Web 用同一 run ID 查询、停止。文本、工具调用和结果以持久化 SSE 事件回放。关闭时取消 Device 并等待接收/录音协程退出，再清理 agent，最后关数据库。
 
 `work_gate.py` 只做进程内跨入口互斥，取消完成后才释放；设置保存也持有互斥，新配置在下一任务生效。不承担跨进程调度。显式 CLI 后端仍由 `agent.py` 执行。Web 仅监听 loopback，校验 Host 和 Origin；尚未实现远程鉴权，因此拒绝 `0.0.0.0`。灵矽自定义模型端点、Skills/MCP 页面仍是后续阶段。
 - 边界测试在 `tests/agent_smoke.py`、`tests/agent_transport.py` 和 `tests/agent_mcp.py`，由 `scripts/check.sh` 统一跑。

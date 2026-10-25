@@ -15,7 +15,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="dongdong", description="咚咚 · 灵矽语音控制 Mac")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("bind", help="首次绑定：打印激活码，绑完自动继续")
-    sub.add_parser("run", help="开始语音控制")
+    sub.add_parser("run", help="启动工作台，界面按钮开启语音")
     sub.add_parser("doctor", help="环境体检")
     sub.add_parser("tools", help="打印 MCP 工具定义")
     call = sub.add_parser("call", help="本地调用工具，不经过语音")
@@ -80,9 +80,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd in {"web", "run"}:
         from . import web_server
 
-        web_server.serve(
-            cfg, getattr(args, "host", None), getattr(args, "port", None), voice=args.cmd == "run"
-        )
+        web_server.serve(cfg, getattr(args, "host", None), getattr(args, "port", None))
         return
     if args.cmd == "serve":
         if args.host:

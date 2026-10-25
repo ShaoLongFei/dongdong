@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -17,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from . import config, tools, work_gate
 from . import state as device_state
+from .voice import Voice
 from .web_runtime import WebAgent, WebState
 
 STATIC = Path(__file__).with_name("static")
@@ -30,6 +30,10 @@ class SessionIn(BaseModel):
     title: str = "新会话"
 
 
+class VoiceIn(BaseModel):
+    enabled: bool = Field(strict=True)
+
+
 class SettingsIn(BaseModel):
     code_backend: str | None = Field(default=None, pattern="^(builtin|cli)$")
     workspace: str | None = None
@@ -40,34 +44,19 @@ class SettingsIn(BaseModel):
     max_tokens: int | None = Field(default=None, ge=1, le=65536)
 
 
-def create_app(cfg: dict, *, voice: bool = False) -> FastAPI:
+def create_app(cfg: dict) -> FastAPI:
     state = WebState(cfg)
+    voice = Voice(cfg, state.voice_text)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         tools.bind_service(WebAgent(state))
-        voice_task = asyncio.create_task(run_voice()) if voice else None
-        if not voice:
-            device_state.set_(connection="disabled")
         try:
             yield
         finally:
-            if voice_task:
-                voice_task.cancel()
-                await asyncio.gather(voice_task, return_exceptions=True)
+            await voice.set_enabled(False)
             await asyncio.to_thread(tools.close_service)
             await state.close()
-
-    async def run_voice():
-        try:
-            from .linx import Device
-
-            await Device(cfg, on_text=state.voice_text).run()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            device_state.set_(connection="error")
-            logging.getLogger("dongdong.web").exception("语音未启动，Web 仍可使用: %s", exc)
 
     app = FastAPI(title="咚咚", lifespan=lifespan)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]"])
@@ -91,7 +80,14 @@ def create_app(cfg: dict, *, voice: bool = False) -> FastAPI:
             "busy": bool(work_gate.current()),
             "voice": device_state.snapshot(cfg),
             "voice_session": state.voice_session,
+            "voice_enabled": voice.enabled,
+            "voice_error": voice.error,
         }
+
+    @app.put("/api/voice")
+    async def api_voice(body: VoiceIn):
+        await voice.set_enabled(body.enabled)
+        return {"enabled": voice.enabled}
 
     @app.get("/api/sessions")
     async def api_sessions():
@@ -227,13 +223,11 @@ def create_app(cfg: dict, *, voice: bool = False) -> FastAPI:
     return app
 
 
-def serve(
-    cfg: dict, host: str | None = None, port: int | None = None, *, voice: bool = False
-) -> None:
+def serve(cfg: dict, host: str | None = None, port: int | None = None) -> None:
     host = host or cfg["web"]["host"]
     port = port or int(cfg["web"]["port"])
     _local_host(host)
-    uvicorn.run(create_app(cfg, voice=voice), host=host, port=port, log_level="info")
+    uvicorn.run(create_app(cfg), host=host, port=port, log_level="info")
 
 
 def _local_host(host: str) -> None:

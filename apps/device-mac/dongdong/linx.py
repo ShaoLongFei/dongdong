@@ -69,6 +69,8 @@ class Device:
                 for task in done:
                     task.result()  # 把异常抛给上层去重连
             finally:
+                self.recorder.close()
+                self.player.close()
                 # 父任务退出或重连前必须等子任务清理完，避免旧录音协程继续使用设备。
                 recv.cancel()
                 mic.cancel()

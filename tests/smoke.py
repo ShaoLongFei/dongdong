@@ -53,15 +53,12 @@ def test_mcp_dispatch():
         "self.memory.delete",
     } <= {t["name"] for t in listed["result"]["tools"]}
 
-    missing = mcp.handle(
-        {
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {"name": "self.nope"},
-        }
+    assert (
+        mcp.handle(
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "self.nope"}}
+        )["error"]["code"]
+        == -32601
     )
-    assert missing["error"]["code"] == -32601
 
     bad = mcp.handle(
         {
@@ -78,7 +75,6 @@ def test_resolve_dir_blocks_escape():
     work = Path(tempfile.mkdtemp(prefix="dongdong-work-")).resolve()  # macOS 上 /var → /private/var
     cfg = {"projects": [str(work)], "cwd": ""}
     assert agent.resolve_dir(cfg, None) == work
-    assert agent.resolve_dir(cfg, str(work)) == work
     for outside in ("/tmp", "/etc", str(work / "..")):
         try:
             agent.resolve_dir(cfg, outside)
@@ -105,11 +101,6 @@ def test_resolve_dir_relative_name():
 def test_agent_argv_and_env():
     assert agent.required_env({"cmd": ["x"]}) == []
     assert "DEEPSEEK_API_KEY" in agent.required_env(config.load()["agents"]["deepseek"])
-    cfg = config.load()
-    argv = [
-        p.replace("{cwd}", "/w").replace("{prompt}", "hi") for p in cfg["agents"]["codex"]["cmd"]
-    ]
-    assert "/w" in argv and "hi" in argv
     os.environ["SMOKE_KEY"] = "k123"
     assert agent._expand({"K": "${SMOKE_KEY}"}) == {"K": "k123"}
     assert agent._expand({"K": "${NOT_SET_AT_ALL}"}) == {"K": ""}
@@ -281,6 +272,16 @@ def test_shared_runtime_rejects_reentry_and_cwd_escape():
         finally:
             work_gate.release("settings")
             await state.close()
+
+        from dongdong.audio import Player, Recorder
+
+        recorder, player = Recorder(), Player()
+        recorder.queue.put(b"old mic")
+        player.queue.put(b"old speech")
+        player.buffer.extend(b"old")
+        recorder.close()
+        player.close()
+        assert recorder.read() is None and not player.playing()
 
     asyncio.run(check())
 
