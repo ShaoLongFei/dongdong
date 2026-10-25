@@ -123,8 +123,24 @@ def create_app(cfg: dict) -> FastAPI:
         return state.story.state()
 
     @app.get("/api/story/events")
-    async def api_story_events(since: int = 0):
-        return {"events": state.story.events(since), "cursor": state.story.state()["cursor"]}
+    async def api_story_events(request: Request, since: int = 0):
+        async def stream():
+            cursor = max(0, since)
+            while not await request.is_disconnected():
+                events = state.story.events(cursor)
+                for event in events:
+                    cursor = event["id"]
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                current = state.story.state()
+                if current["status"] in {"done", "ready", "error"} and not events:
+                    return
+                await asyncio.sleep(0.2)
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.get("/api/stories")
     async def api_stories():
