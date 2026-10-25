@@ -4,7 +4,7 @@
 
 ## 剩余事项
 
-1. **Goal 验收证据**：Run 完成前由模型或专门验收器检查 Goal，并持久化可追溯 evidence。
+1. **Goal 验收证据**：已完成。Run 收口前持久化 acceptance、Item 结果摘要和 `goal_verified` 事件；有约束但无 verifier 时进入 `needs_review`。
 2. **失败修复与重新规划**：根据失败 Item、工具输出或用户 steer 追加修复 Item、替换规划或重新规划。
 3. **文件范围冲突**：为 Item 增加读写范围，检测重叠并自动串行化或拒绝不安全并行。
 4. **完整 Monitor 与收口**：补齐自动监察循环、停摆检测、有限 drain、最终验收 Planner 和严格收口顺序。

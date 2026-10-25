@@ -1,6 +1,6 @@
 # 咚咚生产任务调度内核设计
 
-> 状态：基础调度、自动规划与多 Item DAG 已实现；Goal 验收、失败修复规划、文件范围冲突和完整监察仍待后续演进。
+> 状态：基础调度、自动规划、多 Item DAG 与 Goal 验收证据已实现；失败修复规划、文件范围冲突和完整监察仍待后续演进。
 > 
 > 依据：`design/` 的 Goal/Item/Event/Run 模型、CAS claim、View → Decision 与收尾规则；`design2/` 的调度、规划落地和监察分层；当前 `Runtime`、SQLite/SSE、Web 和灵矽 MCP 入口。
 
@@ -20,12 +20,12 @@
 
 当前代码已交付的能力：SQLite WAL 迁移、Run/Goal/Item/Attempt/Event 持久化、依赖与环检测、CAS claim、lease、有限重试、取消/暂停/恢复、统一 Web/MCP 状态投影、4 worker、结构化 Planner、规划失败回退、多 Item DAG、独立 Item Runtime 上下文和规划状态 UI。首次规划已经接入 TaskManager；本规格剩余内容属于后续演进，不应再按“自动规划尚未实施”理解。
 
-已完成的自动规划验收边界：模型为一次目标返回经过 schema 校验的多个 Item 和依赖关系；规划失败有可见事件并回退到单 Item；独立 Item 可以并行执行；依赖 Item 串行执行；Run 在所有 Item 完成后收口。Goal 的模型驱动证据验收、文件范围冲突分析、完整 Monitor 收口、配置化调度和跨进程协调继续保留为后续阶段。
+已完成的自动规划与验收边界：模型为一次目标返回经过 schema 校验的多个 Item 和依赖关系；规划失败有可见事件并回退到单 Item；独立 Item 可以并行执行；依赖 Item 串行执行；Run 收口前持久化 Goal acceptance、Item 结果摘要和 `goal_verified` 事件。有约束但没有 verifier 的 Run 进入 `needs_review`，不会标记为 `done`。文件范围冲突分析、完整 Monitor 收口、配置化调度和跨进程协调继续保留为后续阶段。
 
 当前实现与后续事项：
 
 - **已完成**：首次结构化规划、Item 数量/ID/依赖/环/cwd/Agent 校验、规划失败回退、规划事件、独立 Item 执行、依赖等待、统一 Web/MCP 投影。
-- **未完成**：Goal 的模型驱动验收证据；失败 Item 的自动修复与重新规划；Item 文件读写范围声明、冲突检测与安全串行化；完整 Monitor 循环（停摆检测、有限 drain、最终验收 Planner 和严格收口顺序）；`task_scheduler` 配置化；真正的跨进程 worker 协调与自动恢复。
+- **未完成**：失败 Item 的自动修复与重新规划；Item 文件读写范围声明、冲突检测与安全串行化；完整 Monitor 循环（停摆检测、有限 drain、最终验收 Planner 和严格收口顺序）；`task_scheduler` 配置化；真正的跨进程 worker 协调与自动恢复。当前 Goal verifier 仍由调用方注入，默认 Web 入口只持久化证据并对无约束任务自动通过。
 - **暂不纳入**：多机共享工作区、分布式锁、自动合并并行修改，以及故事模式事项。
 
 ## 2. 范围与约束

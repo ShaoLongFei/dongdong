@@ -61,7 +61,7 @@ export DEEPSEEK_API_KEY=...
 
 ## 任务状态与功能进度
 
-Web 和内置语音任务已接入 SQLite 任务调度，运行记录展示任务项、状态、尝试次数和错误摘要。自动任务会先显示“正在规划任务”，规划完成后展示 Item 数量；规划失败会记录原因并安全回退为单项执行。灵矽可通过 `self.task.status`、`self.task.stop`、`self.task.resume` 查询、停止或恢复任务。进程重启后遗留调度任务暂停，需明确恢复，避免自动重放写命令。Goal 验收证据、修复规划、文件范围冲突和多机调度仍是后续工作。设计与实施范围见 [任务调度计划](docs/superpowers/plans/2026-10-25-task-scheduler.md)。
+Web 和内置语音任务已接入 SQLite 任务调度，运行记录展示任务项、状态、尝试次数和错误摘要。自动任务会先显示“正在规划任务”，规划完成后展示 Item 数量；规划失败会记录原因并安全回退为单项执行。灵矽可通过 `self.task.status`、`self.task.stop`、`self.task.resume` 查询、停止或恢复任务。Run 收口前会持久化 Goal acceptance、Item 结果摘要和 `goal_verified` 事件；有验收约束但没有 verifier 时进入 `needs_review`，不会误报成功。进程重启后遗留调度任务暂停，需明确恢复，避免自动重放写命令。修复规划、文件范围冲突和多机调度仍是后续工作。设计与实施范围见 [任务调度计划](docs/superpowers/plans/2026-10-25-task-scheduler.md)。
 
 项目、分层记忆、归档、任务调度、会议代码修改与故事模式已整合到 `main`。故事模式支持语音/按钮进入、实时 SVG 画布、故事恢复，以及 PNG、PDF、MP4 导出。故事保存在 `~/.dongdong/stories/<story_id>/`；MP4 使用项目内 `tools/ffmpeg/`，不依赖系统 PATH。仓库内同时提供 macOS arm64 与 x86_64 FFmpeg，并在导出前校验 SHA-256；该构建启用了 GPL、version3 和 nonfree 组件，公开分发前需复核许可证义务。
 
