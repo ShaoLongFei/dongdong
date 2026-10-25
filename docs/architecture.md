@@ -295,4 +295,6 @@ Web 仅监听 loopback，并校验 Host/Origin；没有远程账号鉴权，因�
 
 `vendor/birdview` 是固定 MIT 上游分发，渲染依赖锁与图标许可随包保存。HTML 保存在 `~/.dongdong/meetings/<id>/`，仅按已注册 ID 读取，CSP sandbox + iframe 只允许脚本、不允许同源权限。显示回执在 iframe load 后复查 HTML 读取成功，并检查服务器产物存在，不证明人已阅读；真实浏览器视觉验收另行执行。前端 Meeting.jsx 提供讨论、历史方案、地图、确认、恢复和检查回看。
 
-调度数据库操作位于task_store.py，Store复用同一连接/锁；TaskExecutor复用既有run与用户消息，不重复创建记录。web_agent.py桥接设备同步调用；task_tools.py注册任务查询/停止/恢复。故事场景协议与安全SVG/存储已在main，完整故事模式尚未交付。
+调度数据库操作位于task_store.py，Store复用同一连接/锁；TaskExecutor复用既有run与用户消息，不重复创建记录。web_agent.py桥接设备同步调用；task_tools.py注册任务查询/停止/恢复。故事模式由 StorySession、StoryStore、StoryCanvas 和 ExportManager 组成：语音最终文本先进入受控场景协议，再持久化 JSON/SVG；故事结束后通过项目内 FFmpeg 和 macOS 原生 SVG 渲染回退导出 PNG/PDF/MP4。历史故事只恢复元数据和画布，不自动开启麦克风。前端切换历史故事时为选中 ID 建立独立 SSE 游标，新故事开始后清空旧幕并切回实时故事；导出与重播始终绑定当前选中 ID。
+
+故事目录位于 `~/.dongdong/stories/<story_id>/`，每个目录保存 `manifest.json`、`scene-*.json`、`scene-*.svg` 和导出产物。`PUT /api/story/mode` 控制录音，`GET /api/story/state` 读取当前状态，`GET /api/story/events` 以 `story_id`/`since` 增量读取场景；历史列表、详情、重播和后台导出由 `/api/stories` 路由提供。PNG/PDF 采用可用的 SVG 渲染器（CairoSVG、Playwright 或 macOS Quick Look）生成首幕画面，MP4 则按全部场景的 `durationMs` 合成并写入静音 AAC 音轨。导出器按 CPU 架构选择并校验仓库内 `tools/ffmpeg/darwin-arm64/ffmpeg` 或 `darwin-x86_64/ffmpeg`，不回退到系统 PATH；当前 FFmpeg 构建包含 GPL/version3/nonfree 组件，公开分发前需复核许可证义务。

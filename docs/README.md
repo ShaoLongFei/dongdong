@@ -40,6 +40,18 @@ Web API 由 `apps/device-mac/dongdong/web_server.py` 及三个能力 router 定�
 | `POST /api/mcp/{name}/test` | 显式连接、发现工具后关闭，不执行工具 |
 | `GET /api/approvals` | 全局待审批列表 |
 | `POST /api/approvals/{run_id}/{call_id}` | `{approved: bool}`，批准一次 / 拒绝 |
+| `PUT /api/story/mode`、`GET /api/story/state` | 开始/结束故事，读取当前故事状态 |
+| `GET /api/story/events` | 当前或指定故事的 SSE 场景流，支持 `story_id` 与 `since` |
+| `GET /api/stories`、`GET /api/stories/{id}`、`POST /api/stories/{id}/replay` | 故事历史、详情和重播 |
+| `POST/GET /api/stories/{id}/exports` | 创建/查询 PNG、PDF、MP4 导出任务；完成后使用返回的同源下载地址 |
+
+### 故事模式
+
+故事模式可以从工作台按钮或语音命令“开始讲故事”进入。每段语音会生成受控的 JSON 场景和 SVG，实时通过 `GET /api/story/events?story_id=<id>&since=<cursor>` 推送到画布；“结束讲故事”会等待最后一段并把故事标记为完成。故事文件按故事 ID 存放在 `~/.dongdong/stories/<story_id>/`，包含 `manifest.json`、场景 JSON/SVG 和 `exports/` 目录。
+
+历史故事只能恢复画布、重播和导出，不会自动打开麦克风；查看历史时 SSE 使用所选 `story_id`，开始新故事后画布自动切回当前故事。PNG/PDF/MP4 导出都是后台任务，可用上表中的查询接口轮询；PNG 及 PDF 当前按故事首幕渲染，MP4 按全部场景和各幕时长合成，并附带静音 AAC 音轨。
+
+MP4 只调用仓库内的 FFmpeg：Apple Silicon 使用 `tools/ffmpeg/darwin-arm64/ffmpeg`，Intel macOS 使用 `tools/ffmpeg/darwin-x86_64/ffmpeg`，启动导出前会校验对应 `SHA256` 文件，不依赖系统 `PATH`。当前随仓库提供的构建启用了 GPL、version3 和 nonfree 组件；公开分发二进制或产品时需按 FFmpeg 及其编解码器的许可要求复核并补充声明。
 
 设置和能力变更与任务共用进程内互斥，冲突返回409；已处理或过期审批也返回409。模型 key、MCP env/header 的值不经查询 API 回显。
 
