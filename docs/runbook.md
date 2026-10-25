@@ -78,6 +78,24 @@ agent 任务默认最多等 120 秒，超时会转后台，用「刚才那个任
 
 运行时打开 <http://127.0.0.1:8766> 可查看连接、对话、任务输出和工具调用，也可以直接派任务。要从手机或电视访问，在 `~/.dongdong/config.json` 设置 `panel.host` 为 `0.0.0.0` 并设置 `panel.token`，重启 `run` 后打开 `http://<Mac IP>:8766/?token=xxx`。
 
+### 独立 Web 工作台
+
+不绑定灵矽也能使用内置 agent。首次在仓库根目录执行：
+
+```bash
+cd apps/web
+npm ci
+npm run build
+cd ../..
+./scripts/dev.sh web
+```
+
+打开 <http://127.0.0.1:8766>：新建会话、发送消息、实时查看回答和工具调用、停止任务；“运行记录”回看当前会话，“设置”配置模型和工作区。密钥留空保留现有值，保存权限为 0600，API 不返回密钥。
+
+会话和运行存于 `~/.dongdong/dongdong.db`；未配置模型时可以先进入设置。前端开发运行 `cd apps/web && npm run dev`，Vite 将 `/api` 代理到 Python。生产只需 Python，无需 Node 常驻。
+
+`web` 仅允许本机监听，当前与 `run` 的旧语音面板共用默认端口，二选一启动。Web、builtin 语音和 CLI agent 在同一进程内共享任务互斥；**独立进程之间不共享互斥**，不要同时针对同一工作区派活。Web 设置后会影响下次启动的语音配置，已运行的语音服务需重启。
+
 ### 语音调用本地内置 agent
 
 默认 `code_backend=cli`，语音还是走 codex/claude。要用新的内置 agent：

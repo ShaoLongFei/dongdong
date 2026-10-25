@@ -69,6 +69,12 @@ C++ 参考实现（[linx-linux](https://github.com/sunqirui1987/linx-linux)）�
 - `dongdong chat` 不需要灵矽绑定，配好模型 key 就能用。
 - 默认关闭 DeepSeek thinking：带 `tools` 时它要求回传历史 `reasoning_content`，Phase 1 不存，开着会 400。
 - Web 面板和语音后续都复用 `Runtime`，不再各写一套循环。
+
+### Web 工作台
+
+`dongdong web` 使用 FastAPI/uvicorn，服务 `apps/web` 的 React/Vite/Tailwind 构建产物和 `/api/*`。Web 的任务适配在 `web_runtime.py`，复用同一个 `Runtime` 和 SQLite；文本、工具调用和结果以持久化 SSE 事件回放，刷新可重新订阅。关闭服务时先取消并等待任务清理，再关数据库。
+
+`work_gate.py` 只做进程内跨入口互斥，取消完成后才释放；不承担跨进程调度。`run` 暂保留旧面板。Web 仅监听 loopback，校验 Host 和 Origin；尚未实现远程鉴权，因此拒绝 `0.0.0.0`。灵矽自定义模型端点、Skills/MCP 页面仍是后续阶段。
 - 边界测试在 `tests/agent_smoke.py`、`tests/agent_transport.py` 和 `tests/agent_mcp.py`，由 `scripts/check.sh` 统一跑。
 
 ### 灵矽语音接本地 agent

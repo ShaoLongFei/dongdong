@@ -1,0 +1,206 @@
+"""本地 Web 控制台：会话、SSE 事件流、停止和设置。"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+from . import config, work_gate
+from .web_runtime import WebState
+
+STATIC = Path(__file__).with_name("static")
+
+
+class MessageIn(BaseModel):
+    text: str
+
+
+class SessionIn(BaseModel):
+    title: str = "新会话"
+
+
+class SettingsIn(BaseModel):
+    workspace: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    max_tokens: int | None = Field(default=None, ge=1, le=65536)
+
+
+def create_app(cfg: dict) -> FastAPI:
+    state = WebState(cfg)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            yield
+        finally:
+            await state.close()
+
+    app = FastAPI(title="咚咚", lifespan=lifespan)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]"])
+
+    @app.middleware("http")
+    async def check_origin(request: Request, call_next):
+        origin = request.headers.get("origin")
+        if origin and origin != str(request.base_url).rstrip("/"):
+            return JSONResponse({"detail": "只接受同源请求"}, status_code=403)
+        return await call_next(request)
+
+    @app.get("/api/state")
+    async def api_state():
+        return {
+            "version": cfg.get("version", ""),
+            "workspace": str(state.workspace),
+            "model_ready": state.model is not None,
+            "error": state.error,
+            "backend": cfg.get("code_backend", "cli"),
+            "active_run": state._run_id,
+            "busy": bool(work_gate.current()),
+        }
+
+    @app.get("/api/sessions")
+    async def api_sessions():
+        return {"sessions": state.store.list_sessions()}
+
+    @app.post("/api/sessions")
+    async def api_new_session(body: SessionIn | None = None):
+        sid = state.store.create_session((body.title if body else "新会话"), "web")
+        return state.store.get_session(sid)
+
+    @app.get("/api/sessions/{sid}")
+    async def api_session(sid: str):
+        session = state.store.get_session(sid)
+        if not session:
+            raise HTTPException(404, "会话不存在")
+        return {
+            **session,
+            "messages": state.store.messages(sid),
+            "runs": state.store.list_runs(sid),
+        }
+
+    @app.post("/api/sessions/{sid}/messages")
+    async def api_message(sid: str, body: MessageIn):
+        if not state.store.get_session(sid):
+            raise HTTPException(404, "会话不存在")
+        text = body.text.strip()
+        if not text:
+            raise HTTPException(400, "消息不能为空")
+        try:
+            run_id = await state.start(sid, text)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        return {"run_id": run_id}
+
+    @app.get("/api/runs/{rid}")
+    async def api_run(rid: str):
+        run = state.store.get_run(rid)
+        if not run:
+            raise HTTPException(404, "run 不存在")
+        return run
+
+    @app.get("/api/runs/{rid}/events")
+    async def api_events(rid: str, request: Request, since: int = 0):
+        if not state.store.get_run(rid):
+            raise HTTPException(404, "run 不存在")
+
+        async def stream():
+            cursor = since
+            while True:
+                events = state.store.events(rid, cursor)
+                for event in events:
+                    cursor = event["id"]
+                    payload = {"id": cursor, "type": event["type"], "data": event["data"]}
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                if await request.is_disconnected():
+                    return
+                run = state.store.get_run(rid)
+                if run and run["status"] != "running" and not events:
+                    yield "event: end\ndata: {}\n\n"
+                    return
+                await asyncio.sleep(0.2)
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.post("/api/runs/{rid}/cancel")
+    async def api_cancel(rid: str):
+        if not state.cancel(rid):
+            raise HTTPException(409, "任务不在运行")
+        return {"ok": True}
+
+    @app.get("/api/settings")
+    async def api_settings():
+        model = cfg["model"]
+        return {
+            "workspace": cfg["workspace"],
+            "base_url": model["base_url"],
+            "model": model["model"],
+            "temperature": model["temperature"],
+            "max_tokens": model["max_tokens"],
+            "has_key": bool(config.expand(model["api_key"])),
+        }
+
+    @app.put("/api/settings")
+    async def api_save_settings(body: SettingsIn):
+        if work_gate.current():
+            raise HTTPException(409, "任务在跑，先停止再改设置")
+        if body.workspace is not None:
+            workspace = Path(body.workspace).expanduser().resolve()
+            if not workspace.is_dir():
+                raise HTTPException(400, f"工作区不存在: {workspace}")
+            cfg["workspace"] = str(workspace)
+            state.workspace = workspace
+        model = cfg["model"]
+        if body.base_url:
+            model["base_url"] = body.base_url.rstrip("/")
+        if body.model:
+            model["model"] = body.model
+        if body.api_key:
+            model["api_key"] = body.api_key
+        if body.temperature is not None:
+            model["temperature"] = body.temperature
+        if body.max_tokens is not None:
+            model["max_tokens"] = body.max_tokens
+        config.save(cfg)
+        state.reload()
+        return {"ok": True, "error": state.error}
+
+    if (STATIC / "index.html").exists():
+        app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")
+    else:
+
+        @app.get("/")
+        async def build_hint():
+            return JSONResponse(
+                {"detail": "请先在 apps/web 运行 npm ci && npm run build"}, status_code=503
+            )
+
+    return app
+
+
+def serve(cfg: dict, host: str | None = None, port: int | None = None) -> None:
+    host = host or cfg["web"]["host"]
+    port = port or int(cfg["web"]["port"])
+    _local_host(host)
+    uvicorn.run(create_app(cfg), host=host, port=port, log_level="info")
+
+
+def _local_host(host: str) -> None:
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError("Web 控制台当前只允许本机访问，请使用 127.0.0.1")

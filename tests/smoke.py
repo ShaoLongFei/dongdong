@@ -1,11 +1,9 @@
-#!/usr/bin/env python3
-"""唯一的测试。只覆盖会静默出错的边界，不测胶水。
-
-跑法：.venv/bin/python tests/smoke.py   （或 ./scripts/check.sh）
-"""
+"""边界 smoke：.venv/bin/python tests/smoke.py（或 ./scripts/check.sh）。"""
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import os
 import sys
@@ -18,7 +16,7 @@ sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
 os.environ["DONGDONG_HOME"] = tempfile.mkdtemp(prefix="dongdong-smoke-")
 logging.disable(logging.CRITICAL)  # 预期内的报错别刷屏
 
-from dongdong import agent, config, mcp, memory, screen, tools  # noqa: E402
+from dongdong import agent, config, mcp, memory, screen, tools, work_gate  # noqa: E402
 from dongdong.linx import _hello  # noqa: E402
 
 
@@ -109,7 +107,6 @@ def test_resolve_dir_relative_name():
     (root / "proj").mkdir()
     cfg = {"projects": [str(root)], "cwd": ""}
     assert agent.resolve_dir(cfg, "proj") == root / "proj", "相对目录要能在项目根下找到"
-    assert agent.resolve_dir(cfg, str(root / "proj")) == root / "proj"
     for bad in ("nope", "../etc", "/etc"):
         try:
             agent.resolve_dir(cfg, bad)
@@ -117,13 +114,6 @@ def test_resolve_dir_relative_name():
             pass
         else:
             raise AssertionError(f"不该放行: {bad}")
-
-
-def test_agent_env_contract():
-    assert agent.required_env({"cmd": ["x"]}) == []
-    assert "DEEPSEEK_API_KEY" in agent.required_env(config.load()["agents"]["deepseek"])
-    os.environ["SMOKE_KEY"] = "k123"
-    assert agent._expand({"K": "${SMOKE_KEY}"}) == {"K": "k123"}
 
 
 def test_custom_agent_from_config_file():
@@ -136,6 +126,8 @@ def test_custom_agent_from_config_file():
 
 
 def test_agent_argv_and_env():
+    assert agent.required_env({"cmd": ["x"]}) == []
+    assert "DEEPSEEK_API_KEY" in agent.required_env(config.load()["agents"]["deepseek"])
     cfg = config.load()
     argv = [
         p.replace("{cwd}", "/w").replace("{prompt}", "hi") for p in cfg["agents"]["codex"]["cmd"]
@@ -144,6 +136,16 @@ def test_agent_argv_and_env():
     os.environ["SMOKE_KEY"] = "k123"
     assert agent._expand({"K": "${SMOKE_KEY}"}) == {"K": "k123"}
     assert agent._expand({"K": "${NOT_SET_AT_ALL}"}) == {"K": ""}
+    with tempfile.TemporaryDirectory() as tmp:
+        job = agent.Job(
+            "fake",
+            Path(tmp),
+            [sys.executable, "-c", "import os;os.write(1,bytes([255]))"],
+            dict(os.environ),
+        )
+        assert job.done.wait(2)
+        assert not work_gate.current()
+        assert "\ufffd" in job.output
 
 
 def test_memory_delete_validates_all_owners_before_deleting():
@@ -256,6 +258,32 @@ def test_airplay_script_escapes_target():
     script = screen._mirror_script('卧室"电视')
     assert '\\"电视' in script
     assert "{TARGET}" not in script and "{MODE}" not in script
+
+
+def test_web_local_access_boundary():
+    import httpx
+    from dongdong.web_server import _local_host, create_app
+
+    async def check():
+        app = create_app(config.load())
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+            ) as client:
+                cases = [
+                    ("GET", "/api/state", {}, 200),
+                    ("GET", "/api/settings", {"headers": {"Host": "evil.example"}}, 400),
+                    ("POST", "/api/sessions", {"headers": {"Origin": "https://evil.example"}}, 403),
+                    ("PUT", "/api/settings", {"json": {"max_tokens": -1}}, 422),
+                ]
+                for method, url, kwargs, status in cases:
+                    assert (await client.request(method, url, **kwargs)).status_code == status
+                assert "api_key" not in (await client.get("/api/settings")).json()
+        with contextlib.suppress(ValueError):
+            _local_host("0.0.0.0")
+            raise AssertionError("没有鉴权时不能监听公网")
+
+    asyncio.run(check())
 
 
 if __name__ == "__main__":

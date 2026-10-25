@@ -21,6 +21,9 @@ def main(argv: list[str] | None = None) -> None:
     call = sub.add_parser("call", help="本地调用工具，不经过语音")
     call.add_argument("name")
     call.add_argument("arguments", nargs="?", default="{}", help="JSON 参数")
+    web = sub.add_parser("web", help="启动本地 Web 控制台")
+    web.add_argument("--host")
+    web.add_argument("--port", type=int)
     serve = sub.add_parser("serve", help="启动本地 HTTP 转发（给 ESP32）")
     serve.add_argument("--host")
     serve.add_argument("--port", type=int)
@@ -73,6 +76,11 @@ def main(argv: list[str] | None = None) -> None:
         from . import chat_cli
 
         asyncio.run(chat_cli.main(cfg, args.message))
+        return
+    if args.cmd == "web":
+        from . import web_server
+
+        web_server.serve(cfg, args.host, args.port)
         return
     if args.cmd == "serve":
         if args.host:

@@ -72,6 +72,7 @@ DEFAULTS: dict = {
     },
     "airplay": {"mirror_command": ""},
     "bridge": {"host": "127.0.0.1", "port": 8765, "token": ""},
+    "web": {"host": "127.0.0.1", "port": 8766},
     "panel": {"host": "127.0.0.1", "port": 8766, "token": ""},
 }
 

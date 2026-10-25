@@ -114,6 +114,19 @@ class Store:
                 ),
             )
 
+    def list_runs(self, session_id: str, limit: int = 20) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM runs WHERE session_id=? ORDER BY started_at DESC, rowid DESC LIMIT ?",
+                (session_id, limit),
+            ).fetchall()
+        out = []
+        for row in rows:
+            item = dict(row)
+            item["usage"] = json.loads(item["usage"] or "{}")
+            out.append(item)
+        return out
+
     def get_run(self, run_id: str) -> dict | None:
         with self._lock:
             row = self._conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()

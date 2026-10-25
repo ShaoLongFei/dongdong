@@ -25,6 +25,10 @@ apps/device-mac（Python，跑在 Mac 上）──────────┘
 # 不绑定灵矽也能手动用内置 agent（需要 DEEPSEEK_API_KEY）
 export DEEPSEEK_API_KEY=...
 ./scripts/dev.sh chat --message "读一下 README 并总结"
+
+# 独立 Web 工作台：对话、运行记录、模型/工作区设置
+cd apps/web && npm ci && npm run build && cd ../..
+./scripts/dev.sh web          # http://127.0.0.1:8766
 ```
 
 详细步骤见 [`docs/runbook.md`](docs/runbook.md)。
@@ -34,6 +38,7 @@ export DEEPSEEK_API_KEY=...
 | 目录 | 放什么 |
 | --- | --- |
 | `apps/device-mac/` | Mac 设备端：灵矽 WS 协议、音频、MCP 工具实现 |
+| `apps/web/` | React + Vite + Tailwind 工作台；构建后由 Python 服务 |
 | `firmware/` | ESP32 固件规划（复用 xiaozhi-esp32） |
 | `docs/` | [架构](docs/architecture.md) · [协议摘要](docs/linx-protocol.md) · [操作手册](docs/runbook.md) · [接入 agent](docs/agents.md) · [语音提示词](docs/linx-voice-prompt.md) · [决策记录](docs/decisions.md) |
 | `scripts/` | setup / dev / check |

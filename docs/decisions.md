@@ -25,6 +25,8 @@
 
 ## 已知的技术债（`shortcut:`）
 
+- 2026-10-25：Web 使用 FastAPI + React/Vite/Tailwind，先独立 `web` 命令，保留 `run` 的语音面板；仅本机访问。取消必须等 Runtime/子进程清理后释放进程内互斥，不能用 concurrent Future 的 cancel 返回值判断清理完成。跨进程互斥、统一入口后续再做。
+
 | 位置 | 限制 | 什么时候该还 |
 | --- | --- | --- |
 | `screen.py` | AppleScript 选择器随 macOS 版本变，未在 macOS 27 上逐一验证 | 换系统大版本 / 用户反馈点不中 |

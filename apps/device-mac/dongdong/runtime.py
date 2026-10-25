@@ -126,6 +126,7 @@ class Runtime:
                 async for event in self._stream(self.model, messages, builtin_tools.TOOL_SPECS):
                     if event.text:
                         text += event.text
+                        self.store.add_event(run_id, "text", {"delta": event.text})
                         emit("text", {"delta": event.text})
                     if event.tool_calls:
                         calls = event.tool_calls
@@ -153,6 +154,11 @@ class Runtime:
                 )
                 for call in calls:
                     started = time.monotonic()
+                    self.store.add_event(
+                        run_id,
+                        "tool_call",
+                        {"id": call.id, "name": call.name, "arguments": call.arguments},
+                    )
                     emit(
                         "tool_call",
                         {"id": call.id, "name": call.name, "arguments": call.arguments},

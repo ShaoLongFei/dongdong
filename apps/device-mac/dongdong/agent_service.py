@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from . import config
+from . import config, work_gate
 from .llm import ModelConfig, model_from_config, stream_chat
 from .runtime import Runtime
 from .store import Store
@@ -30,6 +30,7 @@ class Job:
         self.error = ""
         self.started = time.monotonic()
         self.future: concurrent.futures.Future | None = None
+        self.task: asyncio.Task | None = None
         self.finished = threading.Event()
         self._lock = threading.Lock()
 
@@ -74,7 +75,8 @@ class AgentService:
         self.history_messages = int(cfg["runtime"]["history_messages"])
         self.stream_fn = stream_fn
         self.store = Store(config.HOME / "dongdong.db")
-        self.store.stop_orphan_runs()
+        if not work_gate.current():
+            self.store.stop_orphan_runs()
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._serve, name="dongdong-agent", daemon=True)
         self._thread.start()
@@ -103,6 +105,9 @@ class AgentService:
 
     async def _run(self, job: Job, instruction: str) -> None:
         try:
+            job.task = asyncio.current_task()
+            if job.status == "stopped":
+                raise asyncio.CancelledError
             runtime = Runtime(
                 self.store,
                 self.model,
@@ -121,6 +126,7 @@ class AgentService:
             job.error = str(exc)
             raise
         finally:
+            work_gate.release(job.id)
             job.finished.set()
 
     def start(self, instruction: str, cwd: str | None = None, wait_seconds: int = 8) -> str:
@@ -134,7 +140,14 @@ class AgentService:
                 raise RuntimeError("agent service 已关闭")
             if self._active and not self._active.finished.is_set():
                 return f"上一个任务 {self._active.id} 还在跑，先等它结束或说「停」。"
-            job = Job(instruction, workdir, self.store.create_session("语音任务", "linx"))
+            job = Job(instruction, workdir, "")
+            if not work_gate.acquire(job.id):
+                return "另一个任务还在跑，先等它结束或说「停」。"
+            try:
+                job.session_id = self.store.create_session("语音任务", "linx")
+            except Exception:
+                work_gate.release(job.id)
+                raise
             self._jobs[job.id] = job
             self._last = job.id
             self._active = job
@@ -157,11 +170,9 @@ class AgentService:
         if job.status != "running":
             return f"任务 {job.id} 已经结束。"
         job.status = "stopped"
-        if job.future:
-            if job.future.cancel():
-                job.finished.set()
-            elif not job.finished.wait(2):
-                return f"已请求停止任务 {job.id}（还在收尾）。"
+        self._loop.call_soon_threadsafe(lambda: job.task.cancel() if job.task else None)
+        if not job.finished.wait(2):
+            return f"已请求停止任务 {job.id}（还在收尾）。"
         return f"已停止任务 {job.id}。"
 
     def snapshot(self) -> dict | None:
@@ -207,8 +218,6 @@ class AgentService:
             for job in self._jobs.values():
                 if job.status == "running":
                     job.status = "stopped"
-                    if job.future and job.future.cancel():
-                        job.finished.set()
         self._loop.call_soon_threadsafe(lambda: asyncio.ensure_future(self._shutdown()))
         self._thread.join(timeout=3)
         if not self._loop.is_running() and not self._loop.is_closed():

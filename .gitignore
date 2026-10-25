@@ -8,3 +8,5 @@ __pycache__/
 deploy/env.local
 .idea/
 .vscode/
+node_modules/
+apps/device-mac/dongdong/static/

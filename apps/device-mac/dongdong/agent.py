@@ -14,6 +14,8 @@ import time
 import uuid
 from pathlib import Path
 
+from . import work_gate
+
 log = logging.getLogger("dongdong.agent")
 
 _JOBS: dict[str, Job] = {}
@@ -29,24 +31,35 @@ class Job:
         self.output = ""
         self.done = threading.Event()
         log.info("任务 %s 启动: %s (cwd=%s)", self.id, " ".join(argv[:5]), cwd)
-        self.proc = subprocess.Popen(
-            argv,
-            cwd=str(cwd),
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
+        if not work_gate.acquire(self.id):
+            raise RuntimeError("另一个任务还在跑，先停止或等它结束。")
+        try:
+            self.proc = subprocess.Popen(
+                argv,
+                cwd=str(cwd),
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                errors="replace",
+                bufsize=1,
+            )
+        except Exception:
+            work_gate.release(self.id)
+            raise
         threading.Thread(target=self._drain, daemon=True).start()
 
     def _drain(self) -> None:
         assert self.proc.stdout is not None
-        for line in self.proc.stdout:
-            self.output += line
-        self.proc.wait()
-        self.done.set()
+        try:
+            for line in self.proc.stdout:
+                self.output += line
+        finally:
+            self.proc.wait()
+            self.proc.stdout.close()
+            work_gate.release(self.id)
+            self.done.set()
         log.info("任务 %s 结束，退出码 %s", self.id, self.proc.returncode)
 
     @property
