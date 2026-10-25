@@ -8,10 +8,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "device-mac"))
 
-from dongdong.story import StorySession
-from dongdong.story_schema import normalize_scene
-from dongdong.story_store import StoryStore
-from dongdong.story_svg import scene_to_svg
+from dongdong.story import StorySession  # noqa: E402
+from dongdong.story_schema import normalize_scene  # noqa: E402
+from dongdong.story_store import StoryStore  # noqa: E402
+from dongdong.story_svg import scene_to_svg  # noqa: E402
 
 
 def main() -> None:
