@@ -67,6 +67,8 @@ class TaskExecutor:
                     history_messages=int(self.cfg["runtime"]["history_messages"]),
                     cfg=self.cfg,
                     approve=self._approval if self.approve else None,
+                    instruction=self._item_context(item, run),
+                    isolated=True,
                 )
                 text = asyncio.run(self._run(runtime, item, run, cancel_event))
                 return AttemptResult("done", output=text)
@@ -78,3 +80,17 @@ class TaskExecutor:
             return AttemptResult("blocked", error=str(exc), error_kind="blocked")
         except Exception as exc:  # noqa: BLE001 外部 agent/网络错误可重试
             return AttemptResult("retryable_error", error=str(exc), error_kind="worker")
+
+    def _item_context(self, item: dict, run: dict) -> str:
+        deps = self.store.item_dependencies(item["id"])
+        lines = [
+            f"\n父目标：{run.get('goal_text', '')}",
+            f"\n当前子任务：{item.get('instruction', '')}",
+        ]
+        if item.get("acceptance"):
+            lines.append(f"\n验收标准：{item['acceptance']}")
+        if deps:
+            lines.append("\n前置子任务结果：")
+            lines.extend(f"- {dep['id']}: {dep.get('result', '')}" for dep in deps)
+        lines.append("\n只处理当前子任务，完成后用简短文字报告结果。")
+        return "".join(lines)

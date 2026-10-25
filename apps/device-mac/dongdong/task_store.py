@@ -5,13 +5,43 @@ import uuid
 from datetime import UTC, datetime
 
 from .task_model import ItemSpec, RunSpec
+from .task_projection import TaskProjection
 
 
 def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-class TaskStore:
+class TaskStore(TaskProjection):
+    def set_task_status(
+        self, run_id: str, status: str, error: str = "", event_type: str = "run_status", data=None
+    ) -> bool:
+        """在同一事务中更新 Run 快照并记录状态事件。"""
+        ts = now()
+        payload = {"status": status}
+        if error:
+            payload["error"] = error[:4000]
+        if data:
+            payload.update(data)
+        with self._lock, self._conn:
+            row = self._conn.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
+            if not row:
+                return False
+            ended = (
+                ts
+                if status in {"done", "failed", "error", "timeout", "canceled", "stopped"}
+                else None
+            )
+            self._conn.execute(
+                "UPDATE runs SET status=?, error=?, ended_at=COALESCE(?, ended_at) WHERE id=?",
+                (status, error[:4000], ended, run_id),
+            )
+            self._conn.execute(
+                "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
+                (run_id, event_type, json.dumps(payload, ensure_ascii=False), ts),
+            )
+        return True
+
     def create_task_run(self, session_id: str, spec: RunSpec) -> str:
         rid, ts = uuid.uuid4().hex[:12], now()
         workers = max(1, min(int(spec.max_workers), 32))
@@ -61,6 +91,9 @@ class TaskStore:
         ids = {item_id for _, item_id in resolved}
         edges = {item_id: set(item.depends_on) for item, item_id in resolved}
         with self._lock, self._conn:
+            run = self._conn.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
+            if not run or run[0] not in {"planning", "running"}:
+                raise ValueError("任务不在规划或运行状态")
             existing = {
                 row[0]
                 for row in self._conn.execute("SELECT id FROM items WHERE run_id=?", (run_id,))
@@ -250,26 +283,3 @@ class TaskStore:
                     (row[1], "lease_expired", json.dumps({"item_id": row[0]}), stamp),
                 )
             return len(rows)
-
-    def task_view(self, run_id: str):
-        with self._lock:
-            run = self._conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
-            if not run:
-                return None
-            goals = self._conn.execute(
-                "SELECT * FROM goals WHERE run_id=? ORDER BY rowid", (run_id,)
-            ).fetchall()
-            items = self._conn.execute(
-                "SELECT * FROM items WHERE run_id=? ORDER BY priority DESC, rowid", (run_id,)
-            ).fetchall()
-            attempts = self._conn.execute(
-                "SELECT a.* FROM attempts a JOIN items i ON i.id=a.item_id WHERE i.run_id=? ORDER BY a.id",
-                (run_id,),
-            ).fetchall()
-        return {
-            "run": dict(run),
-            "goals": [dict(x) for x in goals],
-            "items": [dict(x) for x in items],
-            "attempts": [dict(x) for x in attempts],
-            "events": self.events(run_id),
-        }

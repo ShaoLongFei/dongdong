@@ -47,15 +47,16 @@ class Runtime:
         self._stream = stream_fn
         self.tool_ctx = builtin_tools.ToolContext(workspace=workspace)
         self.system_prompt = SYSTEM_PROMPT.format(workspace=workspace)
+        self._local_messages: list[dict] = []
 
     def _messages(self, session_id: str, keep_id: int | None = None) -> list[dict]:
+        if self.isolated:
+            return [{"role": "system", "content": self.system_prompt}, *self._local_messages]
         rows = _trim(
             [row for row in self.store.messages(session_id) if row["source"] == "agent"],
             self.history_messages,
             keep_id,
         )
-        if self.isolated and keep_id is not None:
-            rows = [row for row in rows if row["id"] >= keep_id]
         out: list[dict] = [{"role": "system", "content": self.system_prompt}]
         for row in rows:
             if row["role"] == "tool":
@@ -112,6 +113,8 @@ class Runtime:
                 emit(kind, data)
 
             self.system_prompt = SYSTEM_PROMPT.format(workspace=self.workspace) + self.instruction
+            if self.isolated:
+                self._local_messages = [{"role": "user", "content": user_text}]
             if not self.isolated:
                 try:
                     context = await memory_tools.context(self.cfg, project_id, user_text)
@@ -155,26 +158,48 @@ class Runtime:
                         if event.usage:
                             usage = event.usage
                     if not calls:
-                        self.store.append_message(session_id, "assistant", text)
+                        if not self.isolated:
+                            self.store.append_message(session_id, "assistant", text)
+                        if self.isolated:
+                            self._local_messages.append({"role": "assistant", "content": text})
                         self.store.add_event(run_id, "done", {"text": text})
                         if not managed:
                             self.store.finish_run(run_id, "done", usage=usage)
                         emit("done", {"text": text})
                         return text
 
-                    self.store.append_message(
-                        session_id,
-                        "assistant",
-                        text,
-                        tool_calls=[
+                    if not self.isolated:
+                        self.store.append_message(
+                            session_id,
+                            "assistant",
+                            text,
+                            tool_calls=[
+                                {
+                                    "id": call.id,
+                                    "type": "function",
+                                    "function": {"name": call.name, "arguments": call.arguments},
+                                }
+                                for call in calls
+                            ],
+                        )
+                    if self.isolated:
+                        self._local_messages.append(
                             {
-                                "id": call.id,
-                                "type": "function",
-                                "function": {"name": call.name, "arguments": call.arguments},
+                                "role": "assistant",
+                                "content": text or None,
+                                "tool_calls": [
+                                    {
+                                        "id": call.id,
+                                        "type": "function",
+                                        "function": {
+                                            "name": call.name,
+                                            "arguments": call.arguments,
+                                        },
+                                    }
+                                    for call in calls
+                                ],
                             }
-                            for call in calls
-                        ],
-                    )
+                        )
                     for call in calls:
                         started = time.monotonic()
                         record(
@@ -232,7 +257,14 @@ class Runtime:
                             result = f"执行失败: {type(exc).__name__}: {exc}"
                             ok = False
                         ms = int((time.monotonic() - started) * 1000)
-                        self.store.append_message(session_id, "tool", result, tool_call_id=call.id)
+                        if not self.isolated:
+                            self.store.append_message(
+                                session_id, "tool", result, tool_call_id=call.id
+                            )
+                        if self.isolated:
+                            self._local_messages.append(
+                                {"role": "tool", "tool_call_id": call.id, "content": result}
+                            )
                         self.store.record_tool_call(run_id, call.name, args, result, ok, ms)
                         record(
                             "tool_result",

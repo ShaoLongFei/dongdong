@@ -12,8 +12,12 @@ from pathlib import Path
 
 from . import config, work_gate
 from .store import Store
+from .task_lifecycle import close as close_manager
+from .task_lifecycle import monitor, recover
 from .task_model import AttemptResult, ItemSpec, RunSpec
-from .task_runtime import TaskExecutor, TaskPlanner
+from .task_plan_runtime import plan_run
+from .task_planner import TaskPlanner
+from .task_runtime import TaskExecutor
 
 
 class TaskManager:
@@ -38,9 +42,10 @@ class TaskManager:
             max_workers=self.max_workers, thread_name_prefix="dongdong-task"
         )
         self.task_executor = TaskExecutor(self.cfg, store, model, runner, approve)
-        self.planner = TaskPlanner()
+        self.planner = TaskPlanner(self.model, self.cfg)
         self._runs: dict[str, threading.Event] = {}
         self._threads: dict[str, threading.Thread] = {}
+        self._planning: dict[str, tuple[str, str]] = {}
         self._closed = False
         self.on_finished = None
 
@@ -79,10 +84,14 @@ class TaskManager:
                     "UPDATE events SET data=? WHERE id=?",
                     (json.dumps(data, ensure_ascii=False), row[0]),
                 )
-        specs = items or [
-            ItemSpec(id=f"{run_id}-0", instruction=text, cwd=workspace, agent="builtin")
-        ]
-        self.store.add_items(run_id, specs)
+        if items is None:
+            self.store.set_task_status(run_id, "planning", event_type="planning_queued")
+            self._planning[run_id] = (text, workspace)
+        else:
+            specs = items or [
+                ItemSpec(id=f"{run_id}-0", instruction=text, cwd=workspace, agent="builtin")
+            ]
+            self.store.add_items(run_id, specs)
         self._launch(run_id)
         return run_id
 
@@ -105,6 +114,9 @@ class TaskManager:
     def _loop(self, run_id: str, cancel: threading.Event, owns_gate: bool) -> None:
         futures = set()
         try:
+            planning = self._planning.pop(run_id, None)
+            if planning:
+                plan_run(self, run_id, *planning, cancel)
             while not cancel.is_set() and not self._closed:
                 view = self.store.task_view(run_id)
                 if not view or view["run"]["status"] != "running":
@@ -172,7 +184,14 @@ class TaskManager:
             )
 
     def _finish(self, run_id: str, status: str, error: str = "") -> None:
-        self.store.finish_run(run_id, status, error=error)
+        if status == "done":
+            view = self.store.task_view(run_id)
+            outputs = [item["result"] for item in view["items"] if item.get("result")]
+            if outputs:
+                summary = "任务完成：\n" + "\n\n".join(outputs)
+                self.store.append_message(view["run"]["session_id"], "assistant", summary)
+                self.store.add_event(run_id, "delivery", {"text": summary})
+        self.store.set_task_status(run_id, status, error=error, event_type="run_finished")
 
     def wait(self, run_id: str, timeout: float = 10) -> dict:
         thread = self._threads.get(run_id)
@@ -195,12 +214,22 @@ class TaskManager:
             cancel.set()
         with self.store._lock, self.store._conn:
             self.store._conn.execute(
-                "UPDATE runs SET status='canceled', error='用户停止', ended_at=? WHERE id=? AND status='running'",
+                "UPDATE runs SET status='canceled', error='用户停止', ended_at=? "
+                "WHERE id=? AND status IN ('running','planning','paused')",
                 (datetime.now(UTC).isoformat(timespec="seconds"), run_id),
             )
             self.store._conn.execute(
                 "UPDATE items SET status='stopped', lease_owner=NULL, lease_until=NULL WHERE run_id=? AND status IN ('open','running')",
                 (run_id,),
+            )
+            self.store._conn.execute(
+                "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
+                (
+                    run_id,
+                    "run_canceled",
+                    json.dumps({"message": "用户停止"}, ensure_ascii=False),
+                    datetime.now(UTC).isoformat(timespec="seconds"),
+                ),
             )
         return self.status(run_id)
 
@@ -240,13 +269,21 @@ class TaskManager:
                 "UPDATE items SET status='open' WHERE run_id=? AND status IN ('stopped','blocked')",
                 (run_id,),
             )
+        if not self.status(run_id)["items"]:
+            self._planning[run_id] = (run.get("goal_text", ""), run.get("workspace", ""))
+            self.store.set_task_status(run_id, "planning", event_type="planning_queued")
         self._launch(run_id)
         return self.status(run_id)
 
     def pause(self, run_id: str) -> dict:
         with self.store._lock, self.store._conn:
             self.store._conn.execute(
-                "UPDATE runs SET status='paused' WHERE id=? AND status='running'", (run_id,)
+                "UPDATE runs SET status='paused' WHERE id=? AND status IN ('running','planning')",
+                (run_id,),
+            )
+            self.store._conn.execute(
+                "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
+                (run_id, "run_paused", "{}", datetime.now(UTC).isoformat(timespec="seconds")),
             )
         event = self._runs.get(run_id)
         if event:
@@ -254,38 +291,10 @@ class TaskManager:
         return self.status(run_id)
 
     def monitor_once(self, run_id: str) -> dict:
-        self.store.requeue_expired(run_id)
-        view = self.status(run_id)
-        run = view.get("run") or {}
-        deadline = run.get("deadline_at")
-        if (
-            run.get("status") == "running"
-            and deadline
-            and deadline <= datetime.now(UTC).isoformat(timespec="seconds")
-        ):
-            self._finish(run_id, "timeout", "超过任务截止时间")
-            view = self.status(run_id)
-        return view
+        return monitor(self, run_id)
 
     def recover_runs(self) -> int:
-        """重启时暂停遗留任务，避免把已执行过的写命令自动重放。"""
-        with self.store._lock, self.store._conn:
-            rows = self.store._conn.execute("SELECT id FROM runs WHERE status='running'").fetchall()
-            for row in rows:
-                self.store._conn.execute(
-                    "UPDATE runs SET status='paused', error='进程重启，请确认后恢复' WHERE id=?",
-                    row,
-                )
-                self.store._conn.execute(
-                    "UPDATE items SET status='stopped', lease_owner=NULL, lease_until=NULL WHERE run_id=? AND status='running'",
-                    row,
-                )
-            return len(rows)
+        return recover(self)
 
     def close(self) -> None:
-        self._closed = True
-        for event in self._runs.values():
-            event.set()
-        for thread in self._threads.values():
-            thread.join()
-        self.executor.shutdown(wait=True, cancel_futures=True)
+        close_manager(self)
