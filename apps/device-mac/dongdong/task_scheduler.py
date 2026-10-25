@@ -23,6 +23,7 @@ class TaskManager:
         cfg: dict | None = None,
         model=None,
         runner=None,
+        approve=None,
         max_workers: int = 1,
         poll_seconds: float = 0.1,
     ):
@@ -35,7 +36,7 @@ class TaskManager:
         self.executor = ThreadPoolExecutor(
             max_workers=self.max_workers, thread_name_prefix="dongdong-task"
         )
-        self.task_executor = TaskExecutor(self.cfg, store, model, runner)
+        self.task_executor = TaskExecutor(self.cfg, store, model, runner, approve)
         self.planner = TaskPlanner()
         self._runs: dict[str, threading.Event] = {}
         self._threads: dict[str, threading.Thread] = {}

@@ -17,8 +17,14 @@ class TaskPlanner:
 
 
 class TaskExecutor:
-    def __init__(self, cfg: dict, store, model=None, runner: Callable | None = None):
-        self.cfg, self.store, self.model, self.runner = cfg, store, model, runner
+    def __init__(self, cfg: dict, store, model=None, runner: Callable | None = None, approve=None):
+        self.cfg, self.store, self.model, self.runner, self.approve = (
+            cfg,
+            store,
+            model,
+            runner,
+            approve,
+        )
 
     def execute(self, item: dict, run: dict, cancel_event: Event) -> AttemptResult:
         if cancel_event.is_set():
@@ -36,6 +42,7 @@ class TaskExecutor:
                     max_steps=int(self.cfg["runtime"]["max_steps"]),
                     history_messages=int(self.cfg["runtime"]["history_messages"]),
                     cfg=self.cfg,
+                    approve=self.approve,
                 )
                 text = asyncio.run(runtime.run(run["session_id"], item["instruction"]))
                 return AttemptResult("done", output=text)

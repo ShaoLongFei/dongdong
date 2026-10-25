@@ -33,7 +33,13 @@ class WebState:
         self.task_session = ""
         self.voice_session = ""
         self.reload()
-        self.manager = TaskManager(self.store, cfg=cfg, model=self.model, max_workers=1)
+        self.manager = TaskManager(
+            self.store,
+            cfg=cfg,
+            model=self.model,
+            max_workers=1,
+            approve=self.approvals.request,
+        )
         self.manager.recover_runs()
 
     def voice_text(self, _connection: str, role: str, text: str) -> None:

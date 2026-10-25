@@ -166,7 +166,15 @@ class Store:
             known = existing | ids
             if any(dep not in known for deps in edges.values() for dep in deps):
                 raise ValueError("依赖 Item 不存在")
-            self._assert_acyclic({node: deps for node, deps in edges.items()})
+            all_edges = {node: set() for node in known}
+            for row in self._conn.execute(
+                "SELECT d.item_id, d.depends_on_id FROM item_deps d JOIN items i ON i.id=d.item_id WHERE i.run_id=?",
+                (run_id,),
+            ):
+                all_edges[row[0]].add(row[1])
+            for node, deps in edges.items():
+                all_edges[node] = set(deps)
+            self._assert_acyclic(all_edges)
             ts = now()
             goal = self._conn.execute(
                 "SELECT id FROM goals WHERE run_id=? ORDER BY rowid LIMIT 1", (run_id,)
