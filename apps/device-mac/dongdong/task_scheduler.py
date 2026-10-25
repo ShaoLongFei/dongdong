@@ -174,7 +174,7 @@ class TaskManager:
                 if statuses and self._items_resolved(view["items"]):
                     self._finish(run_id, "done")
                     break
-                if statuses and not statuses & {"open", "running"}:
+                if statuses and not statuses & {"open", "running"} and not self._items_resolved(view["items"]):
                     self._finish(run_id, "failed", "没有可恢复的 Item")
                     break
                 time.sleep(self.poll_seconds)

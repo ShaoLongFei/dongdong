@@ -387,6 +387,8 @@ def test_task_monitor_detects_stall_without_killing_dependency_wait():
         assert manager.monitor_once(stalled)["run"]["status"] == "running"
         assert manager.monitor_once(stalled)["run"]["status"] == "failed"
         assert any(event["type"] == "stall_detected" for event in store.events(stalled))
+        empty = store.create_task_run(sid, RunSpec(goal_text="empty"))
+        assert manager.monitor_once(empty)["run"]["status"] == "failed"
         manager.close()
         store.close()
 

@@ -10,8 +10,12 @@ def monitor(manager, run_id: str) -> dict:
     run = view.get("run") or {}
     if run.get("status") == "running":
         items = view.get("items", [])
+        if not items:
+            manager.store.add_event(run_id, "stall_detected", {"count": 1, "limit": 1})
+            manager._finish(run_id, "failed", "任务停摆：没有可执行的 Item")
+            return manager.status(run_id)
         active = {item.get("status") for item in items}
-        if items and not active & {"open", "running"} and not manager._items_resolved(items):
+        if not active & {"open", "running"} and not manager._items_resolved(items):
             counts = getattr(manager, "_stall_counts", {})
             count = counts.get(run_id, 0) + 1
             counts[run_id] = count
@@ -28,6 +32,7 @@ def monitor(manager, run_id: str) -> dict:
                 )
                 manager._finish(run_id, "failed", "任务停摆：没有可执行或运行中的 Item")
                 view = manager.status(run_id)
+                run = view.get("run") or {}
         elif hasattr(manager, "_stall_counts"):
             manager._stall_counts.pop(run_id, None)
     if (
