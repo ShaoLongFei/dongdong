@@ -1,5 +1,3 @@
-"""实时故事会话：把语音片段整理成受控场景并持久化。"""
-
 from __future__ import annotations
 
 import asyncio
@@ -17,12 +15,9 @@ from .story_svg import scene_to_svg
 
 log = logging.getLogger("dongdong.story")
 _WORDS = re.compile(r"[。！？!?；;\n]+|然后|突然|于是|看见|跑向|拿起|变成")
-_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 
 class StorySession:
-    """一个录音故事及其场景生成任务。"""
-
     def __init__(
         self,
         model: ModelConfig | object | None = None,
@@ -46,7 +41,6 @@ class StorySession:
         self._events: list[dict] = []
         self._cursor = 0
         self._characters: list[dict] = []
-        self._lock = asyncio.Lock()
         self._pending: dict[str, str] = {}
         self._error = ""
 
