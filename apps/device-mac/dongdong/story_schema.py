@@ -200,9 +200,7 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
         elif item["kind"] == "object" and "果" in label:
             item.update(x=535, y=390, width=max(item["width"], 64), height=max(item["height"], 64))
         elif any(word in label for word in ("山谷", "草坡", "草地")):
-            item.update(
-                x=60, y=455, width=max(item["width"], 1120), height=max(item["height"], 180)
-            )
+            item.update(x=0, y=455, width=1280, height=max(item["height"], 180))
         elif "蒲公英" in label:
             item.update(x=item["x"], y=455)
         elif item["kind"] == "action_lines":

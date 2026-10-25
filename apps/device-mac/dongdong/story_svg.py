@@ -150,7 +150,7 @@ def _label_position(element: dict, index: int) -> tuple[int, int]:
         if "哭声" in label:
             x, y = 820, 490
         elif "缠住脚" in label:
-            x, y = 650, 640
+            x, y = 610, 680
         elif "剪断" in label:
             x, y = 560, 405
         elif "果子" in label:
@@ -198,6 +198,8 @@ def _background(scene: dict) -> str:
         f'<path d="M0 470 Q180 360 360 470 T720 455 T1080 465 T1440 450 V720 H0 Z" fill="{hill}" opacity=".72"/>'
         '<path d="M0 535 Q190 445 390 535 T780 525 T1170 530 T1440 515 V720 H0 Z" fill="#A8D47D"/>'
         '<path d="M0 665 Q260 590 540 675 T1080 650 T1440 625 V720 H0 Z" fill="#6FA95D" opacity=".35"/>'
+        '<path d="M72 666 l12 -22 m10 22 l12 -16 m1020 15 l12 -22 m10 22 l12 -16 m-760 24 l12 -20 m10 20 l12 -14" fill="none" stroke="#4F8B45" stroke-width="5" stroke-linecap="round" opacity=".7"/>'
+        '<ellipse cx="145" cy="594" rx="18" ry="8" fill="#78966D" opacity=".45"/><ellipse cx="1110" cy="610" rx="22" ry="9" fill="#78966D" opacity=".4"/>'
     )
 
 
@@ -294,6 +296,8 @@ def _interaction(element: dict, raw_elements: list[dict]) -> str:
         return (
             f'<path d="M{sx} {sy} Q{fx + 30} {fy - 80} {tx} {ty}" fill="none" '
             'stroke="#D93636" stroke-width="7" stroke-dasharray="12 12" stroke-linecap="round"/>'
+            f'<path d="M{sx + 12} {sy + 8} Q{fx + 100} {fy - 10} {fx + 42} {fy + 2}" fill="none" stroke="#D9B38C" stroke-width="16" stroke-linecap="round"/>'
+            f'<circle cx="{fx + 35}" cy="{fy + 2}" r="10" fill="#D9B38C" stroke="#5B5550" stroke-width="3"/>'
             f'<path d="M{tx + 2} {ty} l22 -12 M{tx + 2} {ty} l22 12" stroke="#D93636" '
             'stroke-width="7" stroke-linecap="round"/>'
         )
@@ -388,6 +392,13 @@ def scene_to_svg(scene: dict) -> str:
     for element in ordered:
         if interaction := _interaction(element, ordered):
             parts.append(interaction)
+    for element in ordered:
+        if element["kind"] in {"fox", "rabbit", "hedgehog", "bird", "person"}:
+            cx = element["x"] + element["width"] // 2
+            cy = min(700, element["y"] + element["height"] - 4)
+            parts.append(
+                f'<ellipse cx="{cx}" cy="{cy}" rx="{max(44, element["width"] // 3)}" ry="14" fill="#4B7048" opacity=".18"/>'
+            )
     label_boxes: list[tuple[int, int, int, int]] = []
     seen_labels: set[str] = set()
     for index, element in enumerate(ordered):
@@ -411,9 +422,14 @@ def scene_to_svg(scene: dict) -> str:
                     label_y = 112
                     label_x = min(WIDTH - label_width - 8, label_x + 90)
             label_boxes.append((label_x - 5, label_y - 16, label_x - 5 + label_width, label_y + 6))
-            parts.append(
-                f'<rect x="{label_x - 5}" y="{label_y - 16}" width="{label_width}" height="22" rx="5" fill="#FFF9EE" opacity=".88"/>'
-                f'<text x="{label_x}" y="{label_y}" fill="#5B5550" font-size="16" font-family="sans-serif">{label[:18]}</text>'
-            )
+            if element["kind"] == "action_lines":
+                parts.append(
+                    f'<text x="{label_x}" y="{label_y}" fill="#5B5550" font-size="15" font-family="sans-serif" font-weight="600" stroke="#FFF9EE" stroke-width="5" paint-order="stroke">{label[:18]}</text>'
+                )
+            else:
+                parts.append(
+                    f'<rect x="{label_x - 5}" y="{label_y - 16}" width="{label_width}" height="22" rx="5" fill="#FFF9EE" opacity=".88"/>'
+                    f'<text x="{label_x}" y="{label_y}" fill="#5B5550" font-size="16" font-family="sans-serif">{label[:18]}</text>'
+                )
     parts.append("</svg>")
     return "".join(parts)
