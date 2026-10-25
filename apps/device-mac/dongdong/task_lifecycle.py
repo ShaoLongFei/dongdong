@@ -35,6 +35,10 @@ def monitor(manager, run_id: str) -> dict:
                 run = view.get("run") or {}
         elif hasattr(manager, "_stall_counts"):
             manager._stall_counts.pop(run_id, None)
+        # 截止时间与完成竞态时，已解析的 Item 优先走 Goal 验收。
+        if manager._items_resolved(items):
+            manager._finish(run_id, "done")
+            return manager.status(run_id)
     if (
         run.get("status") == "running"
         and run.get("deadline_at")

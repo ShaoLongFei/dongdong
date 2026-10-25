@@ -588,7 +588,8 @@ class TaskStore(GoalVerification, TaskProjection):
         with self._lock, self._conn:
             query = (
                 "SELECT id, run_id, attempts, max_attempts FROM items "
-                "WHERE status='running' AND lease_until < ?"
+                # 旧版本或异常中断可能留下 NULL lease；running Item 不能永久占住 DAG。
+                "WHERE status='running' AND (lease_until IS NULL OR lease_until < ?)"
             )
             args: tuple = (stamp,)
             if run_id:

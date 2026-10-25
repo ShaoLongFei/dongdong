@@ -382,8 +382,9 @@ class TaskManager:
             self.store._conn.execute(
                 "UPDATE runs SET status='running', error='' WHERE id=?", (run_id,)
             )
+            # blocked 表示依赖或 repair 失败，交给 repair 流程解阻断；resume 只恢复被收口的 stopped。
             self.store._conn.execute(
-                "UPDATE items SET status='open' WHERE run_id=? AND status IN ('stopped','blocked')",
+                "UPDATE items SET status='open' WHERE run_id=? AND status='stopped'",
                 (run_id,),
             )
         if not self.status(run_id)["items"]:
