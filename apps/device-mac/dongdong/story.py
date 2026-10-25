@@ -190,6 +190,7 @@ class StorySession:
             "只为本次新增片段返回 1-3 幕 scenes；已经讲过的故事只用于保持角色和场景连续，不能重复生成。"
             "每幕必须有 description 和至少 3 个 elements。"
             "每个元素必须有 kind、x、y、width、height、color、label；"
+            "角色元素可有 pose，只有 standing 或 sitting；故事写到坐在草坡上时必须使用 sitting。"
             "kind 只能是 tree、rabbit、hedgehog、fox、bird、person、house、sun、object、action_lines、simple_shape。"
             "画布是 1280x720；标题栏占用 y=0-100，主体必须放在 y=130-600 的中部区域；"
             "角色在相邻场景中保持相同 kind、颜色和称呼；"

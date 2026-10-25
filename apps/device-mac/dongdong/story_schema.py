@@ -110,9 +110,9 @@ def _element(raw: object, index: int, start_ms: int) -> dict:
     width = _safe_int(item.get("width"), 180, 1, WIDTH)
     height = _safe_int(item.get("height"), 160, 1, HEIGHT)
     if kind in {"fox", "rabbit", "hedgehog", "person"}:
-        width, height = max(width, 150), max(height, 175)
+        width, height = max(width, 210), max(height, 230)
     elif kind == "bird":
-        width, height = max(width, 130), max(height, 110)
+        width, height = max(width, 170), max(height, 145)
     x = _safe_int(item.get("x"), 40 + (index * 150) % (WIDTH - width + 1), 0, WIDTH - width)
     y = _safe_int(item.get("y"), 80 + (index * 70) % (HEIGHT - height + 1), 0, HEIGHT - height)
     duration = _safe_int(item.get("durationMs"), 900, 100, 12_000)
@@ -125,11 +125,15 @@ def _element(raw: object, index: int, start_ms: int) -> dict:
         y = max(120, min(500, y))
     margin = 120 if kind in {"fox", "rabbit", "hedgehog", "bird", "person"} else 36
     x = max(margin, min(WIDTH - width - margin, x))
+    pose = str(item.get("pose") or "standing")
+    if pose not in {"standing", "sitting"}:
+        pose = "standing"
     return {
         "id": str(item.get("id") or f"element-{index + 1}")[:64],
         "kind": kind,
         "label": label,
         "narrativeRole": str(item.get("narrativeRole") or "")[:80],
+        "pose": pose,
         "x": x,
         "y": y,
         "width": width,
@@ -179,14 +183,19 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
 
     for item in elements:
         label = item["label"]
-        if item["kind"] == "object" and any(word in label for word in ("溪", "水")):
-            item.update(x=850, y=500, width=max(item["width"], 300), height=max(item["height"], 52))
+        if any(word in label for word in ("溪", "水")):
+            item.update(
+                x=820,
+                y=500,
+                width=max(360, min(item["width"], 460)),
+                height=max(64, item["height"]),
+            )
         elif item["kind"] == "object" and any(word in label for word in ("藤", "树枝")):
             item.update(
                 x=610 if rescue else 700,
-                y=485,
-                width=max(item["width"], 280),
-                height=max(item["height"], 48),
+                y=520,
+                width=max(item["width"], 300),
+                height=max(item["height"], 54),
             )
         elif item["kind"] == "object" and "果" in label:
             item.update(x=535, y=390, width=max(item["width"], 64), height=max(item["height"], 64))
@@ -213,6 +222,11 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
                 item.update(
                     x=500, y=225, width=max(item["width"], 260), height=max(item["height"], 130)
                 )
+    if promise:
+        for item in elements:
+            if item["kind"] in {"fox", "hedgehog", "rabbit", "person"}:
+                item["pose"] = "sitting"
+    for item in elements:
         item["x"] = max(36, min(WIDTH - item["width"] - 36, item["x"]))
     return elements
 

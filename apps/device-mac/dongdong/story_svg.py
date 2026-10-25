@@ -25,6 +25,7 @@ def _safe_element(raw: object, index: int) -> dict:
         "kind": kind if isinstance(kind, str) and kind in ALLOWED_KINDS else "simple_shape",
         "color": _color(color),
         "label": str(item.get("label") or "")[:120],
+        "pose": item.get("pose") if item.get("pose") in {"standing", "sitting"} else "standing",
         "x": _number(item.get("x"), 40 + (index * 150) % (WIDTH - width + 1), 0, WIDTH - width),
         "y": _number(item.get("y"), 80 + (index * 70) % (HEIGHT - height + 1), 0, HEIGHT - height),
         "width": width,
@@ -40,6 +41,13 @@ def _shape(element: dict) -> str:
     c = escape(element["color"], quote=True)
     kind = element["kind"]
     label = element["label"]
+    if "溪" in label or "水" in label:
+        return (
+            f'<path d="M{x},{y + h // 2} q{w // 8},-{h // 2} {w // 4},0 t{w // 4},0 t{w // 4},0 t{w // 4},0 V{y + h} H{x} Z" fill="{c}" opacity=".9"/>'
+            f'<path d="M{x + 20},{y + h * 2 // 3} q{w // 8},-{h // 3} {w // 4},0 t{w // 4},0 t{w // 4},0" fill="none" stroke="#E9F3F5" stroke-width="5" opacity=".8"/>'
+        )
+    if "草坡" in label or "草地" in label:
+        return f'<path d="M{x},{y + h} Q{x + w // 4},{y + h // 2} {x + w // 2},{y + h * 3 // 4} T{x + w},{y + h // 2} V{y + h} Z" fill="{c}"/>'
     if "蒲公英" in label:
         return f'<path d="M{x + w // 2},{y + h} V{y + h // 2}" stroke="#4F8B45" stroke-width="5"/><circle cx="{x + w // 2}" cy="{y + h // 3}" r="{max(8, min(w, h) // 4)}" fill="{c}"/>'
     if "山谷" in label or label == "山":
@@ -50,6 +58,17 @@ def _shape(element: dict) -> str:
         return f'<ellipse cx="{x + w // 2}" cy="{y + h // 2}" rx="{w // 3}" ry="{h // 3}" fill="{c}"/><circle cx="{x + w // 2}" cy="{y + h // 4}" r="{min(w, h) // 5}" fill="{c}"/><path d="M{x + w // 2 - 22},{y + h // 5} l-12,-{h // 4} l28,18 M{x + w // 2 + 22},{y + h // 5} l12,-{h // 4} l-28,18" fill="none" stroke="{c}" stroke-width="10"/>'
     if kind == "fox":
         cx, head_y = x + w // 2, y + h // 3
+        if element.get("pose") == "sitting":
+            return (
+                f'<path d="M{x + w // 8},{y + h * 4 // 5} Q{x - 8},{y + h * 2 // 3} {x + w // 4},{y + h * 3 // 5} '
+                f'Q{x + w // 3},{y + h * 2 // 3} {x + w * 2 // 5},{y + h * 3 // 4}" fill="none" stroke="{c}" stroke-width="{max(16, w // 7)}" stroke-linecap="round"/>'
+                f'<ellipse cx="{cx}" cy="{y + h * 3 // 5}" rx="{w // 3}" ry="{h // 3}" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
+                f'<path d="M{cx - w // 5},{head_y - h // 5} L{cx - w // 3},{y + 8} L{cx - w // 14},{head_y - h // 8} M{cx + w // 5},{head_y - h // 5} L{cx + w // 3},{y + 8} L{cx + w // 14},{head_y - h // 8}" fill="{c}" stroke="#5B5550" stroke-width="4" stroke-linejoin="round"/>'
+                f'<circle cx="{cx}" cy="{head_y}" r="{min(w, h) // 4}" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
+                f'<path d="M{cx - w // 7},{head_y + h // 18} Q{cx},{head_y + h // 7} {cx + w // 7},{head_y + h // 18}" fill="#F5EBD7" stroke="#5B5550" stroke-width="3"/>'
+                f'<circle cx="{cx - w // 10}" cy="{head_y - 4}" r="6" fill="#3D382F"/><circle cx="{cx + w // 10}" cy="{head_y - 4}" r="6" fill="#3D382F"/>'
+                f'<path d="M{cx - w // 6},{y + h * 4 // 5} h{w // 7} M{cx + w // 12},{y + h * 4 // 5} h{w // 7}" stroke="#5B5550" stroke-width="10" stroke-linecap="round"/>'
+            )
         return (
             f'<path d="M{x + w // 4},{y + h * 3 // 5} Q{x + 2},{y + h * 2 // 3} {x + w // 8},{y + h * 4 // 5} '
             f'Q{x + w // 4},{y + h * 4 // 5} {x + w * 2 // 5},{y + h * 2 // 3}" fill="none" '
@@ -73,12 +92,14 @@ def _shape(element: dict) -> str:
             for n in range(2, 9)
         )
         snout_x = x + w - 34
+        sitting = element.get("pose") == "sitting"
+        body_y = y + h * 3 // 5 if sitting else cy + 10
         return (
             f'<path d="{spikes}" fill="none" stroke="#5B5550" stroke-width="7" stroke-linecap="round"/>'
-            f'<ellipse cx="{cx - 4}" cy="{cy + 10}" rx="{body_rx}" ry="{body_ry}" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
+            f'<ellipse cx="{cx - 4}" cy="{body_y}" rx="{body_rx}" ry="{body_ry + (10 if sitting else 0)}" fill="{c}" stroke="#5B5550" stroke-width="4"/>'
             f'<ellipse cx="{snout_x - 18}" cy="{cy - 2}" rx="{max(22, w // 5)}" ry="{max(25, h // 5)}" fill="#D9B38C" stroke="#5B5550" stroke-width="3"/>'
-            f'<circle cx="{snout_x - 18}" cy="{cy - 8}" r="5" fill="#3D382F"/><circle cx="{snout_x + 2}" cy="{cy + 4}" r="6" fill="#3D382F"/>'
-            f'<path d="M{x + w // 4},{y + h * 4 // 5} h18 M{x + w * 2 // 3},{y + h * 4 // 5} h18" stroke="#5B5550" stroke-width="7" stroke-linecap="round"/>'
+            f'<circle cx="{snout_x - 18}" cy="{cy - 8}" r="6" fill="#3D382F"/><circle cx="{snout_x + 2}" cy="{cy + 4}" r="7" fill="#3D382F"/>'
+            f'<path d="M{x + w // 5},{y + h * 4 // 5} h{w // 8} M{x + w * 3 // 5},{y + h * 4 // 5} h{w // 8}" stroke="#5B5550" stroke-width="9" stroke-linecap="round"/>'
         )
     if kind == "bird":
         return (
@@ -115,8 +136,6 @@ def _shape(element: dict) -> str:
                 f'<path d="M{x + w // 3},{y + h // 2 - 12} l18,-18 M{x + w * 2 // 3},{y + h // 2 + 12} l18,18" stroke="#2F6D35" stroke-width="5" stroke-linecap="round"/>'
             )
         return f'<rect x="{x + w // 5}" y="{y + h // 5}" width="{w * 3 // 5}" height="{h * 3 // 5}" rx="12" fill="{c}" stroke="#5B5550" stroke-width="3"/>'
-    if "草坡" in label or "草地" in label:
-        return f'<path d="M{x},{y + h} Q{x + w // 4},{y + h // 2} {x + w // 2},{y + h * 3 // 4} T{x + w},{y + h // 2} V{y + h} Z" fill="{c}"/>'
     return f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="16" fill="{c}"/>'
 
 
@@ -182,6 +201,7 @@ def _display_label(element: dict) -> str:
     if element["kind"] == "action_lines":
         for words, short in (
             ("哭声", "哭声"),
+            ("缠住脚", "缠住脚"),
             ("剪断", "剪断藤蔓"),
             ("果子", "送出果子"),
             ("约定", "约定"),
@@ -191,6 +211,8 @@ def _display_label(element: dict) -> str:
         return "动作"
     if element["kind"] == "object" and any(word in label for word in ("溪", "桥", "藤", "果")):
         return label[:6]
+    if "草坡" in label or "草地" in label:
+        return ""
     if "蒲公英" in label:
         return "蒲公英"
     return ""
@@ -278,17 +300,39 @@ def _interaction(element: dict, raw_elements: list[dict]) -> str:
             'stroke="#6B7280" stroke-width="7" stroke-linecap="round"/>'
             f'<path d="M{mid - 12} {y + 3} q12 20 24 0" fill="none" stroke="#E5A83B" stroke-width="6" stroke-linecap="round"/>'
         )
-    if "哭声" in label:
-        fox = _find_element(raw_elements, "fox")
-        if not fox:
+    if "缠住脚" in label:
+        hedgehog = _find_element(raw_elements, "hedgehog")
+        if not hedgehog:
             return ""
-        cx = fox["x"] + fox["width"] // 2
-        cy = fox["y"] + 22
+        foot_x = hedgehog["x"] + hedgehog["width"] // 2
+        foot_y = hedgehog["y"] + hedgehog["height"] * 4 // 5
         return (
-            f'<path d="M{cx + 45} {cy} q45 -35 90 0 M{cx + 65} {cy + 30} q35 -25 70 0" '
+            f'<ellipse cx="{foot_x - 22}" cy="{foot_y}" rx="26" ry="13" fill="none" stroke="#2F6D35" stroke-width="7"/>'
+            f'<ellipse cx="{foot_x + 26}" cy="{foot_y + 4}" rx="26" ry="13" fill="none" stroke="#2F6D35" stroke-width="7"/>'
+            f'<path d="M{foot_x - 40} {foot_y + 25} q42 18 84 0" fill="none" stroke="#2F6D35" stroke-width="5" stroke-linecap="round"/>'
+        )
+    if "哭声" in label:
+        source = _find_element(raw_elements, "hedgehog") or _find_element(raw_elements, "fox")
+        if not source:
+            return ""
+        cx = source["x"] + source["width"] // 2
+        cy = source["y"] + 32
+        tx = cx - 180 if source["kind"] == "hedgehog" else cx + 180
+        direction = -1 if tx < cx else 1
+        sound = (
+            f'<path d="M{cx + direction * 20} {cy} q{direction * 45} -35 {direction * 90} 0 '
+            f'M{cx + direction * 40} {cy + 30} q{direction * 35} -25 {direction * 70} 0" '
             'fill="none" stroke="#5B5550" stroke-width="7" stroke-linecap="round"/>'
-            f'<path d="M{cx + 140} {cy} l22 12 l-22 12" fill="none" stroke="#5B5550" stroke-width="7" '
-            'stroke-linecap="round" stroke-linejoin="round"/>'
+            f'<path d="M{tx} {cy} l{direction * 22} 12 l{direction * -22} 12" fill="none" '
+            'stroke="#5B5550" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>'
+        )
+        if source["kind"] != "hedgehog":
+            return sound
+        foot_x = source["x"] + source["width"] // 2
+        foot_y = source["y"] + source["height"] * 4 // 5
+        return (
+            f'{sound}<ellipse cx="{foot_x - 22}" cy="{foot_y}" rx="26" ry="13" fill="none" stroke="#2F6D35" stroke-width="7"/>'
+            f'<ellipse cx="{foot_x + 26}" cy="{foot_y + 4}" rx="26" ry="13" fill="none" stroke="#2F6D35" stroke-width="7"/>'
         )
     return ""
 
@@ -327,12 +371,31 @@ def scene_to_svg(scene: dict) -> str:
     for element in ordered:
         if interaction := _interaction(element, ordered):
             parts.append(interaction)
+    label_boxes: list[tuple[int, int, int, int]] = []
+    seen_labels: set[str] = set()
     for index, element in enumerate(ordered):
         label = escape(_display_label(element), quote=True)
+        label_key = label or element["label"]
+        if label_key == "蒲公英" and label_key in seen_labels:
+            continue
+        seen_labels.add(label_key)
         label_x, label_y = _label_position(element, index)
         if label:
+            label_width = min(150, max(60, len(label) * 14))
+            while any(
+                label_x - 5 < right
+                and label_x - 5 + label_width > left
+                and label_y - 16 < bottom
+                and label_y + 6 > top
+                for left, top, right, bottom in label_boxes
+            ):
+                label_y += 26
+                if label_y > HEIGHT - 24:
+                    label_y = 112
+                    label_x = min(WIDTH - label_width - 8, label_x + 90)
+            label_boxes.append((label_x - 5, label_y - 16, label_x - 5 + label_width, label_y + 6))
             parts.append(
-                f'<rect x="{label_x - 5}" y="{label_y - 16}" width="{min(150, max(60, len(label) * 14))}" height="22" rx="5" fill="#FFF9EE" opacity=".88"/>'
+                f'<rect x="{label_x - 5}" y="{label_y - 16}" width="{label_width}" height="22" rx="5" fill="#FFF9EE" opacity=".88"/>'
                 f'<text x="{label_x}" y="{label_y}" fill="#5B5550" font-size="16" font-family="sans-serif">{label[:18]}</text>'
             )
     parts.append("</svg>")
