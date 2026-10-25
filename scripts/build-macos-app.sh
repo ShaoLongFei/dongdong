@@ -50,8 +50,9 @@ mkdir -p "$WORK" "$APP/Contents/MacOS" "$APP/Contents/Resources/app" "$APP/Conte
 PY_ARCHIVE="$WORK/python.tar.gz"
 if [ ! -f "$PY_ARCHIVE" ]; then curl -L --fail --retry 2 -o "$PY_ARCHIVE" "$PY_URL"; fi
 tar -xzf "$PY_ARCHIVE" -C "$WORK"
-PYTHON_BIN=$(find "$WORK" -type f -path '*/bin/python3' -perm -u+x -print -quit)
-[ -n "$PYTHON_BIN" ] || die "Python 3.12 arm64 归档中缺少 bin/python3，请检查 DONGDONG_PYTHON_URL"
+PYTHON_BIN=$(find "$WORK" -path '*/bin/python3' -perm -u+x -print -quit)
+[ -n "$PYTHON_BIN" ] && [ -x "$PYTHON_BIN" ] ||
+  die "Python 3.12 arm64 归档中缺少可执行 bin/python3，请检查 DONGDONG_PYTHON_URL"
 PYTHON_ROOT=$(CDPATH= cd -- "$(dirname "$PYTHON_BIN")/.." && pwd)
 mv "$PYTHON_ROOT" "$APP/Contents/Resources/python"
 
