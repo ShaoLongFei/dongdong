@@ -113,6 +113,7 @@ def test_memory_delete_validates_all_owners_before_deleting():
 
 def test_opus_roundtrip_and_airplay_escape():
     import opuslib
+    from dongdong import airplay_stream
 
     enc = opuslib.Encoder(16000, 1, opuslib.APPLICATION_VOIP)
     dec = opuslib.Decoder(16000, 1)
@@ -121,6 +122,56 @@ def test_opus_roundtrip_and_airplay_escape():
     script = screen._mirror_script('卧室"电视')
     assert '\\"电视' in script
     assert "{TARGET}" not in script and "{MODE}" not in script
+
+    # AirPlay override must quote the target as one shell argument.
+    seen = []
+
+    def run(command, **kwargs):
+        seen.append((command, kwargs))
+        return SimpleNamespace(stdout="ok\n", stderr="", returncode=0)
+
+    with patch.object(screen.subprocess, "run", run):
+        assert screen._dispatch(
+            {"airplay": {"mirror_command": "printf '%s' {target}"}},
+            "TV; touch /tmp/should-not-run",
+            "mirror",
+        ) == "ok"
+    assert seen and "'TV; touch /tmp/should-not-run'" in seen[0][0]
+    assert seen[0][1]["shell"] is True
+
+    # Stopping a live session terminates FFmpeg and removes its temporary HLS root.
+    session = airplay_stream._Session({}, {"address": "127.0.0.1"})
+    root = session.root
+
+    class Process:
+        def __init__(self):
+            self.actions = []
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.actions.append("terminate")
+
+        def wait(self, timeout):
+            self.actions.append(("wait", timeout))
+
+    process = Process()
+    session.ffmpeg = process
+    session.stop()
+    assert process.actions == ["terminate", ("wait", 3)]
+    assert not root.exists()
+
+    # Missing optional pyatv dependency is converted into a session error, not a thread crash.
+    missing = airplay_stream._Session({}, {"address": "127.0.0.1"})
+    missing.httpd = SimpleNamespace(server_port=1234)
+    (missing.root / "screen.m3u8").touch()
+    with patch.object(airplay_stream, "_local_ip", return_value="127.0.0.1"), patch.dict(
+        sys.modules, {"pyatv": None}
+    ):
+        missing._connect()
+    assert missing.error == "AirPlay 播放会话失败，请确认接收端支持视频播放且允许当前 Mac 连接"
+    missing.stop()
 
 
 def test_web_access_project_cwd_and_reentry_boundaries():
