@@ -28,12 +28,18 @@ class ShownIn(BaseModel):
 def router(controller) -> APIRouter:
     routes = APIRouter(prefix="/api/meetings")
 
+    def writable(sid):
+        session = controller.host.store.get_session(sid)
+        if not session or session["archived_at"]:
+            raise HTTPException(409, "会话不存在或已归档，请先恢复")
+
     @routes.get("/{sid}")
     async def view(sid: str):
         return controller.view(sid)
 
     @routes.put("/{sid}")
     async def mode(sid: str, body: ModeIn):
+        writable(sid)
         try:
             if body.enabled:
                 return controller.open(sid, body.workspace)
@@ -44,6 +50,7 @@ def router(controller) -> APIRouter:
 
     @routes.post("/{sid}/actions")
     async def action(sid: str, body: ActionIn):
+        writable(sid)
         try:
             return await controller.action(
                 sid, body.action, "button", body.action, body.proposal_id, body.hash
@@ -53,6 +60,7 @@ def router(controller) -> APIRouter:
 
     @routes.post("/{sid}/proposals/{pid}/shown")
     async def shown(sid: str, pid: str, body: ShownIn):
+        writable(sid)
         try:
             root = birdview.directory(pid)
             artifact = (root / "map.html").resolve()

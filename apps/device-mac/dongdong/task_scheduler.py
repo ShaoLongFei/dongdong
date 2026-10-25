@@ -8,10 +8,11 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from pathlib import Path
 
-from . import config
+from . import config, work_gate
 from .store import Store
-from .task_model import ItemSpec, RunSpec
+from .task_model import AttemptResult, ItemSpec, RunSpec
 from .task_runtime import TaskExecutor, TaskPlanner
 
 
@@ -41,6 +42,7 @@ class TaskManager:
         self._runs: dict[str, threading.Event] = {}
         self._threads: dict[str, threading.Thread] = {}
         self._closed = False
+        self.on_finished = None
 
     def submit(
         self,
@@ -50,6 +52,13 @@ class TaskManager:
         channel: str = "web",
         items: list[ItemSpec] | None = None,
     ) -> str:
+        if self._closed:
+            raise RuntimeError("调度器已关闭")
+        session = self.store.get_session(session_id)
+        if not session or session.get("archived_at"):
+            raise ValueError("会话不存在或已归档，请先恢复")
+        if work_gate.current():
+            raise RuntimeError("另一个任务还在跑")
         workspace = cwd or self.cfg.get("workspace", "")
         user_id = self.store.append_message(session_id, "user", text)
         run_id = self.store.create_task_run(
@@ -74,52 +83,81 @@ class TaskManager:
             ItemSpec(id=f"{run_id}-0", instruction=text, cwd=workspace, agent="builtin")
         ]
         self.store.add_items(run_id, specs)
+        self._launch(run_id)
+        return run_id
+
+    def _launch(self, run_id: str) -> None:
+        if work_gate.current():
+            raise RuntimeError("另一个任务还在跑")
+        view = self.status(run_id)
+        owns_gate = all(item["agent"] == "builtin" for item in view["items"])
+        if owns_gate and not work_gate.acquire(run_id):
+            raise RuntimeError("另一个任务还在跑")
         cancel = threading.Event()
         self._runs[run_id] = cancel
         thread = threading.Thread(
-            target=self._loop, args=(run_id, cancel), name=f"run-{run_id}", daemon=True
+            target=self._loop, args=(run_id, cancel, owns_gate), name=f"run-{run_id}", daemon=True
         )
         self._threads[run_id] = thread
         thread.start()
-        return run_id
 
-    def _loop(self, run_id: str, cancel: threading.Event) -> None:
+    def _loop(self, run_id: str, cancel: threading.Event, owns_gate: bool) -> None:
         futures = set()
-        while not cancel.is_set() and not self._closed:
-            self.store.requeue_expired(run_id)
-            view = self.store.task_view(run_id)
-            if not view:
-                return
-            run = view["run"]
-            if run["status"] != "running":
-                break
-            active = sum(1 for item in view["items"] if item["status"] == "running")
-            for item in view["items"]:
-                if active >= self.max_workers:
+        try:
+            while not cancel.is_set() and not self._closed:
+                view = self.store.task_view(run_id)
+                if not view or view["run"]["status"] != "running":
                     break
-                if item["status"] != "open":
-                    continue
-                worker = f"{run_id[:6]}-{uuid.uuid4().hex[:6]}"
-                if self.store.claim_item(run_id, item["id"], worker, lease_seconds=60):
-                    futures.add(
-                        self.executor.submit(self._execute, run_id, worker, item["id"], cancel)
+                active = sum(item["status"] == "running" for item in view["items"])
+                for item in view["items"]:
+                    if active >= self.max_workers:
+                        break
+                    if item["status"] != "open":
+                        continue
+                    worker = f"{run_id[:6]}-{uuid.uuid4().hex[:6]}"
+                    if self.store.claim_item(run_id, item["id"], worker, lease_seconds=60):
+                        futures.add(
+                            self.executor.submit(self._execute, run_id, worker, item["id"], cancel)
+                        )
+                        active += 1
+                futures = {future for future in futures if not future.done()}
+                # 活跃 worker 续租；不能因模型等待超过 60 秒便重复执行命令。
+                with self.store._lock, self.store._conn:
+                    self.store._conn.execute(
+                        "UPDATE items SET lease_until=? WHERE run_id=? AND status='running'",
+                        (
+                            datetime.fromtimestamp(time.time() + 60, UTC).isoformat(
+                                timespec="seconds"
+                            ),
+                            run_id,
+                        ),
                     )
-                    active += 1
-            futures = {future for future in futures if not future.done()}
-            view = self.store.task_view(run_id)
-            statuses = {item["status"] for item in view["items"]}
-            if statuses and statuses <= {"done"}:
-                self._finish(run_id, "done")
-                break
-            if statuses and not statuses & {"open", "running"}:
-                self._finish(run_id, "failed", "没有可恢复的 Item")
-                break
-            time.sleep(self.poll_seconds)
+                view = self.store.task_view(run_id)
+                statuses = {item["status"] for item in view["items"]}
+                if statuses and statuses <= {"done"}:
+                    self._finish(run_id, "done")
+                    break
+                if statuses and not statuses & {"open", "running"}:
+                    self._finish(run_id, "failed", "没有可恢复的 Item")
+                    break
+                time.sleep(self.poll_seconds)
+        finally:
+            try:
+                for future in futures:
+                    future.result()
+            finally:
+                if owns_gate:
+                    work_gate.release(run_id)
+                if self.on_finished:
+                    self.on_finished(run_id)
 
     def _execute(self, run_id: str, worker: str, item_id: str, cancel: threading.Event) -> None:
         view = self.store.task_view(run_id)
         item = next(item for item in view["items"] if item["id"] == item_id)
-        result = self.task_executor.execute(item, view["run"], cancel)
+        try:
+            result = self.task_executor.execute(item, view["run"], cancel)
+        except Exception as exc:
+            result = AttemptResult("blocked", error=str(exc), error_kind="blocked")
         if result.status == "done":
             self.store.complete_item(item_id, worker, result.output)
         elif result.status == "stopped":
@@ -166,6 +204,26 @@ class TaskManager:
         return self.status(run_id)
 
     def resume(self, run_id: str) -> dict:
+        run = self.store.get_run(run_id)
+        if not run or run["status"] not in {"paused", "failed", "canceled"}:
+            return self.status(run_id)
+        session = self.store.get_session(run["session_id"])
+        if not session or session.get("archived_at"):
+            raise ValueError("会话已归档，请先恢复")
+        if work_gate.current() or (self._threads.get(run_id) and self._threads[run_id].is_alive()):
+            raise RuntimeError("另一个任务还在跑")
+        project = (
+            self.store.get_project(session.get("project_id")) if session.get("project_id") else None
+        )
+        root = Path(project["path"] if project else self.cfg["workspace"]).expanduser().resolve()
+        paths = [run.get("workspace") or str(root)] + [
+            item["cwd"] or str(root) for item in self.status(run_id)["items"]
+        ]
+        if any(
+            not Path(path).is_dir() or not Path(path).resolve().is_relative_to(root)
+            for path in paths
+        ):
+            raise ValueError("原任务目录不属于会话当前项目，请新建任务")
         with self.store._lock, self.store._conn:
             row = self.store._conn.execute(
                 "SELECT status FROM runs WHERE id=?", (run_id,)
@@ -179,13 +237,7 @@ class TaskManager:
                 "UPDATE items SET status='open' WHERE run_id=? AND status IN ('stopped','blocked')",
                 (run_id,),
             )
-        cancel = threading.Event()
-        self._runs[run_id] = cancel
-        thread = threading.Thread(
-            target=self._loop, args=(run_id, cancel), name=f"run-{run_id}", daemon=True
-        )
-        self._threads[run_id] = thread
-        thread.start()
+        self._launch(run_id)
         return self.status(run_id)
 
     def pause(self, run_id: str) -> dict:
@@ -213,31 +265,24 @@ class TaskManager:
         return view
 
     def recover_runs(self) -> int:
-        """进程重启后恢复有 DAG 记录的 running Run；旧无 Item Run 保持历史状态。"""
-        with self.store._lock:
-            rows = self.store._conn.execute(
-                "SELECT r.id FROM runs r WHERE r.status='running' AND EXISTS "
-                "(SELECT 1 FROM items i WHERE i.run_id=r.id)"
-            ).fetchall()
-        recovered = 0
-        for row in rows:
-            run_id = row[0]
-            self.store.requeue_expired(run_id)
-            if run_id not in self._threads or not self._threads[run_id].is_alive():
-                cancel = threading.Event()
-                self._runs[run_id] = cancel
-                thread = threading.Thread(
-                    target=self._loop, args=(run_id, cancel), name=f"run-{run_id}", daemon=True
+        """重启时暂停遗留任务，避免把已执行过的写命令自动重放。"""
+        with self.store._lock, self.store._conn:
+            rows = self.store._conn.execute("SELECT id FROM runs WHERE status='running'").fetchall()
+            for row in rows:
+                self.store._conn.execute(
+                    "UPDATE runs SET status='paused', error='进程重启，请确认后恢复' WHERE id=?",
+                    row,
                 )
-                self._threads[run_id] = thread
-                thread.start()
-                recovered += 1
-        return recovered
+                self.store._conn.execute(
+                    "UPDATE items SET status='stopped', lease_owner=NULL, lease_until=NULL WHERE run_id=? AND status='running'",
+                    row,
+                )
+            return len(rows)
 
     def close(self) -> None:
         self._closed = True
         for event in self._runs.values():
             event.set()
         for thread in self._threads.values():
-            thread.join(timeout=1)
+            thread.join()
         self.executor.shutdown(wait=True, cancel_futures=True)

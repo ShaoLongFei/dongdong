@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AudioLines, Check, ChevronRight, Circle, Terminal, X } from 'lucide-react';
 import { api, statusText } from './api';
 
-const toolNames = { shell: '执行命令', read_file: '读取文件', write_file: '写入文件', edit_file: '修改文件', list_dir: '查看目录', glob: '查找文件', grep: '搜索内容', update_plan: '更新计划', read_skill: '读取技能' };
+const toolNames = { memory_search: '检索记忆', memory_save: '保存记忆', shell: '执行命令', read_file: '读取文件', write_file: '写入文件', edit_file: '修改文件', list_dir: '查看目录', glob: '查找文件', grep: '搜索内容', update_plan: '更新计划', read_skill: '读取技能' };
 
 function activity(events) {
   const items = [];
@@ -53,7 +53,7 @@ function RunMessage({ run, liveEvents, fallback }) {
   const items = activity(events);
   const pendingTool = [...items].reverse().find(item => item.type === 'tool' && !item.result);
   const pendingApproval = [...events].reverse().find(e => e.type === 'approval' && !events.some(result => result.type === 'approval_result' && result.data.id === e.data.id));
-  const warnings = events.filter(e => e.type === 'mcp_error');
+  const warnings = events.filter(e => ['mcp_error', 'memory_error'].includes(e.type));
   const current = plan.find(step => step.status === 'in_progress');
   const next = plan.find(step => step.status === 'pending');
   const done = plan.filter(step => step.status === 'completed').length;
@@ -69,7 +69,7 @@ function RunMessage({ run, liveEvents, fallback }) {
         {taskItems.length > 0 && <div className="task-items" aria-label="任务拆解">{taskItems.map(item => <div className="task-item" key={item.id}><span className={`dot ${item.status === 'running' ? 'working' : item.status === 'done' ? 'online' : ''}`} /><span>{item.instruction}</span><small>{statusText[item.status] || item.status} · {item.attempts} 次尝试{item.error ? ` · ${item.error}` : ''}</small></div>)}</div>}
         {plan.length > 0 && <ol className="plan">{plan.map((step, index) => <li key={index} className={step.status}>{step.status === 'completed' ? <Check size={14} /> : step.status === 'in_progress' && running ? <span className="dot working" /> : <Circle size={12} />}<span>{step.step}</span><small>{step.status === 'completed' ? '已完成' : step.status === 'in_progress' ? (running ? '进行中' : '未完成') : '待执行'}</small></li>)}</ol>}
         {running && <p className="execution-hint">{current ? `当前：${current.step}` : '正在处理任务，请稍候。'}{next && <><br />接下来：{next.step}</>}</p>}
-        {warnings.map(event => <p className="execution-failure" key={event.id}>外部工具不可用：{event.data.message}</p>)}
+        {warnings.map(event => <p className="execution-failure" key={event.id}>{event.type === 'memory_error' ? '记忆服务不可用' : '外部工具不可用'}：{event.data.message}</p>)}
         {items.map(item => item.type === 'text' ? <div className="message-text execution-text" key={item.id}>{item.text}</div> : <details className="tool-card" key={item.id}>
           <summary><Terminal size={13} />{toolNames[item.name] || item.name}{item.result ? (item.result.ok ? <Check size={13} /> : <X size={13} />) : <span className={`dot ${running ? 'working' : ''}`} />}<span className="muted ml-auto">{item.result ? `${item.result.ms} ms` : running ? '执行中' : '已中断'}</span></summary>
           <pre>{item.arguments}</pre>{item.result && <pre>{item.result.result}</pre>}

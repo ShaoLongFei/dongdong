@@ -10,3 +10,6 @@ CFG=apps/device-mac/pyproject.toml
 .venv/bin/python tests/agent_smoke.py
 .venv/bin/python tests/agent_transport.py
 .venv/bin/python tests/agent_mcp.py
+.venv/bin/python tests/task_smoke.py
+.venv/bin/python tests/meeting_smoke.py
+.venv/bin/python tests/story_smoke.py

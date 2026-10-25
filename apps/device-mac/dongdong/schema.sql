@@ -1,7 +1,16 @@
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  path TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   channel TEXT NOT NULL DEFAULT 'web',
+  project_id TEXT REFERENCES projects(id),
+  archived_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

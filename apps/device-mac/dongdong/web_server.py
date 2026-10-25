@@ -14,7 +14,17 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import approvals, config, mcp_routes, meeting_routes, skills, tools, work_gate
+from . import (
+    approvals,
+    config,
+    mcp_routes,
+    meeting_routes,
+    memory_routes,
+    projects,
+    skills,
+    tools,
+    work_gate,
+)
 from . import state as device_state
 from .voice import Voice
 from .web_runtime import WebAgent, WebState
@@ -24,10 +34,6 @@ STATIC = Path(__file__).with_name("static")
 
 class MessageIn(BaseModel):
     text: str
-
-
-class SessionIn(BaseModel):
-    title: str = "新会话"
 
 
 class VoiceIn(BaseModel):
@@ -66,6 +72,8 @@ def create_app(cfg: dict) -> FastAPI:
     app.include_router(skills.router(cfg))
     app.include_router(mcp_routes.router(cfg))
     app.include_router(approvals.router(state.approvals))
+    app.include_router(projects.router(state))
+    app.include_router(memory_routes.router(state))
 
     @app.middleware("http")
     async def check_origin(request: Request, call_next):
@@ -76,16 +84,19 @@ def create_app(cfg: dict) -> FastAPI:
 
     @app.get("/api/state")
     async def api_state():
-        latest = state.store.get_run(state._run_id or state._last_run)
+        active = state.store.get_run(state._run_id)
+        if active and active["status"] != "running" and not state.busy:
+            active = None
         return {
             "version": cfg.get("version", ""),
             "meeting_session": (state.meeting.db.active() or {}).get("sid", ""),
-            "workspace": str(state.workspace),
+            "workspace": str(state.project_workspace(state.current_project)),
+            "current_project": state.current_project,
             "model_ready": state.model is not None,
             "error": state.error,
             "backend": cfg.get("code_backend", "cli"),
-            "active_run": state._run_id,
-            "task_session": latest["session_id"] if latest else "",
+            "active_run": state._run_id if active else "",
+            "task_session": active["session_id"] if active else state.task_session,
             "busy": bool(work_gate.current()),
             "voice": device_state.snapshot(cfg),
             "voice_session": state.voice_session,
@@ -98,17 +109,6 @@ def create_app(cfg: dict) -> FastAPI:
         await voice.set_enabled(body.enabled)
         return {"enabled": voice.enabled}
 
-    @app.get("/api/sessions")
-    async def api_sessions():
-        return {"sessions": state.store.list_sessions()}
-
-    @app.post("/api/sessions")
-    async def api_new_session(body: SessionIn | None = None):
-        sid = state.store.create_session((body.title if body else "新会话"), "web")
-        state.task_session = sid
-        state.voice_session = ""
-        return state.store.get_session(sid)
-
     @app.get("/api/sessions/{sid}")
     async def api_session(sid: str):
         session = state.store.get_session(sid)
@@ -120,14 +120,18 @@ def create_app(cfg: dict) -> FastAPI:
         return {
             **session,
             "meeting": state.meeting.db.get(sid),
+            "project_path": session["project_path"] or str(state.workspace),
             "messages": state.store.messages(sid),
             "runs": runs,
         }
 
     @app.post("/api/sessions/{sid}/messages")
     async def api_message(sid: str, body: MessageIn):
-        if not state.store.get_session(sid):
+        session = state.store.get_session(sid)
+        if not session:
             raise HTTPException(404, "会话不存在")
+        if session["archived_at"]:
+            raise HTTPException(409, "会话已归档，请先恢复")
         text = body.text.strip()
         if not text:
             raise HTTPException(400, "消息不能为空")

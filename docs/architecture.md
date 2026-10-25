@@ -1,6 +1,6 @@
 # 项目架构
 
-> 按 2026-10-25 的代码核对，当前实现包含 SQLite 任务 DAG 调度。文档入口见 [文档导航](README.md)。
+> 按 2026-10-25 的代码核对，含项目/记忆/归档实现（最终集成待确认）。本文描述当前实现；未来方案单独标注。文档入口见 [文档导航](README.md)。
 
 ## 1. 系统定位
 
@@ -29,7 +29,6 @@ flowchart TB
         Voice[Voice / Device / 音频与设备协议]
         DeviceTools[设备 MCP 分发 / mcp.py · tools.py]
         Runtime[内置 Runtime / 模型与工具循环]
-        Scheduler[TaskManager / SQLite DAG、claim、lease、worker]
         Gate[Approvals / 逐次操作确认]
         Builtin[工作区文件工具 / shell / update_plan]
         Skill[Skills / 按需读取 SKILL.md]
@@ -52,10 +51,10 @@ flowchart TB
     DeviceTools -->|cli| CLI
     DeviceTools --> Screen --> TV
     DeviceTools --> Memory --> OpenAI
+    Runtime -->|自动检索 / memory_search · memory_save| Memory
+    API -->|项目 / 归档| DB
+    API -->|范围管理页| Memory
     Web --> Runtime
-    Web --> Scheduler
-    Scheduler --> Runtime
-    Scheduler --> DB
     Runtime <-->|流式 chat/completions| Model
     Runtime -->|ask 模式的副作用调用| Gate
     API -->|允许一次 / 拒绝| Gate
@@ -72,7 +71,7 @@ flowchart TB
     Bridge -.->|复用设备工具实现| DeviceTools
 ```
 
-图中的 `Gate` 是 Runtime 执行工具前的等待点，不是另一套调度器。内置 Runtime 不会自动拥有 `self.screen.*` 或 `self.memory.*`：这些属于设备工具表，当前由灵矽或本地 `call/serve` 使用。
+图中的 `Gate` 是 Runtime 执行工具前的等待点，不是另一套调度器。内置 Runtime 不会自动拥有 `self.screen.*` 或 `self.memory.*`：这些属于设备工具表，由灵矽或本地 `call/serve` 使用；Runtime 通过独立的 `memory_search/save` 工具与自动检索复用同一 Mem0。
 
 ## 3. 入口、后端与进程边界
 
@@ -92,7 +91,7 @@ flowchart TB
 
 独立 `call` 是一次性进程，builtin 超过同步等待后不能保证继续：当前服务线程是 daemon，命令退出会结束进程。长任务使用持续运行的 `run/web`；`serve` 可以保持服务运行，但当前尚无统一的有序退出收尾。
 
-`TaskManager` 把每次请求写成 Run/Goal/Item/Attempt，使用 SQLite WAL 和条件更新 claim；lease 过期后 Item 回到 open，worker 崩溃不会永久卡住。默认一个 worker，配置允许时可由线程池并行执行独立 Item。`work_gate` 仍保护 Web 设置与同进程入口的交互边界。
+`work_gate` 让 Web、设备编程任务与设置/能力变更在**同一进程内**互斥，忙时拒绝，不排队；取消清理完成后释放。直接 `chat/Runtime` 不走这道闸门，也没有跨进程锁。不要用多个入口进程同时修改同一工作区。
 
 ## 4. 任务执行与实时展示
 
@@ -115,12 +114,12 @@ sequenceDiagram
     W-->>UI: run_id
     UI->>W: GET /api/runs/{rid}/events
     Note over W,S: SSE 从数据库增量读取持久事件
-    R->>R: 列启用技能，连接启用的 MCP 服务
+    R->>R: 检索全局及项目记忆，列技能，连接 MCP
     loop 模型返回工具调用时继续
         R->>L: 历史消息与工具 schema
         L-->>R: 流式文字 / tool_calls
         R->>S: text / tool_call / plan 等事件
-        opt ask 模式且是 shell、写改文件或外部 MCP
+        opt ask 模式且是 shell、写改文件、保存记忆或外部 MCP
             R->>A: 请求一次性批准并等待
             UI->>W: GET /api/approvals
             W-->>UI: 全局待审批卡
@@ -162,14 +161,14 @@ sequenceDiagram
 | `WebState.task_session` | Web 与 builtin 语音编程任务 | 后续任务复用会话和模型历史，每轮仍建新 run |
 | SQLite session / run ID | 可回看的消息、任务与事件 | 持久化保存；运行中的指针只在进程内 |
 
-主动“开启新对话”会切换任务会话并清空语音会话指针；仅点击查看历史会话不等于切换下一次语音任务上下文。进程重启后历史仍在，但这些指针不恢复，首次语音会创建新会话。语音只保存识别/播报文字，不保存音频文件。
+项目内新建对话更新该项目任务指针；若它是当前语音项目，也清空语音文字指针。仅查看历史或发送另一项目文字任务不切换语音项目。“设为语音项目”才显式切换，按项目保留本进程的任务/语音指针；归档或移动清除相关指针。重启后历史仍在，但当前语音项目回到未分类，指针不恢复，用户需重新选择项目。语音只保存识别/播报文字，不保存音频文件。
 
 ## 6. 两种工具体系与能力边界
 
 | 工具体系 | 调用方与协议 | 能力 |
 | --- | --- | --- |
 | 设备工具 `tools.TOOLS` | 灵矽经 WSS 中 MCP JSON-RPC；`call`；bridge HTTP | `self.system.status`、`self.code.run/result/stop`、`self.screen.list/mirror/stop`、`self.memory.search/save/list/delete` |
-| 内置 agent 工具 | Runtime 提供模型 function schema | `shell`、`read_file`、`write_file`、`edit_file`、`list_dir`、`glob`、`grep`、`update_plan`、`read_skill`，以及启用的外部 MCP 工具 |
+| 内置 agent 工具 | Runtime 提供模型 function schema | `shell`、`read_file`、`write_file`、`edit_file`、`list_dir`、`glob`、`grep`、`update_plan`、`read_skill`、`memory_search`、`memory_save`，以及启用的外部 MCP 工具 |
 
 设备路径中咚咚是 MCP 工具提供方；外部路径中咚咚是 MCP 客户端。两者共用“MCP”名称，但没有自动互相注册或桥接。
 
@@ -177,17 +176,26 @@ sequenceDiagram
 
 **外部 MCP。** `mcp_client.py` 使用官方 SDK，支持 stdio、Streamable HTTP、SSE；工具名映射为 `mcp_<服务名>_<索引>`。每 run 建立连接并在同一 asyncio task 退出；连接/发现默认 15 秒、工具调用默认 60 秒。失败服务写 `mcp_error`，其它能力继续；普通清理异常不会覆盖任务结果或取消。
 
-**审批。** `tool_policy=auto` 默认自动执行；`ask` 对 shell、写/改文件、所有外部 MCP 工具调用确认一次，只读与计划不确认。全局组件独立轮询，换页面/会话后仍可批准；授权仅匹配 `(run_id, call_id)`，不持久化。CLI 和独立 AgentService 无回调时拒绝需审批操作。服务进程启动/连接本身不属于工具调用审批。
+**审批。** `tool_policy=auto` 默认自动执行；`ask` 对 shell、写/改文件、`memory_save`、所有外部 MCP 工具调用确认一次，只读与计划不确认。全局组件独立轮询，换页面/会话后仍可批准；授权仅匹配 `(run_id, call_id)`，不持久化。CLI 和独立 AgentService 无回调时拒绝需审批操作。服务进程启动/连接本身不属于工具调用审批。
 
 ## 7. 数据与存储关系
 
 ```mermaid
 erDiagram
+    projects |o--o{ sessions : groups
     sessions ||--o{ messages : contains
     sessions ||--o{ runs : contains
     runs ||--o{ events : records
     runs ||--o{ tool_calls : records
+    projects {
+        string id PK
+        string name
+        string path UK
+        string created_at
+    }
     sessions {
+        string project_id FK
+        string archived_at
         string id PK
         string channel
         string title
@@ -203,10 +211,6 @@ erDiagram
         string session_id FK
         string status
     }
-    runs ||--o{ goals : contains
-    runs ||--o{ items : contains
-    items ||--o{ attempts : has
-    items ||--o{ item_deps : depends
     events {
         int id PK
         string run_id FK
@@ -220,7 +224,7 @@ erDiagram
     }
 ```
 
-`messages` 保存模型历史，`events` 保存展示/回放事实，`tool_calls` 保存工具执行记录，三者用途不同。Store 使用 SQLite WAL、外键与线程锁；启动时把遗留 running 任务标为 stopped，不自动续跑。schema 中保留 `settings` 表，但当前设置实际写 JSON，并未使用该表。
+`messages` 保存模型历史，`events` 保存展示/回放事实，`tool_calls` 保存工具执行记录，三者用途不同。启动按PRAGMA检查新增列并事务迁移，旧ID和记录不变，旧会话 project_id/archived_at 为NULL。归档仅改 archived_at，恢复不更新活跃时间；历史记录不删除。Store 使用 SQLite WAL、外键与线程锁；启动时把遗留 running 任务标为 stopped，不自动续跑。schema 中保留 `settings` 表，但当前设置实际写 JSON，并未使用该表。
 
 | 数据 | 默认位置 | 说明 |
 | --- | --- | --- |
@@ -228,10 +232,12 @@ erDiagram
 | 会话与运行 | `~/.dongdong/dongdong.db` | 文本、工具参数/结果、事件；与记忆库分离 |
 | 本地技能 | `~/.dongdong/skills/<name>/SKILL.md` | 已存在的技能文件，用户自行放置 |
 | 长期记忆 | 源码仓库根 `.memory/qdrant`、`.memory/history.db` | Mem0 懒初始化；路径由模块位置计算，不随 DONGDONG_HOME 变化 |
-| 操作产物 | 配置的 `workspace` | 内置文件工具限制在此根内；CLI 另用 projects 白名单 |
+| 操作产物 | 会话项目固定目录；未分类用配置 `workspace` | 文件工具限制在本轮根内；绑定Web的语音CLI也使用当前项目，独立CLI用原白名单 |
 | 前端构建 | `apps/device-mac/dongdong/static/` | 由 `apps/web` 的 Vite 构建，FastAPI 同源提供 |
 
-`DONGDONG_HOME` 可替换配置、会话库和技能的默认根目录。Mem0 以设备 `device_id` 隔离记录，使用 `OPENAI_API_KEY` 调 OpenAI 提取/嵌入；保存内容和查询文本会发送到 OpenAI。Runtime 的会话历史不等于 Mem0 长期记忆，当前不会自动互相检索或同步。
+`DONGDONG_HOME` 可替换配置、会话库和技能的默认根目录。Mem0 全局沿用 `user_id=device_id`，项目使用 `device_id:project:项目ID` 隔离提取、查询、更新与删除，使用 `OPENAI_API_KEY` 调 OpenAI 提取/嵌入；保存内容和查询文本会发送到 OpenAI。Runtime 每轮按用户消息自动检索全局与会话项目，各≤5条、总注入≤4000字符，标注为参考事实而非指令；无key跳过，失败记录memory_error并继续。不会自动保存整轮对话；明确记住用memory_save，默认项目、global跨项目，无项目回落全局。SDK初始化和操作在线程串行执行；删除先校验全部ID归属。
+
+项目创建后路径固定，只可重命名。WebState按会话决定每个run的目录和记忆，运行中不随浏览变化；移动下一轮生效，既有文件/记忆不动。归档入口只读且服务端拒绝新任务，恢复后继续。项目切换、移动、归档/恢复与任务共用gate，忙时409；管理页按明确global/项目范围读写。设备self.memory.*默认当前语音项目，可选scope=global；独立call/serve默认全局。侧栏每组20条分页，不全量轮询历史。
 
 ## 8. 模块索引
 
@@ -244,15 +250,15 @@ erDiagram
 | `voice.py`、`linx.py`、`audio.py` | 语音开关、OTA/WSS、Opus 录放 |
 | `mcp.py`、`tools.py` | 平台设备 MCP 协议与设备工具表 |
 | `runtime.py`、`llm.py`、`progress.py` | 内置循环、流式模型客户端、计划结构 |
-| `task_model.py`、`task_scheduler.py`、`task_runtime.py` | Run/Goal/Item 持久化调度、lease、worker 和执行器适配 |
 | `builtin_tools.py` | 文件工具、shell、命令取消和输出限制 |
 | `skills.py`、`mcp_client.py`、`mcp_routes.py`、`approvals.py` | 三项扩展能力和管理 API |
-| `store.py`、`schema.sql` | 会话/运行/事件持久化 |
+| `store.py`、`schema.sql`、`projects.py` | 项目、会话归属/归档与运行/事件持久化及API |
 | `agent.py`、`agent_service.py`、`chat_cli.py` | CLI 子进程、独立 builtin 服务、终端入口 |
-| `memory.py`、`screen.py`、`bridge.py` | 设备记忆、投屏、独立 HTTP 转发 |
+| `memory.py`、`memory_tools.py`、`memory_routes.py` | Mem0命名空间、Runtime工具/自动检索与管理API |
+| `screen.py`、`bridge.py` | 投屏、独立 HTTP 转发 |
 | `state.py`、`doctor.py` | 设备瞬时状态与诊断 |
 | `panel.py`、`panel.html` | 旧面板遗留，当前 run/web 不启动 |
-| `apps/web/src/main.jsx`、`Conversation.jsx` | 页面/会话选择、SSE、执行卡与最终结果 |
+| `apps/web/src/main.jsx`、`Conversation.jsx`、`Sidebar.jsx`、`Memories.jsx` | 会话/SSE、执行卡、分组分页/归档、分层记忆管理 |
 | `apps/web/src/Settings.jsx`、`Skills.jsx`、`MCP.jsx`、`Approvals.jsx` | 配置、能力管理与全局审批 |
 
 ## 9. 本机与外部边界
@@ -267,10 +273,24 @@ Web 仅监听 loopback，并校验 Host/Origin；没有远程账号鉴权，因�
 | --- | --- |
 | Web / builtin 编程 / 进度回放 / 连续会话 / 麦克风开关 | 已实现，用户已体验基础语音任务；异常与边界有 smoke 验证 |
 | Skills / 外部 MCP / 一次性审批 | 已实现，本地 SDK 三传输及完整链路验证；用户自有服务与页面体验待验收 |
-| 设备长期记忆 | 已接 Mem0；按灵矽模型工具选择触发，未并入 Runtime |
+| 项目 / 归档 / 分层记忆 | 已实施固定目录、增量迁移、恢复与Runtime自动检索；本地隔离验证，真实页面/云端记忆待用户验收 |
 | AirPlay | 设备发现可用；默认脚本在已记录的 MenuBarAgent 环境受阻，支持用户自定义命令 |
 | 文件浏览 / 产物预览、长任务主动语音回报 | 尚未实现 |
 | ESP32 固件转发 | 仅有规划与 Mac bridge，未烧录/联调 |
 | 灵矽自定义模型 `/v1/chat/completions` 入站接口 | 早期备选方案，当前未实现；实际语音走设备 MCP |
 
-默认执行模型是单 worker；一个 Run 可包含多个 DAG Item，配置 worker 数后由 TaskManager 并行调度。历史设计/计划的差异见 [文档导航](README.md)。
+当前Web默认单worker，由TaskManager管理Run/Goal/Item/Attempt；普通请求一个Item，会议生成/实施保持受约束Runtime入口。重启暂停遗留调度任务，显式恢复；工作线程续租且取消后等真实执行退出再释放闸门。后续实现依据先查本页和 [决策记录](decisions.md)，历史设计/计划的差异见 [文档导航](README.md)。
+
+## 会议代码修改模式（2026-10-25）
+
+会话内显式开启，固定工作区内 Git 项目目录。`meeting_store.py` 复用 Store 的 SQLite 连接建立 meetings、meeting_discussion、proposals、meeting_controls；方案正文不可变，展示和确认记录独立于正文哈希。一次仅一个开启的会议；讨论与待确认不挂起 Runtime。
+
+`WebState.voice_text` 将模式内用户 STT 分流到 Meeting；TTS 不作为人类输入。完整“整理一下方案”“按这个方案实施”由本地控制解析，普通 STT 仅登记讨论。云端 `self.code.run` 在此模式只查状态，不发起新执行；两个入口不能合成第二次确认。`/api/meetings/{sid}` 管模式与查询，`/actions` 生成/确认/显式恢复；方案 shown 和产物接口都校验所属会话与版本。
+
+生成 run 使用独立上下文、只读文件工具及 read_birdview/submit_proposal；宿主固定参数调用上游来源发现和渲染器，不开放 shell、产品写入或外部 MCP。生成讨论截止序号固定，晚到意见使确认失效。当前源码包含 untracked/未提交内容的指纹，确认时再次比对。
+
+确认通过 SQLite 条件更新只领取当前已展示版本一次；实施 run 接固定方案、受约束写文件工具和阶段记录。shell 结束后对比 Git 可见源码指纹，额外变化会停止并报告；被忽略/项目外文件不在检查范围，原有权限边界不能保证文件级隔离。扩范围抛 ScopeChange 中止循环，现有取消等待子进程清理。最终 meeting_result 记录检查、变更统计和产物 ID；SSE 等宿主收尾才结束，避免丢最后事件。
+
+`vendor/birdview` 是固定 MIT 上游分发，渲染依赖锁与图标许可随包保存。HTML 保存在 `~/.dongdong/meetings/<id>/`，仅按已注册 ID 读取，CSP sandbox + iframe 只允许脚本、不允许同源权限。显示回执在 iframe load 后复查 HTML 读取成功，并检查服务器产物存在，不证明人已阅读；真实浏览器视觉验收另行执行。前端 Meeting.jsx 提供讨论、历史方案、地图、确认、恢复和检查回看。
+
+调度数据库操作位于task_store.py，Store复用同一连接/锁；TaskExecutor复用既有run与用户消息，不重复创建记录。web_agent.py桥接设备同步调用；task_tools.py注册任务查询/停止/恢复。故事场景协议与安全SVG/存储已在main，完整故事模式尚未交付。

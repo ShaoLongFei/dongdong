@@ -25,7 +25,9 @@ Web API 由 `apps/device-mac/dongdong/web_server.py` 及三个能力 router 定�
 | --- | --- |
 | `GET /api/state` | 模型、任务、语音状态和当前会话入口 |
 | `PUT /api/voice` | `{enabled: bool}`，开关语音 |
-| `GET /api/sessions`、`POST /api/sessions` | 列出 / 新建会话 |
+| `GET/POST /api/projects`、`PATCH /api/projects/{id}`、`PUT /api/projects/current` | 项目管理与显式语音项目 |
+| `GET/POST /api/sessions`、`PATCH /api/sessions/{sid}` | 分页会话、移动、归档/恢复 |
+| `GET/POST/DELETE /api/memories` | 全局/项目记忆管理 |
 | `GET /api/sessions/{sid}` | 会话消息与 runs |
 | `POST /api/sessions/{sid}/messages` | `{text: string}`，发起任务并返回 run_id |
 | `GET /api/runs/{rid}` | 状态；`include_events=true` 包含历史事件 |
@@ -56,7 +58,7 @@ Web API 由 `apps/device-mac/dongdong/web_server.py` 及三个能力 router 定�
 | [进度规格](superpowers/specs/2026-10-24-task-progress-design.md) / [计划](superpowers/plans/2026-10-24-task-progress.md) | 与内置 Runtime 无关的早期 CLI 多步骤调度方案，未作为当前实施依据 |
 | [记忆规格](superpowers/specs/2026-10-24-mem0-memory-design.md) / [计划](superpowers/plans/2026-10-24-mem0-memory.md) | 设备工具层 Mem0 接入；不代表 Runtime 自动记忆 |
 | [Skills / MCP / 审批计划](superpowers/plans/2026-10-25-agent-capabilities.md) | 已实施，含验证和集成交付记录 |
-| [项目 / 分层记忆 / 归档设计](superpowers/specs/2026-10-25-projects-memory-archive-design.md) | 已确认项目绑定本地目录；完整设计待审阅，尚未实施 |
+| [项目 / 分层记忆 / 归档设计](superpowers/specs/2026-10-25-projects-memory-archive-design.md) | 已实现并整合main：项目目录、分层记忆、会话归档/恢复 |
 | [会议代码修改模式与 Birdview](superpowers/specs/2026-10-25-meeting-code-mode-design.md) | 已确认显式召唤整理方案、按钮及语音确认；已在隔离分支实施，真实会议收音及视觉验收待进行；[实施记录](superpowers/plans/2026-10-25-meeting-code-mode.md) |
 | [旧面板交接单](panel-handoff.md) | 历史记录；panel.py/panel.html 不再由 run 启动 |
 

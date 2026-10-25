@@ -8,7 +8,7 @@ import json
 import time
 from collections.abc import Callable
 
-from . import builtin_tools, config, skills
+from . import builtin_tools, config, memory_tools, skills
 from .llm import ModelConfig, ToolCall, stream_chat
 from .mcp_client import MCPTools
 from .progress import PLAN_TOOL, _plan  # noqa: F401
@@ -74,16 +74,33 @@ class Runtime:
                 out.append({"role": row["role"], "content": row["content"]})
         return out
 
-    async def run(self, session_id: str, user_text: str, on_event: Emit | None = None) -> str:
+    async def run(
+        self,
+        session_id: str,
+        user_text: str,
+        on_event: Emit | None = None,
+        *,
+        run_id: str = "",
+        user_id: int | None = None,
+    ) -> str:
         emit: Emit = on_event or (lambda kind, data: None)
-        run_id = ""
+        managed = bool(run_id)
         usage: dict = {}
         try:
-            run_id = self.store.create_run(session_id)
-            user_id = self.store.append_message(session_id, "user", user_text)
-            self.store.add_event(
-                run_id, "run_start", {"session_id": session_id, "user_message_id": user_id}
-            )
+            session = self.store.get_session(session_id)
+            if not session or session["archived_at"]:
+                raise ValueError("会话不存在或已归档，请先恢复")
+            project_id = session["project_id"]
+            if managed:
+                run = self.store.get_run(run_id)
+                if not run or run["session_id"] != session_id:
+                    raise ValueError("任务与会话不匹配")
+            else:
+                run_id = self.store.create_run(session_id)
+                user_id = self.store.append_message(session_id, "user", user_text)
+                self.store.add_event(
+                    run_id, "run_start", {"session_id": session_id, "user_message_id": user_id}
+                )
             emit("run_start", {"run_id": run_id})
 
             def record(kind: str, data: dict) -> None:
@@ -91,6 +108,13 @@ class Runtime:
                 emit(kind, data)
 
             self.system_prompt = SYSTEM_PROMPT.format(workspace=self.workspace) + self.instruction
+            if not self.isolated:
+                try:
+                    context = await memory_tools.context(self.cfg, project_id, user_text)
+                    if context:
+                        self.system_prompt += "\n" + context
+                except Exception:
+                    record("memory_error", {"message": "记忆检索失败，本次任务继续执行"})
             available = skills.list_skills(self.cfg)
             enabled = [s for s in available if s["enabled"]]
             if enabled:
@@ -103,21 +127,25 @@ class Runtime:
             ) as external:
                 for error in external.errors:
                     record("mcp_error", {"message": error})
-                specs = [*builtin_tools.TOOL_SPECS, PLAN_TOOL, READ_SKILL, *external.specs]
+                specs = [
+                    *builtin_tools.TOOL_SPECS,
+                    PLAN_TOOL,
+                    READ_SKILL,
+                    *memory_tools.SPECS,
+                    *external.specs,
+                ]
                 if self.toolset is not None:
                     specs = self.toolset
                 allowed = {spec["function"]["name"] for spec in specs}
                 for _ in range(self.max_steps):
-                    self.store.add_event(run_id, "model_start", {})
-                    emit("model_start", {})
+                    record("model_start", {})
                     messages = self._messages(session_id, user_id)
                     text = ""
                     calls: list[ToolCall] = []
                     async for event in self._stream(self.model, messages, specs):
                         if event.text:
                             text += event.text
-                            self.store.add_event(run_id, "text", {"delta": event.text})
-                            emit("text", {"delta": event.text})
+                            record("text", {"delta": event.text})
                         if event.tool_calls:
                             calls = event.tool_calls
                         if event.usage:
@@ -125,7 +153,8 @@ class Runtime:
                     if not calls:
                         self.store.append_message(session_id, "assistant", text)
                         self.store.add_event(run_id, "done", {"text": text})
-                        self.store.finish_run(run_id, "done", usage=usage)
+                        if not managed:
+                            self.store.finish_run(run_id, "done", usage=usage)
                         emit("done", {"text": text})
                         return text
 
@@ -144,12 +173,7 @@ class Runtime:
                     )
                     for call in calls:
                         started = time.monotonic()
-                        self.store.add_event(
-                            run_id,
-                            "tool_call",
-                            {"id": call.id, "name": call.name, "arguments": call.arguments},
-                        )
-                        emit(
+                        record(
                             "tool_call",
                             {"id": call.id, "name": call.name, "arguments": call.arguments},
                         )
@@ -165,6 +189,7 @@ class Runtime:
                                 "shell",
                                 "write_file",
                                 "edit_file",
+                                "memory_save",
                             ) or call.name.startswith("mcp_")
                             if self.cfg.get("tool_policy") == "ask" and needs_approval:
                                 if self.approve is None:
@@ -180,11 +205,14 @@ class Runtime:
                                 result = handled
                             elif call.name == "update_plan":
                                 plan = _plan(args)
-                                self.store.add_event(run_id, "plan", plan)
-                                emit("plan", plan)
+                                record("plan", plan)
                                 result = "计划已更新。请继续执行，步骤切换时更新计划。"
                             elif call.name == "read_skill":
                                 result = skills.read_skill(args.get("name", ""), self.cfg)
+                            elif call.name in {"memory_search", "memory_save"}:
+                                result = await memory_tools.call(
+                                    call.name, args, self.cfg, project_id
+                                )
                             elif call.name.startswith("mcp_"):
                                 result = await external.call(call.name, args)
                             else:
@@ -209,18 +237,7 @@ class Runtime:
                         ms = int((time.monotonic() - started) * 1000)
                         self.store.append_message(session_id, "tool", result, tool_call_id=call.id)
                         self.store.record_tool_call(run_id, call.name, args, result, ok, ms)
-                        self.store.add_event(
-                            run_id,
-                            "tool_result",
-                            {
-                                "id": call.id,
-                                "name": call.name,
-                                "result": result,
-                                "ok": ok,
-                                "ms": ms,
-                            },
-                        )
-                        emit(
+                        record(
                             "tool_result",
                             {
                                 "id": call.id,
@@ -233,13 +250,15 @@ class Runtime:
                 raise RuntimeError(f"超过最大步数 {self.max_steps}")
         except asyncio.CancelledError:
             if run_id:
-                self.store.finish_run(run_id, "stopped", error="用户停止")
+                if not managed:
+                    self.store.finish_run(run_id, "stopped", error="用户停止")
                 self.store.add_event(run_id, "stopped", {})
                 emit("stopped", {})
             raise
         except Exception as exc:
             if run_id:
-                self.store.finish_run(run_id, "error", error=str(exc))
+                if not managed:
+                    self.store.finish_run(run_id, "error", error=str(exc))
                 self.store.add_event(run_id, "error", {"message": str(exc)})
             emit("error", {"message": str(exc)})
             raise

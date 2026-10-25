@@ -46,9 +46,11 @@ class Meeting:
             or (active and active["phase"] in {"generating", "executing"})
         ):
             raise ValueError("请先结束活动任务")
-        if not self.host.store.get_session(sid):
-            raise ValueError("会话不存在")
-        path = builtin_tools.resolve_path(self.host.workspace, directory)
+        session = self.host.store.get_session(sid)
+        if not session or session["archived_at"]:
+            raise ValueError("会话不存在或已归档")
+        root = self.host.project_workspace(session["project_id"])
+        path = builtin_tools.resolve_path(root, directory)
         if not path.is_dir():
             raise ValueError("项目目录不存在")
         if not (path / ".git").exists():
