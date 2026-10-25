@@ -123,6 +123,8 @@ def _element(raw: object, index: int, start_ms: int) -> dict:
         y = max(130, min(450, y))
     elif width < 700:
         y = max(120, min(500, y))
+    margin = 72 if kind in {"fox", "rabbit", "hedgehog", "bird", "person"} else 36
+    x = max(margin, min(WIDTH - width - margin, x))
     return {
         "id": str(item.get("id") or f"element-{index + 1}")[:64],
         "kind": kind,

@@ -108,7 +108,10 @@ def _shape(element: dict) -> str:
         if "果" in label:
             return f'<circle cx="{x + w // 2}" cy="{y + h // 2 + 8}" r="{min(w, h) // 3}" fill="{c}"/><path d="M{x + w // 2},{y + h // 3} q12,-22 30,-8" fill="none" stroke="#4F8B45" stroke-width="8"/>'
         if "藤" in label or "树枝" in label:
-            return f'<path d="M{x},{y + h // 2} q{w // 4},-{h} {w // 2},0 t{w // 2},0" fill="none" stroke="{c}" stroke-width="{max(8, h // 2)}" stroke-linecap="round"/>'
+            return (
+                f'<path d="M{x},{y + h // 2} q{w // 4},-{h} {w // 2},0 t{w // 2},0" fill="none" stroke="{c}" stroke-width="{max(8, h // 2)}" stroke-linecap="round"/>'
+                f'<path d="M{x + w // 3},{y + h // 2 - 12} l18,-18 M{x + w * 2 // 3},{y + h // 2 + 12} l18,18" stroke="#2F6D35" stroke-width="5" stroke-linecap="round"/>'
+            )
         return f'<rect x="{x + w // 5}" y="{y + h // 5}" width="{w * 3 // 5}" height="{h * 3 // 5}" rx="12" fill="{c}" stroke="#5B5550" stroke-width="3"/>'
     if "草坡" in label or "草地" in label:
         return f'<path d="M{x},{y + h} Q{x + w // 4},{y + h // 2} {x + w // 2},{y + h * 3 // 4} T{x + w},{y + h // 2} V{y + h} Z" fill="{c}"/>'
@@ -186,6 +189,19 @@ def _display_label(element: dict) -> str:
     return ""
 
 
+def _interaction(element: dict, raw_elements: list[dict]) -> str:
+    label = element["label"]
+    if element["kind"] != "action_lines":
+        return ""
+    if "剪断" in label:
+        return '<path d="M730 390 l-44,42 M750 390 l-44,42" stroke="#5B5550" stroke-width="7" stroke-linecap="round"/><path d="M686 432 l-15,-5 l8,-13 M706 432 l15,-5 l-8,-13" fill="none" stroke="#5B5550" stroke-width="5"/> '
+    if "果子" in label:
+        return '<path d="M490 380 Q590 330 690 380" fill="none" stroke="#D93636" stroke-width="7" stroke-dasharray="12 12"/><path d="M685 380 l-20,-12 M685 380 l-20,12" stroke="#D93636" stroke-width="7" stroke-linecap="round"/> '
+    if "约定" in label:
+        return '<path d="M590 365 q35,-30 70,0 M660 365 q35,-30 70,0" fill="none" stroke="#6B7280" stroke-width="7" stroke-linecap="round"/> '
+    return ""
+
+
 def scene_to_svg(scene: dict) -> str:
     title = escape(str(scene.get("title") or ""), quote=True) if isinstance(scene, dict) else ""
     summary = (
@@ -214,6 +230,8 @@ def scene_to_svg(scene: dict) -> str:
         parts.append(
             f'<g data-start-ms="{int(element.get("startMs", 0))}" data-duration-ms="{int(element.get("durationMs", 0))}">{_shape(element)}'
         )
+        if interaction := _interaction(element, raw_elements):
+            parts.append(interaction)
         if label:
             parts.append(
                 f'<rect x="{label_x - 5}" y="{label_y - 16}" width="{min(150, max(60, len(label) * 14))}" height="22" rx="5" fill="#FFF9EE" opacity=".88"/>'
