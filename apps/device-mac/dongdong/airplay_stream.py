@@ -21,8 +21,27 @@ _session: _Session | None = None
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
-    def log_message(self, *_args) -> None:
-        pass
+    extensions_map = {
+        **http.server.SimpleHTTPRequestHandler.extensions_map,
+        ".m3u8": "application/vnd.apple.mpegurl",
+    }
+
+    def __init__(self, *args, stream_request: threading.Event, **kwargs):
+        self.stream_request = stream_request
+        super().__init__(*args, **kwargs)
+
+    def end_headers(self) -> None:
+        super().end_headers()
+
+    def do_GET(self) -> None:
+        if self.path.split("?", 1)[0].endswith((".m3u8", ".ts")):
+            self.stream_request.set()
+        super().do_GET()
+
+    def log_message(self, fmt, *args) -> None:
+        if self.path.endswith((".m3u8", ".ts")):
+            self.stream_request.set()
+        log.info("HLS HTTP " + fmt, *args)
 
 
 class _Session:
@@ -38,6 +57,7 @@ class _Session:
         self._ffmpeg_log_file = None
         self.atv_thread: threading.Thread | None = None
         self.stop_event = threading.Event()
+        self.stream_request = threading.Event()
         self.error = ""
 
     def start(self) -> None:
@@ -50,7 +70,9 @@ class _Session:
         self.atv_thread.start()
 
     def _start_http(self) -> None:
-        handler = functools.partial(_QuietHandler, directory=str(self.root))
+        handler = functools.partial(
+            _QuietHandler, directory=str(self.root), stream_request=self.stream_request
+        )
         # 绑定连接 Apple TV 的本机网卡，避免把临时流暴露到所有接口。
         self.http_host = _local_ip(self.target["address"])
         self.httpd = http.server.ThreadingHTTPServer((self.http_host, 0), handler)
@@ -128,6 +150,8 @@ class _Session:
                 return
             url = f"http://{self.http_host}:{self.httpd.server_port}/screen.m3u8"
             asyncio.run(self._play(url))
+            if not self.stream_request.is_set() and not self.error:
+                self.error = "Apple TV 已接受投屏请求，但没有拉取屏幕流"
         except Exception:
             self.error = self._error_message()
             log.exception("AirPlay 流会话失败")
@@ -224,15 +248,19 @@ def start(cfg: dict, target: dict) -> str:
             if "session" in locals():
                 session.stop()
             return f"投屏启动失败：{exc}"
-    # AVFoundation 首次打开屏幕设备需要几秒；固定睡眠 0.8 秒会把尚未生成清单的正常会话误判为失败。
-    deadline = time.monotonic() + 8
+    # AVFoundation 首次打开屏幕设备需要几秒；同时要等接收端真正拉流，不能仅凭 RTSP 200 报成功。
+    deadline = time.monotonic() + 12
     playlist = session.root / "screen.m3u8"
     while not playlist.exists() and not session.error and time.monotonic() < deadline:
         if session.ffmpeg and session.ffmpeg.poll() is not None:
             break
         time.sleep(0.2)
+    while not session.error and not session.stream_request.is_set() and time.monotonic() < deadline:
+        time.sleep(0.2)
     if session.error:
         failure = session.error
+    elif not session.stream_request.is_set():
+        failure = "Apple TV 已接受投屏请求，但没有拉取屏幕流"
     elif not playlist.exists():
         failure = session._capture_error()
     if failure:

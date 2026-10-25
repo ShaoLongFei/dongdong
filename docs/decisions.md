@@ -7,6 +7,7 @@
 - 2026-10-26：AirPlay 屏幕镜像改用项目自带 FFmpeg 实时抓屏 + H.264 硬件编码 + 本地 HLS + pyatv AirPlay 播放；不落盘，先保证当前 AppleTV 兼容设备可用。原生 `MenuBarAgent`/私有 `AirPlaySender` 没有稳定可调用入口，后续若需要更低延迟再替换采集/编码层。
 - 2026-10-26：macOS AVFoundation 屏幕输入会报告异常的 `1000k tbr`；HLS 需要在滤镜中显式固定 `fps=30`、`settb=1/30`、`setpts=N/30/TB` 并使用 CFR，否则 FFmpeg 能抓到 PNG 却不会生成可播放的 `screen.m3u8`。
 - 2026-10-26：AppleTV3,2 对 live HLS 采用旧版 v3 清单更兼容；去掉 `independent_segments`，并等待清单出现多个 TS 分片后再发起 AirPlay 播放。
+- 2026-10-26：目标 AppleTV3,2 对 `/play` 和静态 MP4 都返回 RTSP 200，但从未请求 Mac 提供的媒体 URL；因此不能把 RTSP 接受当作画面成功，当前实现必须检测到 `.m3u8`/`.ts` 请求后才报告成功。
 
 只记「为什么这么选」，不记过程。新决策往下加。
 
