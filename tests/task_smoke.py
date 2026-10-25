@@ -205,7 +205,8 @@ def test_goal_preview_is_read_only_and_handles_missing_acceptance():
         store.complete_item("item", "smoke", "完成输出")
         before = store.task_view(run_id)
         result = store.preview_goal_verification(
-            run_id, lambda _goal, _items, _evidence: {"status": "met", "summary": "可见结论"}
+            run_id,
+            lambda _goal, _items, _evidence: {"status": "met", "summary": "可见结论"},
         )
         after = store.task_view(run_id)
         assert result["status"] == "met" and result["summary"] == "可见结论"
@@ -257,7 +258,11 @@ def test_task_scheduler_config_and_startup_recovery():
         first.add_items(
             run_id,
             [
-                ItemSpec(id="expired", instruction="expired", scope={"write": ["expired.txt"]}),
+                ItemSpec(
+                    id="expired",
+                    instruction="expired",
+                    scope={"write": ["expired.txt"]},
+                ),
                 ItemSpec(id="active", instruction="active", scope={"write": ["active.txt"]}),
             ],
         )
@@ -343,9 +348,7 @@ def test_cross_store_recovery_skips_active_lease_then_recovers_expired():
         active = manager.status(run_id)
         assert active["run"]["status"] == "running"
         assert active["items"][0]["status"] == "running"
-        assert any(
-            event["type"] == "recovery_skipped_active_lease" for event in active["events"]
-        )
+        assert any(event["type"] == "recovery_skipped_active_lease" for event in active["events"])
         manager.close()
         restored.close()
 
