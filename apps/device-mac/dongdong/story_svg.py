@@ -19,9 +19,11 @@ def _safe_element(raw: object, index: int) -> dict:
     item = raw if isinstance(raw, dict) else {}
     width = _number(item.get("width"), 180, 1, WIDTH)
     height = _number(item.get("height"), 160, 1, HEIGHT)
+    kind = item.get("kind")
+    color = item.get("color")
     return {
-        "kind": item.get("kind") if item.get("kind") in ALLOWED_KINDS else "simple_shape",
-        "color": item.get("color") if item.get("color") in ALLOWED_COLORS else "#5B5550",
+        "kind": kind if isinstance(kind, str) and kind in ALLOWED_KINDS else "simple_shape",
+        "color": color if isinstance(color, str) and color in ALLOWED_COLORS else "#5B5550",
         "label": str(item.get("label") or "")[:120],
         "x": _number(item.get("x"), 40 + (index * 150) % (WIDTH - width + 1), 0, WIDTH - width),
         "y": _number(item.get("y"), 80 + (index * 70) % (HEIGHT - height + 1), 0, HEIGHT - height),

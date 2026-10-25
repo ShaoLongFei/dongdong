@@ -71,6 +71,8 @@ def main() -> None:
     )
     assert 'x="0"' in direct and 'width="1280"' in direct and 'data-duration-ms="30000"' in direct
     assert direct.count("<g ") == 1
+    hostile_types = scene_to_svg({"elements": [{"kind": [], "color": []}]})
+    assert "<script" not in hostile_types and "url(" not in hostile_types
     with tempfile.TemporaryDirectory() as tmp:
         store = StoryStore(Path(tmp) / "stories")
         story_id = store.create("story-1")
