@@ -718,7 +718,7 @@ def test_model_repair_instruction_falls_back_safely():
             runner=lambda item, *_: AttemptResult("done", output=item["instruction"]),
         )
         manager.planner.stream_fn = stream
-        result = manager.repair(rid)
+        manager.repair(rid)
         finished = manager.wait(rid, 3)
         assert finished["run"]["status"] == "done"
         assert any("模型建议的修复" in item["result"] for item in finished["items"])
