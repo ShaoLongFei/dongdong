@@ -70,11 +70,34 @@ def recover(manager) -> int:
 
     recovered = 0
     with manager.store._lock, manager.store._conn:
+        stamp = datetime.now(UTC).isoformat(timespec="seconds")
         rows = manager.store._conn.execute(
             "SELECT id FROM runs WHERE status IN ('running','planning')"
         ).fetchall()
         for row in rows:
             run_id = row[0]
+            active_lease = manager.store._conn.execute(
+                "SELECT COUNT(*) FROM items WHERE run_id=? AND status='running' "
+                "AND lease_until IS NOT NULL AND lease_until > ?",
+                (run_id, stamp),
+            ).fetchone()[0]
+            if active_lease:
+                manager.store._conn.execute(
+                    "INSERT INTO events(run_id, type, data, created_at) VALUES (?,?,?,?)",
+                    (
+                        run_id,
+                        "recovery_skipped_active_lease",
+                        json.dumps(
+                            {
+                                "message": "检测到其他进程的有效 Item 租约，跳过恢复接管",
+                                "active_items": active_lease,
+                            },
+                            ensure_ascii=False,
+                        ),
+                        stamp,
+                    ),
+                )
+                continue
             stopped = manager.store._conn.execute(
                 "SELECT COUNT(*) FROM items WHERE run_id=? AND status='running'", (run_id,)
             ).fetchone()[0]

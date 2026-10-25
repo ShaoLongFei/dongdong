@@ -181,7 +181,7 @@ Worker 每次只执行一个 Item。它创建独立的 Agent 会话，输入包�
 
 Python 无法强制终止任意线程，因此 Worker 必须在工具边界检查取消信号；超出 drain grace 的外部 CLI 由适配器终止进程。
 
-当前已有 lease 恢复、基础 deadline 检查、停摆检测、有限 drain、最终验收阶段和可选模型最终验收 Planner；更完整的跨进程唤醒与收口编排仍待实现。
+当前已有 lease 恢复、基础 deadline 检查、停摆检测、有限 drain、最终验收阶段和可选模型最终验收 Planner。恢复扫描会在事务内跳过仍有有效 Item 租约的 Run，并记录 `recovery_skipped_active_lease`；租约过期后才暂停/回收。更完整的跨进程唤醒与收口编排仍待实现。
 
 ## 6. 重试与收口
 

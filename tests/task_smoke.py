@@ -301,20 +301,27 @@ def test_task_scheduler_config_and_startup_recovery():
             0.03,
             9,
         )
-        assert manager.recover_runs() == 1
+        assert manager.recover_runs() == 0
         view = restored.task_view(run_id)
         statuses = {item["id"]: item["status"] for item in view["items"]}
-        assert view["run"]["status"] == "paused"
-        assert statuses == {"expired": "open", "active": "stopped"}
+        assert view["run"]["status"] == "running"
+        assert statuses == {"expired": "open", "active": "running"}
         assert any(event["type"] == "lease_expired" for event in view["events"])
-        assert any(event["type"] == "run_recovered" for event in view["events"])
+        assert any(event["type"] == "recovery_skipped_active_lease" for event in view["events"])
+        with restored._lock, restored._conn:
+            restored._conn.execute(
+                "UPDATE items SET lease_until=? WHERE id=?",
+                ("2000-01-01T00:00:00+00:00", "active"),
+            )
+        manager._recovery_done = False
+        assert manager.recover_runs() == 1
+        assert restored.task_view(run_id)["run"]["status"] == "paused"
         explicit.close()
         manager.close()
         restored.close()
 
 
-def test_cross_store_recovery_requires_explicit_resume():
-    from dongdong.task_model import AttemptResult
+def test_cross_store_recovery_skips_active_lease_then_recovers_expired():
     from dongdong.task_scheduler import TaskManager
 
     with tempfile.TemporaryDirectory(prefix="dongdong-cross-store-") as tmp:
@@ -331,20 +338,30 @@ def test_cross_store_recovery_requires_explicit_resume():
         manager = TaskManager(
             restored,
             cfg={"workspace": str(root), "task_scheduler": {"poll_seconds": 0.01}},
-            runner=lambda *_: AttemptResult("done", output="resumed"),
         )
-        assert manager.recover_runs() == 1
-        paused = manager.status(run_id)
-        assert paused["run"]["status"] == "paused"
-        assert paused["items"][0]["status"] == "stopped"
-        assert not restored.claim_item(run_id, "write", "unexpected-replay")
-
-        manager.resume(run_id)
-        finished = manager.wait(run_id, 3)
-        assert finished["run"]["status"] == "done"
-        assert finished["items"][0]["result"] == "resumed"
+        assert manager.recover_runs() == 0
+        active = manager.status(run_id)
+        assert active["run"]["status"] == "running"
+        assert active["items"][0]["status"] == "running"
+        assert any(
+            event["type"] == "recovery_skipped_active_lease" for event in active["events"]
+        )
         manager.close()
         restored.close()
+
+        expired = Store(db)
+        with expired._lock, expired._conn:
+            expired._conn.execute(
+                "UPDATE items SET lease_until=? WHERE id=?",
+                ("2000-01-01T00:00:00+00:00", "write"),
+            )
+        recovered = TaskManager(expired, cfg={"workspace": str(root)})
+        assert recovered.recover_runs() == 1
+        paused = recovered.status(run_id)
+        assert paused["run"]["status"] == "paused"
+        assert paused["items"][0]["status"] == "open"
+        recovered.close()
+        expired.close()
 
 
 def test_task_scope_conflicts_and_planner_boundaries():
@@ -659,10 +676,12 @@ def test_optional_auto_recovery_across_manager_restart():
             poll_seconds=0.01,
         )
         assert manager.auto_recover is False
-        assert manager.recover_runs() == 2
-        assert manager.status(explicit_id)["run"]["status"] == "paused"
-        manager.resume(explicit_id)
-        assert manager.wait(explicit_id, 3)["run"]["status"] == "done"
+        assert manager.recover_runs() == 0
+        assert manager.status(explicit_id)["run"]["status"] == "running"
+        assert any(
+            event["type"] == "recovery_skipped_active_lease"
+            for event in manager.status(explicit_id)["events"]
+        )
         manager.close()
         restored.close()
 
@@ -676,14 +695,21 @@ def test_optional_auto_recovery_across_manager_restart():
         assert manager.auto_recover is True
         with restored._lock, restored._conn:
             restored._conn.execute(
-                "UPDATE runs SET status='running', error='' WHERE id=?", (automatic_id,)
+                "UPDATE runs SET status='running', error='' WHERE id IN (?,?)",
+                (explicit_id, automatic_id),
             )
             restored._conn.execute(
                 "UPDATE items SET status='running', lease_owner='old-process', lease_until=NULL "
                 "WHERE run_id=?",
                 (automatic_id,),
             )
-        assert manager.recover_runs() == 1
+            restored._conn.execute(
+                "UPDATE items SET status='running', lease_owner='old-process', lease_until=NULL "
+                "WHERE run_id=?",
+                (explicit_id,),
+            )
+        assert manager.recover_runs() == 2
+        assert manager.wait(explicit_id, 3)["run"]["status"] == "done"
         finished = manager.wait(automatic_id, 3)
         assert finished["run"]["status"] == "done"
         assert finished["items"][0]["result"] == "continued"

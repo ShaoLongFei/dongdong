@@ -9,7 +9,7 @@
 3. **文件范围冲突**：已完成。Item 支持工作区相对读写范围；SQLite 事务内按绝对路径和嵌套工作区检测重叠，读读可并行，读写/写写和未声明范围默认串行等待。
 4. **完整 Monitor 与收口**：停摆检测、有限 drain、最终验收阶段、严格终态 CAS 和可选的模型最终验收 Planner 已完成；模型验收默认关闭，证据不足时保持 `needs_review`。
 5. **调度配置化**：增加 `task_scheduler` 配置节，统一约束 worker、lease、poll、retry、deadline 和 drain。
-6. **跨进程恢复**：已完成安全的可选自动接管。默认仍暂停遗留 Run；`task_scheduler.auto_recover=true` 时启动恢复并在异常时退回暂停。更完整的多进程协调与唤醒仍可继续增强。
+6. **跨进程恢复**：已完成安全的可选自动接管。默认仍暂停遗留 Run；`task_scheduler.auto_recover=true` 时启动恢复并在异常时退回暂停。恢复扫描会在事务内尊重其他进程的有效 Item 租约，记录 `recovery_skipped_active_lease` 并跳过接管；租约过期后才执行既有暂停/回收语义。更完整的多进程协调与唤醒仍可继续增强。
 
 故事模式、真实浏览器视觉交互、真实 DeepSeek、灵矽音频、用户自有 MCP 和云端记忆不属于本模块剩余事项。
 
