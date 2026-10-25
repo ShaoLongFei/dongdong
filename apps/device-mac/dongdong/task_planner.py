@@ -7,7 +7,7 @@ import inspect
 import json
 import re
 import threading
-from collections.abc import AsyncIterable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -57,9 +57,9 @@ class TaskPlanner:
                 "role": "system",
                 "content": (
                     "你是任务规划器。只返回 JSON，不要 Markdown、解释或工具调用。"
-                    "格式为 {\"items\":[{\"id\":\"...\",\"instruction\":\"...\","
-                    "\"acceptance\":\"...\",\"agent\":\"builtin\",\"cwd\":\"...\","
-                    "\"depends_on\":[\"其他 item id\"]}]}。"
+                    '格式为 {"items":[{"id":"...","instruction":"...",'
+                    '"acceptance":"...","agent":"builtin","cwd":"...",'
+                    '"depends_on":["其他 item id"]}]}。'
                     f"最多生成 {self.max_items} 个 Item；所有 cwd 必须在工作区内。"
                 ),
             },

@@ -11,13 +11,12 @@ from dongdong.task_planner import TaskPlanner
 def test_structured_task_planner_validates_dag_workspace_agents_and_tools():
     with tempfile.TemporaryDirectory(prefix="dongdong-planner-") as tmp:
         root = Path(tmp).resolve()
-        calls = []
 
-        async def stream(model, messages, tools):
-            calls.append((model, messages, tools))
-            yield type("Event", (), {"text": '{"items": [{"id": "one", "instruction": "先做", '
-                '"cwd": "' + str(root) + '"}, {"id": "two", "instruction": "再做", '
-                '"depends_on": ["one"], "agent": "codex"}]}'})()
+        async def stream(_model, _messages, tools):
+            assert tools == []
+            payload = '{"items":[{"id":"one","instruction":"先做","cwd":"' + str(root)
+            payload += '"},{"id":"two","instruction":"再做","depends_on":["one"],"agent":"codex"}]}'
+            yield type("Event", (), {"text": payload})()
 
         planner = TaskPlanner(
             "model",
@@ -28,25 +27,28 @@ def test_structured_task_planner_validates_dag_workspace_agents_and_tools():
         assert not result.error and not result.used_fallback
         assert [item.id for item in result.items] == ["one", "two"]
         assert result.items[1].depends_on == ("one",)
-        assert calls and calls[0][2] == []
 
-        def fenced(*_args, **_kwargs):
-            return "```json\n{\"items\":[{\"id\":\"f\",\"instruction\":\"围栏\"}]}\n```"
+        def fenced(*_a, **_k):
+            return '```json\n{"items":[{"id":"f","instruction":"围栏"}]}\n```'
 
-        assert TaskPlanner("model", {"workspace": str(root)}, stream_fn=fenced).plan(
+        fenced_result = TaskPlanner("model", {"workspace": str(root)}, stream_fn=fenced).plan(
             "围栏", str(root)
-        ).items[0].id == "f"
+        )
+        assert fenced_result.items[0].id == "f"
 
         for payload, expected in [
             ("不是 JSON", "规划 JSON 无效"),
             ('{"items":[{"id":"a","instruction":"a","depends_on":["missing"]}]}', "依赖不存在"),
-            ('{"items":[{"id":"a","instruction":"a","depends_on":["b"]},{"id":"b","instruction":"b","depends_on":["a"]}]}', "依赖存在环"),
+            (
+                '{"items":[{"id":"a","instruction":"a","depends_on":["b"]},{"id":"b","instruction":"b","depends_on":["a"]}]}',
+                "依赖存在环",
+            ),
             ('{"items":[{"id":"a","instruction":"a","cwd":"/tmp"}]}', "cwd 越出工作区"),
             ('{"items":[{"id":"a","instruction":"a","agent":"unknown"}]}', "未知 agent"),
         ]:
-            fallback = TaskPlanner("model", {"workspace": str(root)}, stream_fn=lambda *_a, p=payload, **_k: p).plan(
-                "原始目标", str(root)
-            )
+            fallback = TaskPlanner(
+                "model", {"workspace": str(root)}, stream_fn=lambda *_a, p=payload, **_k: p
+            ).plan("原始目标", str(root))
             assert fallback.used_fallback and fallback.items[0].instruction == "原始目标"
             assert expected in fallback.error
 
