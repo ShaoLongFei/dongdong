@@ -361,7 +361,7 @@ class TaskStore(GoalVerification, TaskProjection):
                     (item_id, run_id),
                 ).fetchone()
                 running = self._conn.execute(
-                    "SELECT i.id, i.scope_json, r.workspace, r.id FROM items i "
+                    "SELECT i.id, i.scope_json, r.workspace, r.id, i.cwd FROM items i "
                     "JOIN runs r ON r.id=i.run_id WHERE r.status='running' "
                     "AND i.status='running' AND i.id!=?",
                     (item_id,),
@@ -425,10 +425,13 @@ class TaskStore(GoalVerification, TaskProjection):
 
     @staticmethod
     def _same_workspace(left: str, right: str) -> bool:
+        """工作区相等或嵌套时视为可能共享文件，兼容旧空 scope 的 cwd 独占。"""
         if not left or not right:
-            return left == right
+            return bool(left or right) is False
         try:
-            return Path(left).expanduser().resolve() == Path(right).expanduser().resolve()
+            first = Path(left).expanduser().resolve()
+            second = Path(right).expanduser().resolve()
+            return first == second or first.is_relative_to(second) or second.is_relative_to(first)
         except (OSError, RuntimeError, ValueError):
             return left == right
 

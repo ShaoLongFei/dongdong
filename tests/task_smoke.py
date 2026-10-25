@@ -342,6 +342,13 @@ def test_task_scope_conflicts_and_planner_boundaries():
             workspace=str(other_workspace),
         )
         assert store.claim_item(other, "other", "three")
+        nested_workspace = other_workspace / "nested"
+        nested_workspace.mkdir()
+        nested = run_with_items(
+            [ItemSpec(id="nested", instruction="nested", cwd=str(nested_workspace))],
+            workspace=str(nested_workspace),
+        )
+        assert not store.claim_item(nested, "nested", "nested-worker")
         store.close()
 
     planner = TaskPlanner("model", {"workspace": str(root)})
