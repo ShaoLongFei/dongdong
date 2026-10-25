@@ -117,7 +117,18 @@ def _render(svg_path: Path, output: Path, kind: str) -> None:
             temp_dir = Path(temp)
             # Quick Look 按文件名缓存 SVG 缩略图；唯一临时名避免重复导出拿到上一幕旧画面。
             thumbnail_source = temp_dir / f"{svg_path.stem}-{uuid.uuid4().hex}.svg"
-            thumbnail_source.write_bytes(svg_path.read_bytes())
+            source = svg_path.read_text(encoding="utf-8")
+            if width != height:
+                # Quick Look 会把横向 SVG 当正方形绘制；加等量留白后再居中裁剪，保持 viewBox 比例。
+                side = max(width, height)
+                x_offset, y_offset = (side - width) // 2, (side - height) // 2
+                start, end = source.find(">") + 1, source.rfind("</svg>")
+                source = (
+                    f'<svg xmlns="http://www.w3.org/2000/svg" width="{side}" height="{side}" '
+                    f'viewBox="0 0 {side} {side}"><g transform="translate({x_offset} {y_offset})">'
+                    f"{source[start:end]}</g></svg>"
+                )
+            thumbnail_source.write_text(source, encoding="utf-8")
             result = subprocess.run(
                 [
                     str(qlmanage),
@@ -141,9 +152,12 @@ def _render(svg_path: Path, output: Path, kind: str) -> None:
             result = subprocess.run(
                 [
                     str(sips),
-                    "-z",
+                    "-c",
                     str(height),
                     str(width),
+                    "--cropOffset",
+                    str((max(width, height) - height) // 2),
+                    str((max(width, height) - width) // 2),
                     thumbnail,
                     "--out",
                     str(png_path),
