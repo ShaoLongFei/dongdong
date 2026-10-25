@@ -17,6 +17,8 @@ logging.disable(logging.CRITICAL)  # 预期内的报错别刷屏
 
 from dongdong import agent, config, mcp, memory, screen, tools, work_gate  # noqa: E402
 from dongdong.linx import _hello  # noqa: E402
+from dongdong.store import Store  # noqa: E402
+from dongdong.task_model import ItemSpec, RunSpec  # noqa: E402
 
 
 def test_hello_declares_mcp_and_opus():
@@ -284,6 +286,48 @@ def test_mcp_cleanup_preserves_result_and_cancellation():
                 assert external.errors == ["bad: 连接或发现失败 (ValueError)"]
 
     asyncio.run(check())
+
+
+def test_task_store_claims_dag_atomically_and_recovers_lease():
+    with tempfile.TemporaryDirectory(prefix="dongdong-task-") as tmp:
+        path = Path(tmp) / "tasks.db"
+        first = Store(path)
+        sid = first.create_session("task")
+        run_id = first.create_task_run(sid, RunSpec(goal_text="完成 DAG"))
+        first.add_items(
+            run_id,
+            [
+                ItemSpec(id="a", instruction="a"),
+                ItemSpec(id="b", instruction="b", depends_on=("a",)),
+            ],
+        )
+        second = Store(path)
+        assert first.claim_item(run_id, "a", "one", lease_seconds=1)
+        assert not second.claim_item(run_id, "a", "two", lease_seconds=1)
+        first.requeue_expired(run_id, now_value="2999-01-01T00:00:00+00:00")
+        assert second.claim_item(run_id, "a", "two", lease_seconds=1)
+        second.complete_item("a", "two", "ok")
+        assert second.claim_item(run_id, "b", "two", lease_seconds=1)
+        second.fail_item("b", "two", "blocked", error_kind="blocked")
+        view = second.task_view(run_id)
+        assert view["items"][0]["status"] == "done"
+        assert view["items"][1]["status"] == "blocked"
+        with contextlib.suppress(ValueError):
+            first.add_items(run_id, [ItemSpec(id="c", instruction="c", depends_on=("missing",))])
+            raise AssertionError("缺失依赖必须拒绝")
+        with contextlib.suppress(ValueError):
+            first.add_items(
+                run_id,
+                [
+                    ItemSpec(id="c", instruction="c", depends_on=("d",)),
+                    ItemSpec(id="d", instruction="d", depends_on=("c",)),
+                ],
+            )
+            raise AssertionError("依赖环必须拒绝")
+        first.finish_run(run_id, "done")
+        assert not second.claim_item(run_id, "b", "late", lease_seconds=1)
+        first.close()
+        second.close()
 
 
 if __name__ == "__main__":
