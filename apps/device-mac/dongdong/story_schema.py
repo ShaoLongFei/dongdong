@@ -30,6 +30,8 @@ ALLOWED_KINDS = {
     "tree",
     "rabbit",
     "hedgehog",
+    "fox",
+    "bird",
     "person",
     "house",
     "sun",
@@ -46,6 +48,53 @@ def _color(value: object, default: str = "#5B5550") -> str:
     return value if value in ALLOWED_COLORS or _HEX_COLOR.fullmatch(value) else default
 
 
+def _visual_color(item: dict) -> str:
+    label = str(item.get("label") or "")
+    for words, color in (
+        (("溪", "水"), "#78BFE0"),
+        (("桥", "木板"), "#8B5A2B"),
+        (("藤", "树枝"), "#4F8B45"),
+        (("果", "莓"), "#D93636"),
+        (("草坡", "草地"), "#78B84A"),
+        (("山谷", "山"), "#B7D7A8"),
+        (("蒲公英",), "#F6D84A"),
+        (("雨", "乌云"), "#8FA8B8"),
+        (("太阳", "夕阳"), "#F2B84B"),
+    ):
+        if any(word in label for word in words):
+            return color
+    return _color(item.get("color"))
+
+
+def _kind(item: dict) -> str:
+    raw = item.get("kind")
+    if raw in ALLOWED_KINDS and raw not in {"person", "object", "simple_shape"}:
+        return raw
+    label = str(item.get("label") or "")
+    if any(word in label for word in ("狐狸", "阿栗")):
+        return "fox"
+    if "啄木鸟" in label:
+        return "bird"
+    if "刺猬" in label or "团团" in label:
+        return "hedgehog"
+    return raw if raw in ALLOWED_KINDS else "simple_shape"
+
+
+def _scene_title(text: str) -> str:
+    text = str(text or "").strip()
+    rules = (
+        (("缠住", "困"), "发现被困的朋友"),
+        (("啄木鸟", "剪断", "帮忙"), "啄木鸟来帮忙"),
+        (("红果子", "获救", "感谢"), "红果子和感谢"),
+        (("蒲公英", "约定", "办法"), "蒲公英草坡的约定"),
+        (("哭声", "寻找"), "溪边传来的哭声"),
+    )
+    for words, title in rules:
+        if all(word in text for word in words):
+            return title
+    return text[:14] or "故事这一幕"
+
+
 def _safe_int(value: object, default: int, low: int, high: int) -> int:
     try:
         number = int(value)
@@ -56,14 +105,20 @@ def _safe_int(value: object, default: int, low: int, high: int) -> int:
 
 def _element(raw: object, index: int, start_ms: int) -> dict:
     item = raw if isinstance(raw, dict) else {}
-    kind = item.get("kind") if item.get("kind") in ALLOWED_KINDS else "simple_shape"
-    color = _color(item.get("color"))
+    kind = _kind(item)
+    color = _visual_color(item)
     width = _safe_int(item.get("width"), 180, 1, WIDTH)
     height = _safe_int(item.get("height"), 160, 1, HEIGHT)
     x = _safe_int(item.get("x"), 40 + (index * 150) % (WIDTH - width + 1), 0, WIDTH - width)
     y = _safe_int(item.get("y"), 80 + (index * 70) % (HEIGHT - height + 1), 0, HEIGHT - height)
     duration = _safe_int(item.get("durationMs"), 900, 100, 12_000)
     label = str(item.get("label") or "")[:120]
+    if kind in {"fox", "rabbit", "hedgehog", "bird", "person"}:
+        y = max(180, min(420, y))
+    elif kind == "action_lines":
+        y = max(130, min(450, y))
+    elif width < 700:
+        y = max(120, min(500, y))
     return {
         "id": str(item.get("id") or f"element-{index + 1}")[:64],
         "kind": kind,
@@ -89,6 +144,7 @@ def default_scene(story_text: str, scene_id: str) -> dict:
     ]
     return {
         "sceneId": scene_id if _SAFE_ID.fullmatch(scene_id or "") else "scene-001",
+        "title": _scene_title(text),
         "storyText": text,
         "storyBasis": text[:200],
         "durationMs": 3_500,
@@ -116,7 +172,7 @@ def normalize_scene(
             raise ValueError("模型场景至少需要 3 个元素")
         if strict:
             for index, item in enumerate(raw_elements[:8], 1):
-                if not isinstance(item, dict) or item.get("kind") not in ALLOWED_KINDS:
+                if not isinstance(item, dict) or _kind(item) not in ALLOWED_KINDS:
                     raise ValueError(f"模型场景第 {index} 个元素缺少合法 kind")
         elements = [_element(item, index, 0) for index, item in enumerate(raw_elements[:8])]
         if len(elements) < 3:
@@ -131,13 +187,14 @@ def normalize_scene(
                 characters.append(
                     {
                         "id": str(item.get("id") or "character")[:64],
-                        "kind": item.get("kind") if item.get("kind") in ALLOWED_KINDS else "person",
+                        "kind": _kind(item),
                         "color": _color(item.get("color")),
                     }
                 )
         duration = max(cursor, _safe_int(data.get("durationMs"), cursor, 100, 30_000))
         return {
             "sceneId": scene_id if _SAFE_ID.fullmatch(scene_id or "") else "scene-001",
+            "title": str(data.get("title") or _scene_title(story_text)).strip()[:80],
             "storyText": str(story_text or "").strip()[:500],
             "storyBasis": str(data.get("storyBasis") or story_text or "").strip()[:500],
             "durationMs": duration,

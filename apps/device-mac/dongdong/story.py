@@ -13,6 +13,13 @@ from .story_store import StoryStore
 from .story_svg import scene_to_svg
 
 log = logging.getLogger("dongdong.story")
+_CHARACTER_COLORS = {
+    "阿栗": "#E87824",
+    "米米": "#D9B38C",
+    "团团": "#9B6B3D",
+    "圆圆": "#8B6F47",
+    "啄木鸟": "#8B4513",
+}
 _BOUNDARY = re.compile(r"[。！？!?；;\n]")
 _MIN_CHUNK = 36
 _MAX_CHUNK = 180
@@ -43,6 +50,7 @@ class StorySession:
         self._events: list[dict] = []
         self._cursor = 0
         self._characters: list[dict] = []
+        self._character_styles: dict[str, tuple[str, str]] = {}
         self._story_so_far = ""
         self._pending: dict[str, str] = {}
         self._error = ""
@@ -58,6 +66,7 @@ class StorySession:
         self._scene_number = 0
         self._batch_number = 0
         self._characters = []
+        self._character_styles = {}
         self._story_so_far = ""
         self._pending = {}
         self._error = ""
@@ -139,6 +148,28 @@ class StorySession:
                 scenes = normalize_scenes(raw, text, self._scene_number + 1)
                 self._scene_number += len(scenes)
                 for scene in scenes:
+                    for element in scene["elements"]:
+                        label = str(element.get("label") or "")
+                        key = next(
+                            (
+                                token
+                                for token in ("阿栗", "米米", "团团", "圆圆", "啄木鸟")
+                                if token in label
+                            ),
+                            "",
+                        )
+                        if not key or element["kind"] not in {
+                            "fox",
+                            "rabbit",
+                            "hedgehog",
+                            "bird",
+                            "person",
+                        }:
+                            continue
+                        style = self._character_styles.setdefault(
+                            key, (element["kind"], _CHARACTER_COLORS.get(key, element["color"]))
+                        )
+                        element["kind"], element["color"] = style
                     self._characters = scene.get("characters", [])
                     self.store.save_scene(self.story_id, scene)
                     scene["svg"] = scene_to_svg(scene)
@@ -159,10 +190,12 @@ class StorySession:
             "只为本次新增片段返回 1-3 幕 scenes；已经讲过的故事只用于保持角色和场景连续，不能重复生成。"
             "每幕必须有 description 和至少 3 个 elements。"
             "每个元素必须有 kind、x、y、width、height、color、label；"
-            "kind 只能是 tree、rabbit、hedgehog、person、house、sun、object、action_lines、simple_shape。"
-            "画布是 1280x720；角色在相邻场景中保持相同 kind、颜色和称呼；"
+            "kind 只能是 tree、rabbit、hedgehog、fox、bird、person、house、sun、object、action_lines、simple_shape。"
+            "画布是 1280x720；标题栏占用 y=0-100，主体必须放在 y=130-600 的中部区域；"
+            "角色在相邻场景中保持相同 kind、颜色和称呼；"
             "不要凭空添加故事里没有的角色或物件，动作要用 action_lines 表现。"
-            f"\n已经讲过的故事（仅作连续性参考）：{self._story_so_far}\n本次新增片段（只画这一段）：{text}"
+            f"\n角色外观必须连续：{self._character_styles}\n"
+            f"已经讲过的故事（仅作连续性参考）：{self._story_so_far}\n本次新增片段（只画这一段）：{text}"
         )
         if self.model is None:
             raise RuntimeError("模型未配置")

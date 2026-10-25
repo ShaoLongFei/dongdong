@@ -162,6 +162,52 @@ def main() -> None:
     )
     assert [item["sceneId"] for item in multi] == ["scene-001", "scene-002"]
     assert multi[0]["elements"][0]["color"] == "#6B4226"
+    assert multi[0]["title"] == "米米在树下发现断桥"
+    assert (
+        normalize_scene(
+            {
+                "elements": [
+                    {"kind": "object", "label": "发现哭声"},
+                    {"kind": "tree"},
+                    {"kind": "sun"},
+                ]
+            },
+            "沿溪寻找发现哭声",
+            "scene-005",
+            strict=True,
+        )["title"]
+        == "溪边传来的哭声"
+    )
+    fox = normalize_scene(
+        {
+            "elements": [
+                {"kind": "person", "label": "小狐狸阿栗"},
+                {"kind": "hedgehog", "label": "团团"},
+                {"kind": "sun"},
+            ]
+        },
+        "狐狸和刺猬",
+        "scene-003",
+        strict=True,
+    )
+    assert [item["kind"] for item in fox["elements"][:2]] == ["fox", "hedgehog"]
+    labeled = scene_to_svg({**fox, "title": "山谷相遇"})
+    assert "山谷相遇" in labeled and "狐狸和刺猬" in labeled and 'font-size="16"' in labeled
+    visual = normalize_scene(
+        {
+            "elements": [
+                {"kind": "object", "label": "溪水", "y": 680},
+                {"kind": "fox", "label": "阿栗", "y": 0},
+                {"kind": "action_lines", "label": "哭声", "y": 700},
+            ]
+        },
+        "溪边哭声",
+        "scene-004",
+        strict=True,
+    )
+    assert visual["elements"][0]["color"] == "#78BFE0"
+    assert visual["elements"][0]["y"] <= 500
+    assert 180 <= visual["elements"][1]["y"] <= 420
     hostile = normalize_scene(
         {
             "elements": [

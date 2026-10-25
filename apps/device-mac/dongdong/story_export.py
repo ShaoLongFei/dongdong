@@ -237,7 +237,7 @@ def _storyboard_svg(scenes: list[Path], output: Path) -> None:
         y = (index - 1) * panel_height
         parts.append(
             f'<text x="40" y="{y + 32}" fill="#5B5550" font-family="sans-serif" '
-            f'font-size="22">Scene {index}</text>'
+            f'font-size="22">第 {index} 幕</text>'
         )
         parts.append(
             f'<svg x="0" y="{y + 56}" width="1280" height="720" viewBox="0 0 1280 720">'
