@@ -28,16 +28,16 @@ class WebState:
         self._task: asyncio.Task | None = None
         self._run_id = ""
         self._last_run = ""
+        self.task_session = ""
         self.voice_session = ""
-        self._voice_connection = None
         self.reload()
 
-    def voice_text(self, connection: str, role: str, text: str) -> None:
+    def voice_text(self, _connection: str, role: str, text: str) -> None:
         if not text.strip():
             return
-        if not self.voice_session or connection != self._voice_connection:
+        # 平台可能每轮结束就断链，连接 ID 不能作为用户会话的边界。
+        if not self.voice_session:
             self.voice_session = self.store.create_session("语音对话", "linx-voice")
-            self._voice_connection = connection
         self.store.append_message(self.voice_session, role, text)
 
     def reload(self) -> None:
@@ -70,6 +70,7 @@ class WebState:
         owner = f"web-{uuid.uuid4().hex[:8]}"
         if not work_gate.acquire(owner):
             raise RuntimeError("另一个任务还在跑")
+        self.task_session = session_id
         loop = asyncio.get_running_loop()
         started: asyncio.Future[str] = loop.create_future()
 
@@ -158,7 +159,7 @@ class WebAgent:
                 return "另一个任务还在跑，先停止或等它结束。"
             if self.state.model is None:
                 raise ValueError(self.state.error or "模型未配置")
-            sid = self.state.store.create_session(text[:24], "linx")
+            sid = self.state.task_session or self.state.store.create_session(text[:24], "linx")
             rid = await self.state.start(sid, text, cwd)
             self.last = rid
             task = self.state._task

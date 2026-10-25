@@ -98,6 +98,8 @@ def create_app(cfg: dict) -> FastAPI:
     @app.post("/api/sessions")
     async def api_new_session(body: SessionIn | None = None):
         sid = state.store.create_session((body.title if body else "新会话"), "web")
+        state.task_session = sid
+        state.voice_session = ""
         return state.store.get_session(sid)
 
     @app.get("/api/sessions/{sid}")
