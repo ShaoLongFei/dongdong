@@ -142,11 +142,14 @@ def test_opus_roundtrip_and_airplay_escape():
         return SimpleNamespace(stdout="ok\n", stderr="", returncode=0)
 
     with patch.object(screen.subprocess, "run", run):
-        assert screen._dispatch(
-            {"airplay": {"mirror_command": "printf '%s' {target}"}},
-            "TV; touch /tmp/should-not-run",
-            "mirror",
-        ) == "ok"
+        assert (
+            screen._dispatch(
+                {"airplay": {"mirror_command": "printf '%s' {target}"}},
+                "TV; touch /tmp/should-not-run",
+                "mirror",
+            )
+            == "ok"
+        )
     assert seen and "'TV; touch /tmp/should-not-run'" in seen[0][0]
     assert seen[0][1]["shell"] is True
 
@@ -184,8 +187,9 @@ def test_opus_roundtrip_and_airplay_escape():
     missing = airplay_stream._Session({}, {"address": "127.0.0.1"})
     missing.httpd = SimpleNamespace(server_port=1234)
     (missing.root / "screen.m3u8").touch()
-    with patch.object(airplay_stream, "_local_ip", return_value="127.0.0.1"), patch.dict(
-        sys.modules, {"pyatv": None}
+    with (
+        patch.object(airplay_stream, "_local_ip", return_value="127.0.0.1"),
+        patch.dict(sys.modules, {"pyatv": None}),
     ):
         missing._connect()
     assert missing.error == "AirPlay 播放会话失败，请确认接收端支持视频播放且允许当前 Mac 连接"
