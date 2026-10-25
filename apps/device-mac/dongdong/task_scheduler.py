@@ -39,11 +39,17 @@ class TaskManager:
         self.model = model
         self.runner = runner
         scheduler_cfg = self.cfg.get("task_scheduler") or {}
-        worker_limit = max_workers if max_workers is not None else scheduler_cfg.get("max_workers", 1)
+        worker_limit = (
+            max_workers if max_workers is not None else scheduler_cfg.get("max_workers", 1)
+        )
         self.max_workers = max(1, min(int(worker_limit), 32))
-        poll_limit = poll_seconds if poll_seconds is not None else scheduler_cfg.get("poll_seconds", 0.1)
+        poll_limit = (
+            poll_seconds if poll_seconds is not None else scheduler_cfg.get("poll_seconds", 0.1)
+        )
         self.poll_seconds = max(0.01, min(float(poll_limit), 60.0))
-        lease_limit = lease_seconds if lease_seconds is not None else scheduler_cfg.get("lease_seconds", 60)
+        lease_limit = (
+            lease_seconds if lease_seconds is not None else scheduler_cfg.get("lease_seconds", 60)
+        )
         self.lease_seconds = max(1, min(int(lease_limit), 3600))
         self.executor = ThreadPoolExecutor(
             max_workers=self.max_workers, thread_name_prefix="dongdong-task"
