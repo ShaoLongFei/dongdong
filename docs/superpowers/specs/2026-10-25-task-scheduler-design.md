@@ -1,6 +1,6 @@
 # 咚咚生产任务调度内核设计
 
-> 状态：基础调度已实现；自动规划与多 Item DAG 演进规格，待实施。
+> 状态：基础调度、自动规划与多 Item DAG 已实现；Goal 验收、失败修复规划、文件范围冲突和完整监察仍待后续演进。
 > 
 > 依据：`design/` 的 Goal/Item/Event/Run 模型、CAS claim、View → Decision 与收尾规则；`design2/` 的调度、规划落地和监察分层；当前 `Runtime`、SQLite/SSE、Web 和灵矽 MCP 入口。
 
@@ -18,9 +18,15 @@
 4. 子任务的结果、失败、重试和输出保留在事件记录中，Web 和灵矽看到同一状态。
 5. 现有简单任务仍然可以作为只有一个 Item 的 Run 执行。
 
-当前代码已交付的基础能力：SQLite WAL 迁移、Run/Goal/Item/Attempt/Event 持久化、依赖与环检测、CAS claim、lease、有限重试、取消/暂停/恢复、统一 Web/MCP 状态投影和 4 worker。当前 `TaskPlanner` 仍把普通请求包装成一个 Item，因此本规格接下来的实施重点是“自动规划”，不是重写已有存储和执行内核。
+当前代码已交付的能力：SQLite WAL 迁移、Run/Goal/Item/Attempt/Event 持久化、依赖与环检测、CAS claim、lease、有限重试、取消/暂停/恢复、统一 Web/MCP 状态投影、4 worker、结构化 Planner、规划失败回退、多 Item DAG、独立 Item Runtime 上下文和规划状态 UI。首次规划已经接入 TaskManager；本规格剩余内容属于后续演进，不应再按“自动规划尚未实施”理解。
 
-本阶段的验收边界：模型为一次目标返回经过 schema 校验的多个 Item 和依赖关系；规划失败有可见事件并回退到单 Item；独立 Item 可以并行执行；依赖 Item 串行执行；Run 在所有 Item 完成后收口。Goal 的模型驱动证据验收、文件范围冲突分析和跨进程多机调度继续保留为后续阶段。
+已完成的自动规划验收边界：模型为一次目标返回经过 schema 校验的多个 Item 和依赖关系；规划失败有可见事件并回退到单 Item；独立 Item 可以并行执行；依赖 Item 串行执行；Run 在所有 Item 完成后收口。Goal 的模型驱动证据验收、文件范围冲突分析、完整 Monitor 收口、配置化调度和跨进程协调继续保留为后续阶段。
+
+当前实现与后续事项：
+
+- **已完成**：首次结构化规划、Item 数量/ID/依赖/环/cwd/Agent 校验、规划失败回退、规划事件、独立 Item 执行、依赖等待、统一 Web/MCP 投影。
+- **未完成**：Goal 的模型驱动验收证据；失败 Item 的自动修复与重新规划；Item 文件读写范围声明、冲突检测与安全串行化；完整 Monitor 循环（停摆检测、有限 drain、最终验收 Planner 和严格收口顺序）；`task_scheduler` 配置化；真正的跨进程 worker 协调与自动恢复。
+- **暂不纳入**：多机共享工作区、分布式锁、自动合并并行修改，以及故事模式事项。
 
 ## 2. 范围与约束
 
@@ -137,21 +143,23 @@ Planner 接收只读 `View`，返回结构化 `Decision`：新增/修改 Goal、
 
 `View` 至少包含 Run 目标、Goals、Items、Attempt 摘要、最近事件、剩余预算、是否停摆和是否收尾。Decision 必须通过 schema、工作区白名单、Agent 名称、依赖存在性、DAG 环检测和数量上限校验后才落库。
 
-首次规划由编程模型完成。Planner 使用专用的结构化输出提示和 JSON schema，只允许返回目标摘要、Item 列表、依赖 ID、验收说明、Agent 和工作目录；模型不能直接写 SQLite，也不能把任意路径或凭据带入 Item。模型可以调用现有 `update_plan` 生成用户可见计划，但生产调度器将规划结果转换为 Item DAG；`update_plan` 不再是唯一的任务状态来源。
+首次规划已由编程模型完成接入。Planner 使用专用的结构化输出提示和 JSON schema，只允许返回目标摘要、Item 列表、依赖 ID、验收说明、Agent 和工作目录；模型不能直接写 SQLite，也不能把任意路径或凭据带入 Item。模型可以调用现有 `update_plan` 生成用户可见计划，但生产调度器将规划结果转换为 Item DAG；`update_plan` 不再是唯一的任务状态来源。
 
 规划流程分两步：先记录 `planning` 事件并调用 Planner，再在同一 Run 内事务性写入完整 Item 批次。规划结果必须通过 Item 数量上限、非空 instruction、依赖存在性、环检测、工作区路径和 Agent 白名单校验。校验失败时保留 `planning_error` 事件，回退为原始目标的单 Item，并继续走现有执行器。模型不可用、返回非 JSON 或超时采用同一回退路径，不能把用户任务误报为已完成。
 
-Planner 不重复执行任务，也不在本阶段修改已经运行的 Item。后续任务追加或修复 Item 需要单独的 steer/repair 设计；本阶段只处理首次规划。
+Planner 不重复执行任务，也不在首次规划阶段修改已经运行的 Item。后续任务追加或修复 Item 需要单独的 steer/repair 设计；这部分仍未实现。
 
 ### 5.2 Scheduler
 
-Scheduler 负责：
+Scheduler 当前已负责：
 
 - 收到新 Run、Item 结算、人工 steer/kill、租约过期和心跳事件后唤醒 Planner；
 - 用 debounce 合并短时间内的多个事件；
 - 扫描 frontier，按 priority 和依赖就绪程度派发 Item；
 - 控制 Run 的 `max_workers`，不超过全局 worker 上限；
 - 在 Run 终态或取消时停止继续 claim。
+
+当前实现以单进程 polling 和线程池为主；事件 debounce、跨进程唤醒和完整的 steer/kill 触发链仍待补齐。
 
 Scheduler 不执行模型调用，也不直接执行 shell。跨进程唤醒使用 SQLite 事件轮询加短间隔退避；不引入消息队列。
 
@@ -165,13 +173,15 @@ Worker 每次只执行一个 Item。它创建独立的 Agent 会话，输入包�
 
 ### 5.4 Monitor
 
-Monitor 定期执行三类检查：
+目标 Monitor 需要定期执行三类检查：
 
 - lease 到期：将没有完成回写的 `running` Item 转为 `open`，增加恢复 Attempt 和事件；
 - 停摆：Goal 未完成、没有可执行/运行中的 Item，且 Planner 连续若干轮没有新增有效 Item 时，Run 标记 `failed`；
 - 收口：取消、超时或 Goal 达成后停止领取，等待有限 drain 时间，再将未完成 Item 标为 `stopped`。
 
 Python 无法强制终止任意线程，因此 Worker 必须在工具边界检查取消信号；超出 drain grace 的外部 CLI 由适配器终止进程。
+
+当前仅有 lease 恢复和基础 deadline 检查；停摆检测、有限 drain、最终验收 Planner 和完整收口顺序尚未实现。
 
 ## 6. 重试与收口
 
