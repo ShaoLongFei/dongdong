@@ -330,6 +330,78 @@ def test_task_store_claims_dag_atomically_and_recovers_lease():
         second.close()
 
 
+def test_task_manager_runs_items_with_retry_and_stop():
+    from dongdong.task_model import AttemptResult
+    from dongdong.task_scheduler import TaskManager
+
+    with tempfile.TemporaryDirectory(prefix="dongdong-manager-") as tmp:
+        path = Path(tmp) / "tasks.db"
+        store = Store(path)
+        sid = store.create_session("manager")
+        calls = []
+
+        def runner(item, run, cancel_event):
+            calls.append(item["id"])
+            if item["instruction"] == "retry" and calls.count(item["id"]) < 2:
+                return AttemptResult("retryable_error", error="temporary")
+            return AttemptResult("done", output=item["instruction"])
+
+        manager = TaskManager(store, runner=runner, max_workers=2, poll_seconds=0.01)
+        run_id = manager.submit(
+            sid,
+            "完成",
+            items=[ItemSpec(id="ok", instruction="ok"), ItemSpec(id="retry", instruction="retry")],
+        )
+        assert manager.wait(run_id, 3)["run"]["status"] == "done"
+        assert calls.count("retry") == 2
+        stopped = manager.submit(sid, "停止", items=[ItemSpec(id="later", instruction="later")])
+        assert manager.stop(stopped)["run"]["status"] == "canceled"
+        assert not store.claim_item(stopped, "later", "late")
+        manager.close()
+        store.close()
+
+
+def test_task_tools_and_web_projection_use_task_manager():
+    assert {"self.task.status", "self.task.stop", "self.task.resume"} <= set(tools.TOOLS)
+    from dongdong.web_runtime import WebState
+
+    async def check():
+        cfg = config.load()
+        cfg["workspace"], cfg["model"]["api_key"] = tempfile.gettempdir(), "boundary-only"
+        state = WebState(cfg)
+        sid = state.store.create_session("task web")
+        rid = await state.start(sid, "hello")
+        view = state.manager.status(rid)
+        assert view["items"] and view["run"]["id"] == rid
+        assert state.manager.status(rid)["run"]["status"] in {"running", "done", "failed"}
+        await state.close()
+
+    asyncio.run(check())
+
+
+def test_task_manager_pause_resume_and_timeout_recovery():
+    from dongdong.task_model import AttemptResult
+    from dongdong.task_scheduler import TaskManager
+
+    with tempfile.TemporaryDirectory(prefix="dongdong-recover-") as tmp:
+        path = Path(tmp) / "tasks.db"
+        store = Store(path)
+        sid = store.create_session("recover")
+        run_id = store.create_task_run(
+            sid, RunSpec(goal_text="recover", deadline_at="2000-01-01T00:00:00+00:00")
+        )
+        store.add_items(run_id, [ItemSpec(id="recover-item", instruction="x")])
+        assert store.claim_item(run_id, "recover-item", "worker", lease_seconds=60)
+        restored = Store(path)
+        assert restored.requeue_expired(run_id, now_value="2999-01-01T00:00:00+00:00") == 1
+        manager = TaskManager(restored, runner=lambda *_: AttemptResult("done"), max_workers=1)
+        assert manager.monitor_once(run_id)["run"]["status"] == "timeout"
+        assert not restored.claim_item(run_id, "recover-item", "late")
+        manager.close()
+        store.close()
+        restored.close()
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
