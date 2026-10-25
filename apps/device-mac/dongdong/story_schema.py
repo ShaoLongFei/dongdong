@@ -199,12 +199,12 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
             )
         elif item["kind"] == "object" and "果" in label:
             item.update(x=535, y=390, width=max(item["width"], 64), height=max(item["height"], 64))
-        elif "蒲公英" in label:
-            item.update(x=item["x"], y=455)
         elif any(word in label for word in ("山谷", "草坡", "草地")):
             item.update(
-                x=80, y=470, width=max(item["width"], 1120), height=max(item["height"], 140)
+                x=60, y=455, width=max(item["width"], 1120), height=max(item["height"], 180)
             )
+        elif "蒲公英" in label:
+            item.update(x=item["x"], y=455)
         elif item["kind"] == "action_lines":
             if "剪断" in label:
                 item.update(
@@ -225,6 +225,10 @@ def _compose(elements: list[dict], story_text: str) -> list[dict]:
     if promise:
         for item in elements:
             if item["kind"] in {"fox", "hedgehog", "rabbit", "person"}:
+                item["pose"] = "sitting"
+    elif trapped:
+        for item in elements:
+            if item["kind"] == "hedgehog":
                 item["pose"] = "sitting"
     for item in elements:
         item["x"] = max(36, min(WIDTH - item["width"] - 36, item["x"]))

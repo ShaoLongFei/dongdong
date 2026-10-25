@@ -47,7 +47,7 @@ def _shape(element: dict) -> str:
             f'<path d="M{x + 20},{y + h * 2 // 3} q{w // 8},-{h // 3} {w // 4},0 t{w // 4},0 t{w // 4},0" fill="none" stroke="#E9F3F5" stroke-width="5" opacity=".8"/>'
         )
     if "草坡" in label or "草地" in label:
-        return f'<path d="M{x},{y + h} Q{x + w // 4},{y + h // 2} {x + w // 2},{y + h * 3 // 4} T{x + w},{y + h // 2} V{y + h} Z" fill="{c}"/>'
+        return f'<path d="M{x},{y + h} Q{x + w // 4},{y + h // 2} {x + w // 2},{y + h * 3 // 4} T{x + w},{y + h // 2} V720 H{x} Z" fill="{c}"/>'
     if "蒲公英" in label:
         return f'<path d="M{x + w // 2},{y + h} V{y + h // 2}" stroke="#4F8B45" stroke-width="5"/><circle cx="{x + w // 2}" cy="{y + h // 3}" r="{max(8, min(w, h) // 4)}" fill="{c}"/>'
     if "山谷" in label or label == "山":
@@ -117,6 +117,8 @@ def _shape(element: dict) -> str:
     if kind == "sun":
         return f'<circle cx="{x + w // 2}" cy="{y + h // 2}" r="{min(w, h) // 3}" fill="{c}"/><circle cx="{x + w // 2}" cy="{y + h // 2}" r="{min(w, h) // 2 - 8}" fill="none" stroke="{c}" stroke-width="6" stroke-dasharray="12 14"/>'
     if kind == "action_lines":
+        if any(word in label for word in ("哭声", "缠住脚", "剪断", "果子", "约定")):
+            return ""
         return (
             f'<path d="M{x + 10},{y + h * 3 // 5} q{w // 5},-{h // 3} {w * 2 // 5},0 '
             f'M{x + w // 4},{y + h * 4 // 5} q{w // 5},-{h // 3} {w * 2 // 5},0" fill="none" '
@@ -144,7 +146,17 @@ def _label_position(element: dict, index: int) -> tuple[int, int]:
     if element["kind"] in {"fox", "rabbit", "hedgehog", "bird", "person"}:
         y = min(HEIGHT - 24, max(112, element["y"] + element["height"] + 28))
     elif element["kind"] == "action_lines":
-        y = min(HEIGHT - 24, max(112, element["y"] - 14))
+        label = element["label"]
+        if "哭声" in label:
+            x, y = 820, 490
+        elif "缠住脚" in label:
+            x, y = 650, 640
+        elif "剪断" in label:
+            x, y = 560, 405
+        elif "果子" in label:
+            x, y = 500, 355
+        else:
+            y = min(HEIGHT - 24, max(112, element["y"] - 14))
     else:
         y = min(HEIGHT - 24, max(112, element["y"] + element["height"] + 22 + (index % 2) * 18))
     return x, y
@@ -240,9 +252,10 @@ def _box_center(element: dict) -> tuple[int, int]:
 def _find_element(raw_elements: list[dict], kind: str, words: tuple[str, ...] = ()) -> dict | None:
     for raw in raw_elements:
         element = _safe_element(raw, 0)
-        if element["kind"] == kind and (
-            not words or any(word in element["label"] for word in words)
-        ):
+        kind_matches = element["kind"] == kind or (
+            kind == "object" and element["kind"] in {"object", "simple_shape"}
+        )
+        if kind_matches and (not words or any(word in element["label"] for word in words)):
             return element
     return None
 
@@ -312,12 +325,16 @@ def _interaction(element: dict, raw_elements: list[dict]) -> str:
             f'<path d="M{foot_x - 40} {foot_y + 25} q42 18 84 0" fill="none" stroke="#2F6D35" stroke-width="5" stroke-linecap="round"/>'
         )
     if "哭声" in label:
-        source = _find_element(raw_elements, "hedgehog") or _find_element(raw_elements, "fox")
-        if not source:
+        hedgehog = _find_element(raw_elements, "hedgehog")
+        fox = _find_element(raw_elements, "fox")
+        water = _find_element(raw_elements, "object", ("溪", "水"))
+        source = hedgehog or water or fox
+        target = fox if source is water else (fox if hedgehog else None)
+        if not source or not target:
             return ""
         cx = source["x"] + source["width"] // 2
-        cy = source["y"] + 32
-        tx = cx - 180 if source["kind"] == "hedgehog" else cx + 180
+        cy = source["y"] + (source["height"] // 3 if source is water else 32)
+        tx = target["x"] + target["width"] // 2
         direction = -1 if tx < cx else 1
         sound = (
             f'<path d="M{cx + direction * 20} {cy} q{direction * 45} -35 {direction * 90} 0 '
