@@ -210,6 +210,30 @@ def test_web_access_project_cwd_and_reentry_boundaries():
                     ("GET", "/api/state", {}, 200),
                     ("GET", "/api/settings", {"headers": {"Host": "evil.example"}}, 400),
                     ("POST", "/api/sessions", {"headers": {"Origin": "https://evil.example"}}, 403),
+                    (
+                        "PUT",
+                        "/api/voice",
+                        {
+                            "headers": {
+                                "Host": "127.0.0.1:8770",
+                                "Origin": "http://127.0.0.1:8770",
+                            },
+                            "json": {"enabled": False},
+                        },
+                        200,
+                    ),
+                    (
+                        "PUT",
+                        "/api/voice",
+                        {
+                            "headers": {
+                                "Host": "127.0.0.1:8770",
+                                "Origin": "http://127.0.0.1:8766",
+                            },
+                            "json": {"enabled": False},
+                        },
+                        403,
+                    ),
                     ("PUT", "/api/settings", {"json": {"max_tokens": -1}}, 422),
                 ]
                 for method, url, kwargs, status in cases:
