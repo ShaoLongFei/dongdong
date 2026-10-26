@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "birdview": {
+      "source": "Qiuner/birdview",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "1d537322b5659387cafe6521722fe13d10d8be017e9301ab85f1a5043d506b5c"
+    }
+  }
+}
